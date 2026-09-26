@@ -32,14 +32,22 @@ export function TarjetasPeriodo({ tarjetas, seleccionado, base, estado }: { tarj
               <p className="pr-6 text-[15px] leading-tight font-semibold">{periodo.nombre}</p>
               <p className="mt-1 text-xs font-medium text-white/85">{textoFechas(periodo)}</p>
             </div>
-            <div className="flex flex-1 flex-col px-4 pt-3 pb-4">
+            <div className="@container flex flex-1 flex-col px-4 pt-3 pb-4">
               <p className="text-xs text-ink-400">Ventas</p>
               <p className="tabular mt-0.5 text-xl font-semibold tracking-tight text-ink-100 sm:text-2xl">{formatEuros(resumen.ventas)}</p>
-              <div className="mt-3 border-t border-white/[0.06] pt-3">
-                <p className="text-xs text-ink-400">Pedidos / Unidades</p>
-                <p className="tabular mt-0.5 text-base text-ink-100">
-                  {formatNumero(resumen.pedidos)} / {formatNumero(resumen.unidades)}
-                </p>
+              {/* Side by side when the tile is wide enough, stacked otherwise. */}
+              <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-2 border-t border-white/[0.06] pt-3 @[192px]:grid-cols-[auto_auto] @[192px]:justify-between">
+                <div>
+                  <p className="text-xs whitespace-nowrap text-ink-400">Pedidos / Unidades</p>
+                  <p className="tabular mt-0.5 text-base text-ink-100">
+                    {formatNumero(resumen.pedidos)} / {formatNumero(resumen.unidades)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-ink-400">Reembolsos</p>
+                  {/* Like Sellerboard: highlighted only when there are any. */}
+                  <p className={`tabular mt-0.5 text-base ${resumen.reembolsos > 0 ? "font-medium text-accent-400" : "text-ink-100"}`}>{formatNumero(resumen.reembolsos)}</p>
+                </div>
               </div>
             </div>
             {/* Selected tile: accent bar along the bottom edge. */}

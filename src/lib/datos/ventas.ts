@@ -18,7 +18,16 @@ export type LineaVenta = {
   ventaTotal: number;
 };
 
-export type ResumenVentas = { ventas: number; unidades: number; pedidos: number };
+/** A refund, dated when Amazon refunded it (not when the order was placed), like Sellerboard counts them. */
+export type LineaReembolso = { amazonOrderId: string; fecha: Date; marketplaceId: string | null; sku: string | null; importe: number };
+
+export type ResumenVentas = {
+  ventas: number;
+  unidades: number;
+  pedidos: number;
+  /** Orders refunded within the period. */
+  reembolsos: number;
+};
 
 export type ProductoPeriodo = {
   sku: string;
@@ -42,12 +51,18 @@ function delPeriodo(lineas: LineaVenta[], desde: string, hasta: string, marketpl
 
 const redondear = (v: number) => Math.round(v * 100) / 100;
 
-export function resumenVentas(lineas: LineaVenta[], desde: string, hasta: string, marketplaceId: string | null): ResumenVentas {
+export function resumenVentas(lineas: LineaVenta[], reembolsos: LineaReembolso[], desde: string, hasta: string, marketplaceId: string | null): ResumenVentas {
   const sel = delPeriodo(lineas, desde, hasta, marketplaceId);
+  const reemb = reembolsos.filter((r) => {
+    if (marketplaceId && r.marketplaceId !== marketplaceId) return false;
+    const dia = diaMadrid(r.fecha);
+    return dia >= desde && dia <= hasta;
+  });
   return {
     ventas: redondear(sel.reduce((s, l) => s + l.ventaTotal, 0)),
     unidades: sel.reduce((s, l) => s + l.unidades, 0),
     pedidos: new Set(sel.map((l) => l.amazonOrderId)).size,
+    reembolsos: new Set(reemb.map((r) => r.amazonOrderId)).size,
   };
 }
 

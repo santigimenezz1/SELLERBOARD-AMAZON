@@ -1,6 +1,6 @@
 import { diaMadrid } from "./fechas";
 import { fraccionMesTranscurrida, periodoExtra, periodosFijos, type Periodo } from "./periodos";
-import { productosDelPeriodo, resumenVentas, type LineaVenta, type ProductoPeriodo, type ResumenVentas } from "./ventas";
+import { productosDelPeriodo, resumenVentas, type LineaReembolso, type LineaVenta, type ProductoPeriodo, type ResumenVentas } from "./ventas";
 
 export type ParametrosPanel = { p?: string; e?: string; desde?: string; hasta?: string; pais?: string };
 
@@ -34,18 +34,24 @@ export function rangoALeer(periodos: Periodo[]): { desde: string; hasta: string 
 
 export function construirPanel(
   lineas: LineaVenta[],
+  reembolsos: LineaReembolso[],
   { periodos, seleccionado, estado, hoy }: EstadoPanel,
   ahora = new Date(),
 ): { tarjetas: { periodo: Periodo; resumen: ResumenVentas }[]; productos: ProductoPeriodo[] } {
   const mes = periodos.find((p) => p.id === "mes")!;
   const tarjetas = periodos.map((periodo) => {
-    if (!periodo.esPronostico) return { periodo, resumen: resumenVentas(lineas, periodo.desde, periodo.hasta, estado.pais) };
+    if (!periodo.esPronostico) return { periodo, resumen: resumenVentas(lineas, reembolsos, periodo.desde, periodo.hasta, estado.pais) };
     // Month forecast: what's sold so far, scaled to the whole month at the current pace.
-    const actual = resumenVentas(lineas, mes.desde, mes.hasta, estado.pais);
+    const actual = resumenVentas(lineas, reembolsos, mes.desde, mes.hasta, estado.pais);
     const f = fraccionMesTranscurrida(hoy, ahora);
     return {
       periodo,
-      resumen: { ventas: Math.round((actual.ventas / f) * 100) / 100, unidades: Math.round(actual.unidades / f), pedidos: Math.round(actual.pedidos / f) },
+      resumen: {
+        ventas: Math.round((actual.ventas / f) * 100) / 100,
+        unidades: Math.round(actual.unidades / f),
+        pedidos: Math.round(actual.pedidos / f),
+        reembolsos: Math.round(actual.reembolsos / f),
+      },
     };
   });
   return { tarjetas, productos: productosDelPeriodo(lineas, seleccionado.desde, seleccionado.hasta, estado.pais) };

@@ -1,4 +1,4 @@
-import { cargarMarketplaces, cargarUltimaSync, imagenesProductos, leerLineasVenta } from "@/lib/datos/panel";
+import { cargarMarketplaces, cargarUltimaSync, imagenesProductos, leerLineasVenta, leerReembolsos } from "@/lib/datos/panel";
 import { construirPanel, rangoALeer, resolverPanel } from "@/lib/datos/tablero";
 import { formatFechaHora } from "@/lib/format";
 import { isAmazonConfigured } from "@/lib/amazon/cliente";
@@ -22,7 +22,8 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
     marketplaces.map((m) => m.id),
   );
   const { desde, hasta } = rangoALeer(panel.periodos);
-  const { tarjetas, productos } = construirPanel(await leerLineasVenta(desde, hasta), panel);
+  const [lineas, reembolsos] = await Promise.all([leerLineasVenta(desde, hasta), leerReembolsos(desde, hasta)]);
+  const { tarjetas, productos } = construirPanel(lineas, reembolsos, panel);
   const imagenes = await imagenesProductos(productos.map((p) => p.asin));
 
   return (

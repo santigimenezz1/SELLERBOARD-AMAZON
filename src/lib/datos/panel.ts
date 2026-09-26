@@ -4,7 +4,8 @@ import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { diaMadrid, diasEntre, inicioDia, sumarDias } from "./fechas";
 import { redondear, type Marketplace } from "./tipos";
-import type { LineaVenta } from "./ventas";
+import type { LineaReembolso, LineaVenta } from "./ventas";
+import type { TransaccionResumida } from "@/lib/amazon/finanzas";
 
 export type Metricas = {
   ventas: number;
@@ -176,4 +177,19 @@ export async function imagenesProductos(asins: string[]): Promise<Map<string, st
   const db = adminDb();
   const docs = await db.getAll(...unicos.map((a) => db.collection("productos").doc(a)));
   return new Map(docs.filter((d) => d.exists && d.get("imagen")).map((d) => [d.id, d.get("imagen") as string]));
+}
+
+/** Refunds posted by Amazon in [desde, hasta] (Madrid days), one entry per refunded SKU of each refund transaction. */
+export async function leerReembolsos(desde: string, hasta: string): Promise<LineaReembolso[]> {
+  const snap = await adminDb()
+    .collection("transaccionesAmazon")
+    .where("fechaPublicacion", ">=", Timestamp.fromDate(inicioDia(desde)))
+    .where("fechaPublicacion", "<", Timestamp.fromDate(inicioDia(sumarDias(hasta, 1))))
+    .get();
+  return snap.docs.flatMap((d) => {
+    const t = d.data() as Omit<TransaccionResumida, "fechaPublicacion"> & { fechaPublicacion: Timestamp };
+    return t.lineas
+      .filter((l) => l.reembolso > 0)
+      .map((l) => ({ amazonOrderId: t.orderId, fecha: t.fechaPublicacion.toDate(), marketplaceId: t.marketplaceId, sku: l.sku, importe: l.reembolso }));
+  });
 }
