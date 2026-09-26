@@ -194,7 +194,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
       </article>
 
       {/* Our own cost of one unit, piece by piece (seller-only, so outside the buyer view). */}
-      <CosteProducto key={asin} inicial={escandallo} />
+      <CosteProducto key={asin} inicial={escandallo} precioVenta={f?.precios[ES]?.precio ?? null} />
     </div>
   );
 }
