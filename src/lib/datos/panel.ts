@@ -4,8 +4,6 @@ import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { diaMadrid, diasEntre, inicioDia, sumarDias } from "./fechas";
 import { redondear, type Marketplace } from "./tipos";
-import type { LineaReembolso, LineaVenta } from "./ventas";
-import type { TransaccionResumida } from "@/lib/amazon/finanzas";
 import { BLOQUEO_MS } from "@/lib/amazon/sincronizar";
 
 export type Metricas = {
@@ -149,12 +147,13 @@ export async function cargarMarketplaces(): Promise<Marketplace[]> {
   return ((snap.get("lista") as Marketplace[] | undefined) ?? []).slice().sort((a, b) => a.pais.localeCompare(b.pais, "es"));
 }
 
-export type UltimaSync = { fecha: Date; pedidosNuevos: number; errores: string[] | null } | null;
+/** `id` doubles as the version of the in-memory sales cache (lib/datos/cache.ts). */
+export type UltimaSync = { id: string; fecha: Date; pedidosNuevos: number; errores: string[] | null } | null;
 
 export async function cargarUltimaSync(): Promise<UltimaSync> {
   const d = (await adminDb().collection("sincronizaciones").orderBy("fecha", "desc").limit(1).get()).docs[0];
   if (!d) return null;
-  return { fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
+  return { id: d.id, fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
 }
 
 /** True while a sync holds the lock, so the dashboard can wait for it and refresh itself. */
@@ -163,40 +162,3 @@ export async function syncEnCurso(): Promise<boolean> {
   return !!desde && Date.now() - desde.toMillis() < BLOQUEO_MS;
 }
 
-/** Order lines of [desde, hasta] (Madrid days) with just what the sales dashboard needs. */
-export async function leerLineasVenta(desde: string, hasta: string): Promise<LineaVenta[]> {
-  const snap = await adminDb()
-    .collection("pedidos")
-    .where("fecha", ">=", Timestamp.fromDate(inicioDia(desde)))
-    .where("fecha", "<", Timestamp.fromDate(inicioDia(sumarDias(hasta, 1))))
-    .select("amazonOrderId", "fecha", "marketplaceId", "estado", "sku", "asin", "titulo", "unidades", "ventaTotal")
-    .get();
-  return snap.docs.map((d) => {
-    const x = d.data();
-    return { ...(x as Omit<LineaVenta, "fecha">), fecha: (x.fecha as Timestamp).toDate() };
-  });
-}
-
-/** Listing photo per ASIN, as stored by the sync in `productos/{asin}`. */
-export async function imagenesProductos(asins: string[]): Promise<Map<string, string>> {
-  const unicos = [...new Set(asins.filter(Boolean))];
-  if (unicos.length === 0) return new Map();
-  const db = adminDb();
-  const docs = await db.getAll(...unicos.map((a) => db.collection("productos").doc(a)));
-  return new Map(docs.filter((d) => d.exists && d.get("imagen")).map((d) => [d.id, d.get("imagen") as string]));
-}
-
-/** Refunds posted by Amazon in [desde, hasta] (Madrid days), one entry per refunded SKU of each refund transaction. */
-export async function leerReembolsos(desde: string, hasta: string): Promise<LineaReembolso[]> {
-  const snap = await adminDb()
-    .collection("transaccionesAmazon")
-    .where("fechaPublicacion", ">=", Timestamp.fromDate(inicioDia(desde)))
-    .where("fechaPublicacion", "<", Timestamp.fromDate(inicioDia(sumarDias(hasta, 1))))
-    .get();
-  return snap.docs.flatMap((d) => {
-    const t = d.data() as Omit<TransaccionResumida, "fechaPublicacion"> & { fechaPublicacion: Timestamp };
-    return t.lineas
-      .filter((l) => l.reembolso > 0)
-      .map((l) => ({ amazonOrderId: t.orderId, fecha: t.fechaPublicacion.toDate(), marketplaceId: t.marketplaceId, sku: l.sku, importe: l.reembolso }));
-  });
-}

@@ -1,5 +1,6 @@
-import { cargarMarketplaces, cargarUltimaSync, imagenesProductos, leerLineasVenta, leerReembolsos, syncEnCurso } from "@/lib/datos/panel";
-import { construirPanel, rangoALeer, resolverPanel } from "@/lib/datos/tablero";
+import { cargarMarketplaces, cargarUltimaSync, syncEnCurso } from "@/lib/datos/panel";
+import { datosVentas } from "@/lib/datos/cache";
+import { construirPanel, resolverPanel } from "@/lib/datos/tablero";
 import { formatFechaHora } from "@/lib/format";
 import { isAmazonConfigured } from "@/lib/amazon/cliente";
 import { BotonSync } from "@/components/panel/BotonSync";
@@ -21,10 +22,9 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
     { p: texto(sp.p), e: texto(sp.e), desde: texto(sp.desde), hasta: texto(sp.hasta), pais: texto(sp.pais), mes: texto(sp.mes) },
     marketplaces.map((m) => m.id),
   );
-  const { desde, hasta } = rangoALeer(panel);
-  const [lineas, reembolsos] = await Promise.all([leerLineasVenta(desde, hasta), leerReembolsos(desde, hasta)]);
+  // ~4 Firestore reads per load: the sales data comes from the in-memory cache, refreshed after each sync.
+  const { lineas, reembolsos, imagenes } = await datosVentas(ultimaSync?.id ?? null);
   const { tarjetas, productos, serie } = construirPanel(lineas, reembolsos, panel);
-  const imagenes = await imagenesProductos(productos.map((p) => p.asin));
 
   return (
     <VistaPanel

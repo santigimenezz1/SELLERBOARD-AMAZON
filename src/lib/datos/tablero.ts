@@ -1,4 +1,4 @@
-import { diaMadrid, sumarDias } from "./fechas";
+import { diaMadrid } from "./fechas";
 import { diasDelMes, fraccionMesTranscurrida, periodoExtra, periodosFijos, type Periodo } from "./periodos";
 import { productosDelPeriodo, resumenVentas, serieDiaria, type LineaReembolso, type LineaVenta, type ProductoPeriodo, type PuntoVentas, type ResumenVentas } from "./ventas";
 
@@ -33,13 +33,6 @@ export function resolverPanel(params: ParametrosPanel, paisesValidos: string[], 
 /** Month shown in the daily chart ("YYYY-MM"). */
 export function mesGrafico({ estado, hoy }: EstadoPanel): string {
   return estado.mes ?? hoy.slice(0, 7);
-}
-
-/** The date span covering every tile and the chart (plus the 6 days before it, for the 7-day average), so the page reads Firestore once. */
-export function rangoALeer(panel: EstadoPanel): { desde: string; hasta: string } {
-  const mes = diasDelMes(mesGrafico(panel));
-  const tramos = [...panel.periodos, { desde: sumarDias(mes.desde, -6), hasta: mes.hasta > panel.hoy ? panel.hoy : mes.hasta }];
-  return { desde: tramos.reduce((m, p) => (p.desde < m ? p.desde : m), tramos[0].desde), hasta: tramos.reduce((m, p) => (p.hasta > m ? p.hasta : m), tramos[0].hasta) };
 }
 
 export function construirPanel(

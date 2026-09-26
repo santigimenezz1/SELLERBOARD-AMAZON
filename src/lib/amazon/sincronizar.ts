@@ -6,6 +6,7 @@ import { calcularBeneficio, redondear, type Marketplace, type Pedido } from "@/l
 import { nombrePais } from "@/lib/datos/paises";
 import { ivaIncluido } from "@/lib/datos/iva";
 import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
+import { lineasEnCache } from "@/lib/datos/cache";
 import { imagenesCatalogo, marketplacesActivos, pedidosActualizados, transacciones, type PedidoAmazon } from "./apis";
 import { resumirTransaccion, type TransaccionResumida } from "./finanzas";
 import { ahoraMenos3Min } from "./cliente";
@@ -97,6 +98,7 @@ export async function sincronizar(): Promise<ResultadoSync> {
     let cursorFinanzas = aFecha(ultima?.get("cursorFinanzas"));
     const primeraVez = new Date(Date.now() - diasIniciales() * 24 * 3600_000);
     const tocados = new Set<string>();
+    let pedidosTraidos: PedidoAmazon[] = [];
 
     // 1. Marketplaces
     let marketplaces: Marketplace[] = [];
@@ -124,6 +126,7 @@ export async function sincronizar(): Promise<ResultadoSync> {
         const desde = cursorPedidos ? new Date(cursorPedidos.getTime() - SOLAPE_PEDIDOS_MS) : primeraVez;
         // No Sellers API: ask for every market, so a country we haven't seen yet isn't missed.
         const pedidos = await pedidosActualizados(desde, hasta, sellersOk ? marketplaces.map((m) => m.id) : []);
+        pedidosTraidos = pedidos;
         if (!sellersOk) {
           const conocidos = new Set(marketplaces.map((m) => m.id));
           const nuevos = [...new Set(pedidos.map((p) => p.salesChannel.marketplaceId ?? ""))]
@@ -175,7 +178,7 @@ export async function sincronizar(): Promise<ResultadoSync> {
 
     // 5. Listing photos (a failure here never blocks the sales data)
     try {
-      errores.push(...(await descargarImagenes(db)));
+      errores.push(...(await descargarImagenes(db, pedidosTraidos)));
     } catch (e) {
       errores.push(`Catalog Items API (fotos): ${mensaje(e)}`);
     }
@@ -381,15 +384,29 @@ export async function aplicarCosteAPedidosSinCoste(db: Firestore, sku: string, c
 }
 
 
-/** Fetches the listing photo of every sold ASIN still missing from `productos`, grouped by the marketplace it sold in. */
-async function descargarImagenes(db: Firestore): Promise<string[]> {
-  const [vendidos, conocidos] = await Promise.all([db.collection("pedidos").select("asin", "marketplaceId").get(), db.collection("productos").select().get()]);
-  const yaTienen = new Set(conocidos.docs.map((d) => d.id));
-  const pendientes = new Map<string, string>(); // asin → marketplace where it sold
-  for (const d of vendidos.docs) {
-    const asin = d.get("asin") as string;
-    if (asin && !yaTienen.has(asin) && !pendientes.has(asin)) pendientes.set(asin, d.get("marketplaceId") as string);
+/**
+ * Fetches the listing photo of sold ASINs still missing from `productos`, grouped by the marketplace they sold in.
+ * Candidates come from the in-memory sales cache plus this run's orders, so no whole collection is read.
+ */
+async function descargarImagenes(db: Firestore, pedidosTraidos: PedidoAmazon[]): Promise<string[]> {
+  const { lineas, asinsConProducto } = lineasEnCache();
+  const candidatos = new Map<string, string>(); // asin → marketplace where it sold
+  for (const l of lineas) if (l.asin && !candidatos.has(l.asin)) candidatos.set(l.asin, l.marketplaceId);
+  for (const p of pedidosTraidos) {
+    for (const i of p.orderItems) {
+      const asin = i.product?.asin;
+      if (asin && !candidatos.has(asin)) candidatos.set(asin, p.salesChannel.marketplaceId ?? "");
+    }
   }
+  // A freshly started server hasn't loaded `productos` yet: check just the candidates.
+  let yaTienen = asinsConProducto;
+  if (yaTienen.size === 0 && candidatos.size > 0) {
+    yaTienen = new Set<string>();
+    for (const lote of trocear([...candidatos.keys()], 100)) {
+      for (const d of await db.getAll(...lote.map((a) => db.collection("productos").doc(a)))) if (d.exists) yaTienen.add(d.id);
+    }
+  }
+  const pendientes = new Map([...candidatos].filter(([asin]) => !yaTienen.has(asin)));
 
   const porMarketplace = new Map<string, string[]>();
   for (const [asin, mk] of pendientes) porMarketplace.set(mk, [...(porMarketplace.get(mk) ?? []), asin]);

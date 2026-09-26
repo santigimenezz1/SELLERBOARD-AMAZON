@@ -108,6 +108,12 @@ retira el 27/03/2027 y el 27/08/2027.
 - **Coste de producto:** al guardar un coste se aplica a los pedidos que se sincronicen después **y** a los pedidos de ese SKU
   que no tenían coste; los que ya tenían uno lo conservan.
 
+## Lecturas de Firestore (plan gratuito)
+
+El plan Spark permite 50.000 lecturas al día. Para no gastarlas, las ventas se guardan **en memoria del servidor**
+(`src/lib/datos/cache.ts`): cargar el panel cuesta unas 4 lecturas, y solo tras una sincronización se leen los documentos
+que esa sincronización ha escrito (todos llevan `sincronizadoEn`). La cuota se reinicia a las 9:00 (hora de España).
+
 ## Colecciones de Firestore
 
 | Colección | Contenido |

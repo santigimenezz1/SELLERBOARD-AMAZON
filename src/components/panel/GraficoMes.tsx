@@ -74,7 +74,10 @@ export function GraficoMes({ serie, mes, meses, diaSeleccionado, base, estado }:
     .join("");
 
   const elegirDia = (p: PuntoVentas) => {
-    if (!p.futuro) navegar(urlPanel(base, estado, { e: "rango", p: "rango", desde: p.dia, hasta: p.dia }));
+    if (p.futuro) return;
+    navegar(urlPanel(base, estado, { e: "rango", p: "rango", desde: p.dia, hasta: p.dia }));
+    // The chart sits at the bottom: bring the day's tile and products into view.
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   function teclado(e: React.KeyboardEvent) {

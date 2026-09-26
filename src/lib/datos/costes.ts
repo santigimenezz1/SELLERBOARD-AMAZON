@@ -3,6 +3,8 @@ import "server-only";
 import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { aplicarCosteAPedidosSinCoste } from "@/lib/amazon/sincronizar";
+import { datosVentas } from "./cache";
+import { cargarUltimaSync } from "./panel";
 import { idDocSku, redondear } from "./tipos";
 
 export type SkuConCoste = {
@@ -16,15 +18,14 @@ export type SkuConCoste = {
 
 /** Every SKU that has appeared in an order, with its current cost (if any). */
 export async function listarSkus(): Promise<SkuConCoste[]> {
-  const db = adminDb();
-  const [pedidos, costes] = await Promise.all([db.collection("pedidos").select("sku", "titulo", "asin", "unidades", "estado").get(), db.collection("costesProducto").get()]);
+  const ultima = await cargarUltimaSync();
+  const [{ lineas }, costes] = await Promise.all([datosVentas(ultima?.id ?? null), adminDb().collection("costesProducto").get()]);
 
   const porSku = new Map<string, SkuConCoste>();
-  for (const d of pedidos.docs) {
-    const sku = d.get("sku") as string;
-    const s = porSku.get(sku) ?? { sku, titulo: d.get("titulo") as string, asin: d.get("asin") as string, unidades: 0, costeUnitario: null, actualizadoEn: null };
-    if (d.get("estado") !== "CANCELLED") s.unidades += d.get("unidades") as number;
-    porSku.set(sku, s);
+  for (const l of lineas) {
+    const s = porSku.get(l.sku) ?? { sku: l.sku, titulo: l.titulo, asin: l.asin, unidades: 0, costeUnitario: null, actualizadoEn: null };
+    if (l.estado !== "CANCELLED") s.unidades += l.unidades;
+    porSku.set(l.sku, s);
   }
   for (const d of costes.docs) {
     const s = porSku.get(d.get("sku") as string);

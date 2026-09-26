@@ -27,8 +27,8 @@ type Props = {
 };
 
 /**
- * Sales dashboard (Sellerboard layout): period tiles on top, the daily chart
- * of a month, and the products of the selected tile below. Phase 1 shows sales and units only; profit, ads and
+ * Sales dashboard (Sellerboard layout): period tiles on top, the products of
+ * the selected tile below them, and the daily chart of a month at the bottom. Phase 1 shows sales and units only; profit, ads and
  * the rest are added later.
  */
 export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, productos, marketplaces, acciones, avisos }: Props) {
@@ -44,6 +44,13 @@ export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, p
         <Atenuable>
           <div className="flex flex-col gap-8">
             <TarjetasPeriodo tarjetas={tarjetas} seleccionado={seleccionado.id} base={base} estado={estado} />
+            <TablaProductosPeriodo
+              titulo={seleccionado.nombre}
+              productos={productos}
+              marketplaces={marketplaces}
+              dominio={mercado?.dominio.replace(/^https?:\/\//, "") || "www.amazon.es"}
+              desglosePorPais={!mercado}
+            />
             <GraficoMes
               serie={serie}
               mes={estado.mes ?? hoy.slice(0, 7)}
@@ -51,13 +58,6 @@ export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, p
               diaSeleccionado={seleccionado.desde === seleccionado.hasta ? seleccionado.desde : null}
               base={base}
               estado={estado}
-            />
-            <TablaProductosPeriodo
-              titulo={seleccionado.nombre}
-              productos={productos}
-              marketplaces={marketplaces}
-              dominio={mercado?.dominio.replace(/^https?:\/\//, "") || "www.amazon.es"}
-              desglosePorPais={!mercado}
             />
           </div>
         </Atenuable>
