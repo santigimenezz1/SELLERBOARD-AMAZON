@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import type { ProductoVendido } from "@/lib/datos/panel";
-import { formatNumero, formatPorcentaje } from "@/lib/format";
+import { formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 
 type Columna = "sku" | "asin" | "unidades";
@@ -155,7 +155,7 @@ export function TablaVendidos({ productos, dominio, desglosePorPais }: Props) {
                       <tr id={idDesglose} className="bg-white/[0.03]">
                         <td />
                         <td colSpan={4} className="pt-1 pr-5 pb-4 pl-3">
-                          <DesglosePaises paises={p.porPais} total={p.unidades} />
+                          <DesglosePaises paises={p.porPais} />
                         </td>
                       </tr>
                     )}
@@ -170,23 +170,16 @@ export function TablaVendidos({ productos, dominio, desglosePorPais }: Props) {
   );
 }
 
-function DesglosePaises({ paises, total }: { paises: ProductoVendido["porPais"]; total: number }) {
+function DesglosePaises({ paises }: { paises: ProductoVendido["porPais"] }) {
   return (
-    <ul className="grid max-w-xl gap-y-2" aria-label="Unidades por país">
-      {paises.map((d) => {
-        const cuota = total > 0 ? (d.unidades / total) * 100 : 0;
-        return (
-          <li key={d.marketplaceId} className="flex items-center gap-3 text-sm">
-            <Bandera codigo={d.codigoPais} className="text-base" />
-            <span className="w-24 truncate text-ink-300">{d.pais}</span>
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]" aria-hidden>
-              <span className="block h-full rounded-full bg-serie-ventas" style={{ width: `${Math.max(cuota, 2)}%` }} />
-            </span>
-            <span className="w-10 text-right font-semibold text-ink-100">{formatNumero(d.unidades)}</span>
-            <span className="w-14 text-right text-xs text-ink-400">{formatPorcentaje(cuota)}</span>
-          </li>
-        );
-      })}
+    <ul className="flex flex-wrap gap-x-6 gap-y-3" aria-label="Unidades por país">
+      {paises.map((d) => (
+        <li key={d.marketplaceId} className="flex items-center gap-2.5" title={d.pais}>
+          <Bandera codigo={d.codigoPais} className="text-[28px] shadow-sm" />
+          <span className="sr-only">{d.pais}:</span>
+          <span className="text-lg font-semibold text-ink-100">{formatNumero(d.unidades)}</span>
+        </li>
+      ))}
     </ul>
   );
 }
