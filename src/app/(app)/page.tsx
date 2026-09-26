@@ -18,12 +18,12 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
   const [marketplaces, ultimaSync, enCurso] = await Promise.all([cargarMarketplaces(), cargarUltimaSync(), syncEnCurso()]);
 
   const panel = resolverPanel(
-    { p: texto(sp.p), e: texto(sp.e), desde: texto(sp.desde), hasta: texto(sp.hasta), pais: texto(sp.pais) },
+    { p: texto(sp.p), e: texto(sp.e), desde: texto(sp.desde), hasta: texto(sp.hasta), pais: texto(sp.pais), mes: texto(sp.mes) },
     marketplaces.map((m) => m.id),
   );
-  const { desde, hasta } = rangoALeer(panel.periodos);
+  const { desde, hasta } = rangoALeer(panel);
   const [lineas, reembolsos] = await Promise.all([leerLineasVenta(desde, hasta), leerReembolsos(desde, hasta)]);
-  const { tarjetas, productos } = construirPanel(lineas, reembolsos, panel);
+  const { tarjetas, productos, serie } = construirPanel(lineas, reembolsos, panel);
   const imagenes = await imagenesProductos(productos.map((p) => p.asin));
 
   return (
@@ -33,6 +33,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
       hoy={panel.hoy}
       tarjetas={tarjetas}
       seleccionado={panel.seleccionado}
+      serie={serie}
       productos={productos.map((p) => ({ ...p, imagen: imagenes.get(p.asin) ?? null }))}
       marketplaces={marketplaces}
       acciones={<BotonSync ultima={ultimaSync ? formatFechaHora(ultimaSync.fecha) : null} enCurso={enCurso} />}

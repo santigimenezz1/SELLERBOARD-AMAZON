@@ -40,7 +40,9 @@ export function periodoExtra(id: string | undefined, hoy: string, desde?: string
   if (id === "30d") return { id, nombre: "Últimos 30 días", desde: sumarDias(hoy, -29), hasta: hoy };
   if (id === "rango" && desde && hasta && /^\d{4}-\d{2}-\d{2}$/.test(desde) && /^\d{4}-\d{2}-\d{2}$/.test(hasta)) {
     const [a, b] = desde <= hasta ? [desde, hasta] : [hasta, desde];
-    return { id, nombre: "Personalizado", desde: a, hasta: b > hoy ? hoy : b };
+    const fin = b > hoy ? hoy : b;
+    // A single day (e.g. picked by clicking a bar of the chart) is named after that day.
+    return { id, nombre: a === fin ? nombreDia(a) : "Personalizado", desde: a, hasta: fin };
   }
   return null;
 }
@@ -50,6 +52,31 @@ export function fraccionMesTranscurrida(hoy: string, ahora: Date): number {
   const inicio = inicioDia(primeroDeMes(hoy)).getTime();
   const fin = inicioDia(sumarDias(ultimoDeMes(hoy), 1)).getTime();
   return Math.min(1, Math.max((ahora.getTime() - inicio) / (fin - inicio), 1 / 1440));
+}
+
+/** "2026-09-24" → "Jue 24/09" */
+export function nombreDia(dia: string): string {
+  const [y, m, d] = dia.split("-").map(Number);
+  const semana = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("es-ES", { weekday: "short", timeZone: "UTC" }).replace(".", "");
+  return `${semana.charAt(0).toUpperCase()}${semana.slice(1)} ${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}`;
+}
+
+/** First and last day of a "YYYY-MM" month. */
+export function diasDelMes(mes: string): { desde: string; hasta: string } {
+  return { desde: `${mes}-01`, hasta: ultimoDeMes(`${mes}-01`) };
+}
+
+/** "2026-09" → "Septiembre 2026" */
+export function nombreMes(mes: string): string {
+  const [y, m] = mes.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("es-ES", { month: "long", year: "numeric", timeZone: "UTC" }).replace(" de ", " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** The current month and the ones before it, newest first ("YYYY-MM"). */
+export function ultimosMeses(hoy: string, n = 12): string[] {
+  const [y, m] = hoy.split("-").map(Number);
+  return Array.from({ length: n }, (_, i) => new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 7));
 }
 
 /** "2026-09-26" → "26/09/2026" */

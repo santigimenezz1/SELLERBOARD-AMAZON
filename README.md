@@ -49,6 +49,9 @@ Diseño tipo Sellerboard, con los colores de la app:
   Sellerboard). Al pulsar una se selecciona y la lista de abajo muestra sus productos. El pronóstico proyecta
   las ventas del mes al ritmo actual (no se puede seleccionar). El menú **Período** añade una tarjeta más (últimos 7 o 30
   días, o un rango personalizado).
+- **Ventas por día** de un mes (selector de los últimos 12 meses): barras con las ventas o las unidades de cada día y una
+  línea con la media de 7 días como tendencia. Al pasar el ratón se compara con el día anterior; al pulsar un día, se
+  abre como tarjeta propia con sus productos.
 - **Todos los mercados** por defecto; al elegir un país todo se limita a ese país.
 - **Productos** del período seleccionado, como en Seller Central: foto, ASIN · SKU, título, unidades, reembolsos (por fecha
   de reembolso; un producto reembolsado sin ventas en el período sale con 0 unidades), ventas y precio medio de venta

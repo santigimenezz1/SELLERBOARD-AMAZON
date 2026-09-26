@@ -1,8 +1,8 @@
 /**
  * Dashboard URL state: `p` selected tile, `e` extra period tile (7d / 30d /
- * rango + desde/hasta), `pais` marketplace filter. Changing one keeps the rest.
+ * rango + desde/hasta), `pais` marketplace filter, `mes` month of the daily chart. Changing one keeps the rest.
  */
-export type EstadoUrl = { p: string; e: string | null; desde: string | null; hasta: string | null; pais: string | null };
+export type EstadoUrl = { p: string; e: string | null; desde: string | null; hasta: string | null; pais: string | null; mes: string | null };
 
 export function urlPanel(base: string, estado: EstadoUrl, cambios: Partial<EstadoUrl>): string {
   const q = new URLSearchParams();

@@ -1,20 +1,24 @@
 import type { ReactNode } from "react";
 import type { Marketplace } from "@/lib/datos/tipos";
 import type { Periodo } from "@/lib/datos/periodos";
-import type { ProductoPeriodo } from "@/lib/datos/ventas";
+import type { ProductoPeriodo, PuntoVentas } from "@/lib/datos/ventas";
+import { ultimosMeses } from "@/lib/datos/periodos";
 import { TransicionPanel, Atenuable } from "./Transicion";
 import { BarraFiltros } from "./BarraFiltros";
 import { TarjetasPeriodo, type TarjetaPeriodo } from "./TarjetasPeriodo";
 import { TablaProductosPeriodo } from "./TablaProductosPeriodo";
+import { GraficoMes } from "./GraficoMes";
 import type { EstadoUrl } from "./url";
 
 type Props = {
-  /** "/" for the real dashboard, "/demo" for the made-up one. */
+  /** Path the dashboard lives at ("/"). */
   base: string;
   estado: EstadoUrl;
   hoy: string;
   tarjetas: TarjetaPeriodo[];
   seleccionado: Periodo;
+  /** Daily sales of the chart month. */
+  serie: PuntoVentas[];
   productos: ProductoPeriodo[];
   marketplaces: Marketplace[];
   /** Sync button (or its demo stand-in). */
@@ -23,11 +27,11 @@ type Props = {
 };
 
 /**
- * Sales dashboard (Sellerboard layout): period tiles on top, products of the
- * selected tile below. Phase 1 shows sales and units only; profit, ads and
+ * Sales dashboard (Sellerboard layout): period tiles on top, the daily chart
+ * of a month, and the products of the selected tile below. Phase 1 shows sales and units only; profit, ads and
  * the rest are added later.
  */
-export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, productos, marketplaces, acciones, avisos }: Props) {
+export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, productos, marketplaces, acciones, avisos }: Props) {
   const mercado = marketplaces.find((m) => m.id === estado.pais);
   return (
     <TransicionPanel>
@@ -40,6 +44,14 @@ export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, producto
         <Atenuable>
           <div className="flex flex-col gap-8">
             <TarjetasPeriodo tarjetas={tarjetas} seleccionado={seleccionado.id} base={base} estado={estado} />
+            <GraficoMes
+              serie={serie}
+              mes={estado.mes ?? hoy.slice(0, 7)}
+              meses={ultimosMeses(hoy)}
+              diaSeleccionado={seleccionado.desde === seleccionado.hasta ? seleccionado.desde : null}
+              base={base}
+              estado={estado}
+            />
             <TablaProductosPeriodo
               titulo={seleccionado.nombre}
               productos={productos}

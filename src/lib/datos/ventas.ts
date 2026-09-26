@@ -1,4 +1,4 @@
-import { diaMadrid } from "./fechas";
+import { diaMadrid, diasEntre, sumarDias } from "./fechas";
 
 /**
  * Sales aggregation for the dashboard tiles and product list. Pure (no
@@ -120,4 +120,40 @@ export function productosDelPeriodo(lineas: LineaVenta[], reembolsos: LineaReemb
       porMarketplace: [...mk].map(([marketplaceId, unidades]) => ({ marketplaceId, unidades })).sort((a, b) => b.unidades - a.unidades),
     }))
     .sort((a, b) => b.unidades - a.unidades || b.ventas - a.ventas);
+}
+
+export type PuntoVentas = {
+  dia: string;
+  ventas: number;
+  unidades: number;
+  /** Average of this day and the 6 before it (null for days still to come). */
+  mediaVentas: number | null;
+  mediaUnidades: number | null;
+  /** The day is still to come (rest of the current month). */
+  futuro: boolean;
+};
+
+/** One point per day of [desde, hasta]. `lineas` must also cover the 6 days before `desde`, for the moving average. */
+export function serieDiaria(lineas: LineaVenta[], desde: string, hasta: string, hoy: string, marketplaceId: string | null): PuntoVentas[] {
+  const porDia = new Map<string, { ventas: number; unidades: number }>();
+  for (const l of delPeriodo(lineas, sumarDias(desde, -6), hasta, marketplaceId)) {
+    const dia = diaMadrid(l.fecha);
+    const d = porDia.get(dia) ?? { ventas: 0, unidades: 0 };
+    d.ventas += l.ventaTotal;
+    d.unidades += l.unidades;
+    porDia.set(dia, d);
+  }
+  return diasEntre(desde, hasta).map((dia) => {
+    const futuro = dia > hoy;
+    const ventana = diasEntre(sumarDias(dia, -6), dia).map((x) => porDia.get(x) ?? { ventas: 0, unidades: 0 });
+    const d = porDia.get(dia) ?? { ventas: 0, unidades: 0 };
+    return {
+      dia,
+      ventas: redondear(d.ventas),
+      unidades: d.unidades,
+      mediaVentas: futuro ? null : redondear(ventana.reduce((s, x) => s + x.ventas, 0) / 7),
+      mediaUnidades: futuro ? null : Math.round((ventana.reduce((s, x) => s + x.unidades, 0) / 7) * 10) / 10,
+      futuro,
+    };
+  });
 }

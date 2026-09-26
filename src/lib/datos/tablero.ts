@@ -1,11 +1,12 @@
-import { diaMadrid } from "./fechas";
-import { fraccionMesTranscurrida, periodoExtra, periodosFijos, type Periodo } from "./periodos";
-import { productosDelPeriodo, resumenVentas, type LineaReembolso, type LineaVenta, type ProductoPeriodo, type ResumenVentas } from "./ventas";
+import { diaMadrid, sumarDias } from "./fechas";
+import { diasDelMes, fraccionMesTranscurrida, periodoExtra, periodosFijos, type Periodo } from "./periodos";
+import { productosDelPeriodo, resumenVentas, serieDiaria, type LineaReembolso, type LineaVenta, type ProductoPeriodo, type PuntoVentas, type ResumenVentas } from "./ventas";
 
-export type ParametrosPanel = { p?: string; e?: string; desde?: string; hasta?: string; pais?: string };
+export type ParametrosPanel = { p?: string; e?: string; desde?: string; hasta?: string; pais?: string; mes?: string };
 
 export type EstadoPanel = {
-  estado: { p: string; e: string | null; desde: string | null; hasta: string | null; pais: string | null };
+  /** `mes` ("YYYY-MM") is the month of the daily chart; null = the current month. */
+  estado: { p: string; e: string | null; desde: string | null; hasta: string | null; pais: string | null; mes: string | null };
   hoy: string;
   periodos: Periodo[];
   seleccionado: Periodo;
@@ -19,25 +20,35 @@ export function resolverPanel(params: ParametrosPanel, paisesValidos: string[], 
   const seleccionable = periodos.filter((p) => !p.esPronostico);
   const seleccionado = seleccionable.find((p) => p.id === params.p) ?? seleccionable[0];
   const pais = params.pais && paisesValidos.includes(params.pais) ? params.pais : null;
+  // Only past months are worth a parameter: the current one is the default.
+  const mes = params.mes && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.mes) && params.mes < hoy.slice(0, 7) ? params.mes : null;
   return {
-    estado: { p: seleccionado.id, e: extra?.id ?? null, desde: extra?.id === "rango" ? extra.desde : null, hasta: extra?.id === "rango" ? extra.hasta : null, pais },
+    estado: { p: seleccionado.id, e: extra?.id ?? null, desde: extra?.id === "rango" ? extra.desde : null, hasta: extra?.id === "rango" ? extra.hasta : null, pais, mes },
     hoy,
     periodos,
     seleccionado,
   };
 }
 
-/** The date span that covers every tile, so the page reads Firestore once. */
-export function rangoALeer(periodos: Periodo[]): { desde: string; hasta: string } {
-  return { desde: periodos.reduce((m, p) => (p.desde < m ? p.desde : m), periodos[0].desde), hasta: periodos.reduce((m, p) => (p.hasta > m ? p.hasta : m), periodos[0].hasta) };
+/** Month shown in the daily chart ("YYYY-MM"). */
+export function mesGrafico({ estado, hoy }: EstadoPanel): string {
+  return estado.mes ?? hoy.slice(0, 7);
+}
+
+/** The date span covering every tile and the chart (plus the 6 days before it, for the 7-day average), so the page reads Firestore once. */
+export function rangoALeer(panel: EstadoPanel): { desde: string; hasta: string } {
+  const mes = diasDelMes(mesGrafico(panel));
+  const tramos = [...panel.periodos, { desde: sumarDias(mes.desde, -6), hasta: mes.hasta > panel.hoy ? panel.hoy : mes.hasta }];
+  return { desde: tramos.reduce((m, p) => (p.desde < m ? p.desde : m), tramos[0].desde), hasta: tramos.reduce((m, p) => (p.hasta > m ? p.hasta : m), tramos[0].hasta) };
 }
 
 export function construirPanel(
   lineas: LineaVenta[],
   reembolsos: LineaReembolso[],
-  { periodos, seleccionado, estado, hoy }: EstadoPanel,
+  panel: EstadoPanel,
   ahora = new Date(),
-): { tarjetas: { periodo: Periodo; resumen: ResumenVentas }[]; productos: ProductoPeriodo[] } {
+): { tarjetas: { periodo: Periodo; resumen: ResumenVentas }[]; productos: ProductoPeriodo[]; serie: PuntoVentas[] } {
+  const { periodos, seleccionado, estado, hoy } = panel;
   const mes = periodos.find((p) => p.id === "mes")!;
   const tarjetas = periodos.map((periodo) => {
     if (!periodo.esPronostico) return { periodo, resumen: resumenVentas(lineas, reembolsos, periodo.desde, periodo.hasta, estado.pais) };
@@ -54,5 +65,10 @@ export function construirPanel(
       },
     };
   });
-  return { tarjetas, productos: productosDelPeriodo(lineas, reembolsos, seleccionado.desde, seleccionado.hasta, estado.pais) };
+  const mesSerie = diasDelMes(mesGrafico(panel));
+  return {
+    tarjetas,
+    productos: productosDelPeriodo(lineas, reembolsos, seleccionado.desde, seleccionado.hasta, estado.pais),
+    serie: serieDiaria(lineas, mesSerie.desde, mesSerie.hasta, hoy, estado.pais),
+  };
 }
