@@ -27,6 +27,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
   const { lineas, reembolsos, imagenes } = await datosVentas(ultimaSync?.id ?? null);
   const consumo = await consumoDeHoy();
   const { tarjetas, productos, serie } = construirPanel(lineas, reembolsos, panel);
+  const conVentas = new Set(lineas.map((l) => l.marketplaceId));
 
   return (
     <VistaPanel
@@ -38,7 +39,8 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
       serie={serie}
       consumo={consumo}
       productos={productos.map((p) => ({ ...p, imagen: imagenes.get(p.asin) ?? null }))}
-      marketplaces={marketplaces}
+      // The filter only lists markets with sales: Amazon enrols the account in many more.
+      marketplaces={marketplaces.filter((m) => conVentas.has(m.id))}
       acciones={<BotonSync ultima={ultimaSync ? formatFechaHora(ultimaSync.fecha) : null} enCurso={enCurso} />}
       avisos={
         <>

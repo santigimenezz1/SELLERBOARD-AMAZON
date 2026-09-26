@@ -118,13 +118,17 @@ export async function sincronizar(): Promise<ResultadoSync> {
     let marketplaces = guardados;
     let sellersOk = false;
     try {
-      marketplaces = (await marketplacesActivos()).map((p) => ({
-        id: p.marketplace.id,
-        codigoPais: p.marketplace.countryCode,
-        pais: nombrePais(p.marketplace.countryCode),
-        dominio: p.marketplace.domainName ?? "",
-        moneda: p.marketplace.defaultCurrencyCode,
-      }));
+      const vistos = new Set<string>();
+      marketplaces = (await marketplacesActivos())
+        // Amazon lists some marketplaces more than once (one entry per store): keep one per id.
+        .filter((p) => !vistos.has(p.marketplace.id) && vistos.add(p.marketplace.id))
+        .map((p) => ({
+          id: p.marketplace.id,
+          codigoPais: p.marketplace.countryCode,
+          pais: nombrePais(p.marketplace.countryCode),
+          dominio: p.marketplace.domainName ?? "",
+          moneda: p.marketplace.defaultCurrencyCode,
+        }));
       sellersOk = true;
     } catch (e) {
       // Without the Sellers API role the orders still work: markets are taken from the orders themselves (step 2).

@@ -84,12 +84,23 @@ function nombrarRegion(mks: Marketplace[]): Pick<Region, "id" | "nombre" | "band
  */
 export async function actualizarStock(marketplaces: Marketplace[]): Promise<Stock> {
   const porMarketplace: { mk: Marketplace; items: ResumenInventario[]; firma: string }[] = [];
+  let ultimoError: unknown = null;
   for (const mk of marketplaces.filter((m) => m.codigoPais)) {
-    const items = await inventarioFBA(mk.id);
+    let items: ResumenInventario[];
+    try {
+      items = await inventarioFBA(mk.id);
+    } catch (e) {
+      // Marketplaces where the account doesn't use FBA answer 403: skip them, keep the rest.
+      ultimoError = e;
+      continue;
+    }
+    // A marketplace with no stock at all isn't a region worth showing.
+    if (!items.some((i) => (i.totalQuantity ?? 0) > 0 || cantidades(i).enCamino > 0)) continue;
     // Same SKUs with the same quantities = the same physical pool.
     const firma = JSON.stringify(items.map((i) => [i.sellerSku, cantidades(i)]).sort());
     porMarketplace.push({ mk, items, firma });
   }
+  if (porMarketplace.length === 0 && ultimoError) throw ultimoError;
 
   const grupos = new Map<string, typeof porMarketplace>();
   for (const x of porMarketplace) grupos.set(x.firma, [...(grupos.get(x.firma) ?? []), x]);

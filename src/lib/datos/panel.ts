@@ -148,7 +148,10 @@ export async function cargarPanel(desde: string, hasta: string, marketplaceId: s
 export async function cargarMarketplaces(): Promise<Marketplace[]> {
   const snap = await adminDb().collection("config").doc("marketplaces").get();
   contarLecturas(1);
-  return ((snap.get("lista") as Marketplace[] | undefined) ?? []).slice().sort((a, b) => a.pais.localeCompare(b.pais, "es"));
+  const lista = (snap.get("lista") as Marketplace[] | undefined) ?? [];
+  // Older snapshots can hold the same marketplace twice (Amazon lists one entry per store).
+  const unicos = [...new Map(lista.map((m) => [m.id, m])).values()];
+  return unicos.sort((a, b) => a.pais.localeCompare(b.pais, "es"));
 }
 
 /** `id` doubles as the version of the in-memory sales cache (lib/datos/cache.ts). */
