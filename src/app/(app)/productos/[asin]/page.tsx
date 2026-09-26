@@ -6,6 +6,8 @@ import { formatEuros, formatMoneda, formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 import { Galeria } from "@/components/productos/Galeria";
 import { ActualizarFicha } from "@/components/productos/ActualizarFicha";
+import { CosteProducto } from "@/components/productos/CosteProducto";
+import { obtenerEscandallo } from "@/lib/datos/escandallos";
 
 const ES = "A1RKKUPIHCS9HS";
 
@@ -30,7 +32,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   const { asin } = await params;
   const sp = await searchParams;
   if (!/^[A-Z0-9]{10}$/.test(asin)) notFound();
-  const d = await detalleProducto(asin);
+  const [d, escandallo] = await Promise.all([detalleProducto(asin), obtenerEscandallo(asin)]);
   const f = d.ficha;
   const mks = new Map(d.marketplaces.map((m) => [m.id, m]));
 
@@ -190,6 +192,9 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
 
         {!ficha && <p className="mt-6 text-sm text-[#565959]">Aún no hay ficha de catálogo para este país. Pulsa «Actualizar ficha».</p>}
       </article>
+
+      {/* Our own cost of one unit, piece by piece (seller-only, so outside the buyer view). */}
+      <CosteProducto key={asin} inicial={escandallo} />
     </div>
   );
 }

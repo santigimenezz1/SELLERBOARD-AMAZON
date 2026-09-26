@@ -74,7 +74,10 @@ una franja con los datos de vendedor: SKUs, stock por región, ventas y reembols
 
 Datos: Catalog Items API (una vez al día) y Product Pricing `getPricing` + `getCompetitivePricing` (cada 3 horas), en lotes
 de 20 ASIN por llamada y país, guardados en `fichas/{asin}` solo si cambian y leídos desde el almacén en memoria.
-**Actualizar ficha** fuerza la descarga de un producto. Amazon no da por API las estrellas y reseñas.
+**Actualizar ficha** fuerza la descarga de un producto.
+
+Debajo, el recuadro **Coste del producto**: piezas agrupadas por proveedor, con subtotales y coste total por unidad (sin
+IVA), todo editable. Se guarda en `escandallos/{asin}` al pulsar Guardar. Amazon no da por API las estrellas y reseñas.
 
 ## Sección Stock
 
@@ -155,6 +158,7 @@ La cuota se reinicia a medianoche de California (9:00 en España).
 | `consumo` | Lecturas y escrituras de la app por día de cuota |
 | `config/stock` | Última foto del stock FBA por región |
 | `fichas` | Ficha de cada ASIN por mercado (catálogo) y precio/Buy Box actuales |
+| `escandallos` | Coste por piezas y proveedores de cada ASIN |
 | `transaccionesAmazon` | Movimientos de la Finances API resumidos por SKU (para recalcular comisiones y reembolsos) |
 | `productos` | Foto principal y título de cada ASIN (Catalog Items API) |
 | `tiposCambio` | Tipos de cambio del BCE por día |
