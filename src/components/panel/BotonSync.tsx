@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
 
-type Resultado = { pedidosNuevos: number; pedidosActualizados: number; transacciones: number; errores: string[] | null; duracionMs: number };
+type Resultado = { pedidosNuevos: number; pedidosActualizados: number; transacciones: number; escrituras: number; errores: string[] | null; duracionMs: number };
 
 type Estado = { tipo: "idle" } | { tipo: "cargando" } | { tipo: "ok"; r: Resultado } | { tipo: "error"; msg: string };
 
@@ -57,7 +57,7 @@ export function BotonSync({ ultima, enCurso }: { ultima: string | null; enCurso:
           <div className="rounded-lg border border-white/[0.06] bg-ink-900/80 px-3 py-2">
             <p className={estado.r.errores ? "text-warning" : "text-success"}>
               {estado.r.pedidosNuevos === 1 ? "1 pedido nuevo" : `${estado.r.pedidosNuevos} pedidos nuevos`} · {estado.r.pedidosActualizados} revisados ·{" "}
-              {estado.r.transacciones} movimientos financieros
+              {estado.r.transacciones} movimientos financieros · {estado.r.escrituras} {estado.r.escrituras === 1 ? "cambio guardado" : "cambios guardados"}
             </p>
             {estado.r.errores && (
               <ul className="mt-1 list-disc space-y-0.5 pl-4 text-left text-xs text-ink-300">

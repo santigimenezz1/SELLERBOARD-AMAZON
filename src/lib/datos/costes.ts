@@ -3,7 +3,8 @@ import "server-only";
 import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { aplicarCosteAPedidosSinCoste } from "@/lib/amazon/sincronizar";
-import { datosVentas } from "./cache";
+import { datosVentas } from "./almacen";
+import { contarEscrituras, contarLecturas } from "./consumo";
 import { cargarUltimaSync } from "./panel";
 import { idDocSku, redondear } from "./tipos";
 
@@ -20,6 +21,7 @@ export type SkuConCoste = {
 export async function listarSkus(): Promise<SkuConCoste[]> {
   const ultima = await cargarUltimaSync();
   const [{ lineas }, costes] = await Promise.all([datosVentas(ultima?.id ?? null), adminDb().collection("costesProducto").get()]);
+  contarLecturas(costes.size);
 
   const porSku = new Map<string, SkuConCoste>();
   for (const l of lineas) {
@@ -47,6 +49,9 @@ export async function guardarCoste(sku: string, costeUnitario: number): Promise<
   const db = adminDb();
   const coste = redondear(costeUnitario);
   await db.collection("costesProducto").doc(idDocSku(sku)).set({ sku, costeUnitario: coste, actualizadoEn: Timestamp.now() });
-  const pedidosCompletados = await aplicarCosteAPedidosSinCoste(db, sku, coste);
+  contarEscrituras(1);
+  // The mirror must be current before looking for lines without a cost in it.
+  await datosVentas((await cargarUltimaSync())?.id ?? null);
+  const pedidosCompletados = await aplicarCosteAPedidosSinCoste(sku, coste);
   return { pedidosCompletados };
 }

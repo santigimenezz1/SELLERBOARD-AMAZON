@@ -1,6 +1,7 @@
 import "server-only";
 
 import { adminDb } from "@/lib/firebase/admin";
+import { contarEscrituras, contarLecturas } from "@/lib/datos/consumo";
 
 /**
  * EUR value of one unit of `moneda` on a given day, from the ECB reference
@@ -9,7 +10,9 @@ import { adminDb } from "@/lib/firebase/admin";
  * (`tiposCambio/{YYYY-MM-DD}`) since they never change.
  */
 
-const memoria = new Map<string, Record<string, number>>();
+// On globalThis so dev hot reloads keep it (each reload would otherwise re-read Firestore).
+const g = globalThis as unknown as { __tiposCambio?: Map<string, Record<string, number>> };
+const memoria = (g.__tiposCambio ??= new Map<string, Record<string, number>>());
 
 async function tiposDelDia(dia: string): Promise<Record<string, number>> {
   const enMemoria = memoria.get(dia);
@@ -17,6 +20,7 @@ async function tiposDelDia(dia: string): Promise<Record<string, number>> {
 
   const ref = adminDb().collection("tiposCambio").doc(dia);
   const snap = await ref.get();
+  contarLecturas(1);
   if (snap.exists) {
     const rates = snap.get("rates") as Record<string, number>;
     memoria.set(dia, rates);
@@ -29,7 +33,10 @@ async function tiposDelDia(dia: string): Promise<Record<string, number>> {
   memoria.set(dia, body.rates);
   // Today's rate is published mid-afternoon; only cache days that are final.
   const hoy = new Date().toISOString().slice(0, 10);
-  if (dia < hoy) await ref.set({ fechaBCE: body.date, rates: body.rates });
+  if (dia < hoy) {
+    await ref.set({ fechaBCE: body.date, rates: body.rates });
+    contarEscrituras(1);
+  }
   return body.rates;
 }
 

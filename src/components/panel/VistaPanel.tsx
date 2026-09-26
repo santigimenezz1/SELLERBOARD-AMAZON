@@ -8,6 +8,8 @@ import { BarraFiltros } from "./BarraFiltros";
 import { TarjetasPeriodo, type TarjetaPeriodo } from "./TarjetasPeriodo";
 import { TablaProductosPeriodo } from "./TablaProductosPeriodo";
 import { GraficoMes } from "./GraficoMes";
+import { Consumo } from "./Consumo";
+import { LIMITE_ESCRITURAS, LIMITE_LECTURAS } from "@/lib/datos/consumo";
 import type { EstadoUrl } from "./url";
 
 type Props = {
@@ -21,8 +23,10 @@ type Props = {
   serie: PuntoVentas[];
   productos: ProductoPeriodo[];
   marketplaces: Marketplace[];
-  /** Sync button (or its demo stand-in). */
+  /** Sync button. */
   acciones: ReactNode;
+  /** Today's Firestore reads/writes, against the free-plan limits. */
+  consumo: { lecturas: number; escrituras: number };
   avisos?: ReactNode;
 };
 
@@ -31,8 +35,10 @@ type Props = {
  * the selected tile below them, and the daily chart of a month at the bottom. Phase 1 shows sales and units only; profit, ads and
  * the rest are added later.
  */
-export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, productos, marketplaces, acciones, avisos }: Props) {
+export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, productos, marketplaces, acciones, avisos, consumo }: Props) {
   const mercado = marketplaces.find((m) => m.id === estado.pais);
+  // Near the limit the usage line becomes a warning at the top; otherwise it sits quietly at the bottom.
+  const consumoAlto = consumo.lecturas / LIMITE_LECTURAS >= 0.5 || consumo.escrituras / LIMITE_ESCRITURAS >= 0.5;
   return (
     <TransicionPanel>
       <div className="flex flex-col gap-6">
@@ -41,6 +47,7 @@ export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, p
           <BarraFiltros base={base} estado={estado} marketplaces={marketplaces} hoy={hoy} />
         </div>
         {avisos}
+        {consumoAlto && <Consumo {...consumo} />}
         <Atenuable>
           <div className="flex flex-col gap-8">
             <TarjetasPeriodo tarjetas={tarjetas} seleccionado={seleccionado.id} base={base} estado={estado} />
@@ -61,6 +68,7 @@ export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, p
             />
           </div>
         </Atenuable>
+        {!consumoAlto && <Consumo {...consumo} />}
       </div>
     </TransicionPanel>
   );

@@ -2,9 +2,11 @@ import "server-only";
 
 import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
-import { diaMadrid, diasEntre, inicioDia, sumarDias } from "./fechas";
+import { diaMadrid, diasEntre } from "./fechas";
 import { redondear, type Marketplace } from "./tipos";
 import { BLOQUEO_MS } from "@/lib/amazon/sincronizar";
+import { asegurarAlmacen, pedidosEnAlmacen } from "./almacen";
+import { contarLecturas } from "./consumo";
 
 export type Metricas = {
   ventas: number;
@@ -46,7 +48,6 @@ export type FilaProducto = {
 
 export type DatosPanel = { metricas: Metricas; serie: PuntoDia[]; productos: FilaProducto[] };
 
-const CAMPOS = ["amazonOrderId", "fecha", "marketplaceId", "estado", "sku", "asin", "titulo", "unidades", "ventaTotal", "comisionesAmazon", "reembolso", "impuestos", "impuestosReembolso", "ivaEstimado", "costeProducto", "beneficioNeto", "liquidado"];
 
 type Linea = {
   amazonOrderId: string;
@@ -71,16 +72,18 @@ type Linea = {
 const ivaNeto = (l: Linea) => (l.impuestos ?? 0) - (l.impuestosReembolso ?? 0);
 
 /** Aggregates the order lines of [desde, hasta] (Madrid days, inclusive), optionally for one marketplace. */
-export async function cargarPanel(desde: string, hasta: string, marketplaceId: string | null): Promise<DatosPanel> {
-  const snap = await adminDb()
-    .collection("pedidos")
-    .where("fecha", ">=", Timestamp.fromDate(inicioDia(desde)))
-    .where("fecha", "<", Timestamp.fromDate(inicioDia(sumarDias(hasta, 1))))
-    .select(...CAMPOS)
-    .get();
-
-  const lineas = snap.docs
-    .map((d) => d.data() as Linea)
+/**
+ * Profit figures (hidden in the simplified phase 1). Computed from the in-memory mirror, never by querying
+ * `pedidos`: `version` is the latest sync id, as for the sales dashboard.
+ */
+export async function cargarPanel(desde: string, hasta: string, marketplaceId: string | null, version: string | null): Promise<DatosPanel> {
+  await asegurarAlmacen(version);
+  const lineas = [...pedidosEnAlmacen().values()]
+    .map((p) => ({ ...p, fecha: Timestamp.fromDate(p.fecha) }) as Linea)
+    .filter((l) => {
+      const dia = diaMadrid(l.fecha.toDate());
+      return dia >= desde && dia <= hasta;
+    })
     // The marketplace filter runs here rather than in the query: avoids a composite index, and the volume is small.
     .filter((l) => l.estado !== "CANCELLED" && (!marketplaceId || l.marketplaceId === marketplaceId));
 
@@ -144,6 +147,7 @@ export async function cargarPanel(desde: string, hasta: string, marketplaceId: s
 
 export async function cargarMarketplaces(): Promise<Marketplace[]> {
   const snap = await adminDb().collection("config").doc("marketplaces").get();
+  contarLecturas(1);
   return ((snap.get("lista") as Marketplace[] | undefined) ?? []).slice().sort((a, b) => a.pais.localeCompare(b.pais, "es"));
 }
 
@@ -152,6 +156,7 @@ export type UltimaSync = { id: string; fecha: Date; pedidosNuevos: number; error
 
 export async function cargarUltimaSync(): Promise<UltimaSync> {
   const d = (await adminDb().collection("sincronizaciones").orderBy("fecha", "desc").limit(1).get()).docs[0];
+  contarLecturas(1);
   if (!d) return null;
   return { id: d.id, fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
 }
@@ -159,6 +164,7 @@ export async function cargarUltimaSync(): Promise<UltimaSync> {
 /** True while a sync holds the lock, so the dashboard can wait for it and refresh itself. */
 export async function syncEnCurso(): Promise<boolean> {
   const desde = (await adminDb().collection("config").doc("sync").get()).get("enCursoDesde") as Timestamp | undefined;
+  contarLecturas(1);
   return !!desde && Date.now() - desde.toMillis() < BLOQUEO_MS;
 }
 

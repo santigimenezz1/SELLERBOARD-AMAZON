@@ -108,11 +108,23 @@ retira el 27/03/2027 y el 27/08/2027.
 - **Coste de producto:** al guardar un coste se aplica a los pedidos que se sincronicen después **y** a los pedidos de ese SKU
   que no tenían coste; los que ya tenían uno lo conservan.
 
-## Lecturas de Firestore (plan gratuito)
+## Consumo de Firestore (plan gratuito)
 
-El plan Spark permite 50.000 lecturas al día. Para no gastarlas, las ventas se guardan **en memoria del servidor**
-(`src/lib/datos/cache.ts`): cargar el panel cuesta unas 4 lecturas, y solo tras una sincronización se leen los documentos
-que esa sincronización ha escrito (todos llevan `sincronizadoEn`). La cuota se reinicia a las 9:00 (hora de España).
+El proyecto está pensado para quedarse en el plan **Spark** (50.000 lecturas y 20.000 escrituras al día; nunca genera
+cargos). Claves:
+
+- **Almacén en memoria** (`src/lib/datos/almacen.ts`): `pedidos`, `transaccionesAmazon` y `productos` se cargan una vez
+  en el servidor y después solo se leen los documentos escritos desde la última carga (todos llevan `sincronizadoEn` o
+  `actualizadoEn`). Cargar el panel cuesta ~3 lecturas (última sincronización, mercados y bloqueo).
+- **Escritor** (misma pieza): antes de escribir compara con el almacén y **omite los documentos que no cambian**; lo que
+  escribe lo aplica al almacén, así que tras sincronizar no se relee nada.
+- La sincronización, la pantalla de costes y el cálculo de beneficio trabajan contra el almacén, nunca consultando colecciones.
+- **Contador** (`src/lib/datos/consumo.ts`): cada operación se cuenta; el pie del panel muestra el consumo del día y se
+  convierte en aviso a partir del 50 % de cualquiera de los dos límites. Se guarda en `consumo/{día}`.
+- El almacén vive en un único proceso de servidor: desplegar en **un solo contenedor siempre encendido** (Railway), no en
+  plataformas serverless que arrancan en frío en cada visita.
+
+La cuota se reinicia a medianoche de California (9:00 en España).
 
 ## Colecciones de Firestore
 
@@ -120,7 +132,8 @@ que esa sincronización ha escrito (todos llevan `sincronizadoEn`). La cuota se 
 |---|---|
 | `pedidos` | Una línea de pedido por documento (esquema en `src/lib/datos/tipos.ts`) |
 | `costesProducto` | Coste unitario vigente por SKU |
-| `sincronizaciones` | Resultado de cada sincronización + cursores |
+| `sincronizaciones` | Resultado de cada sincronización + cursores (su id es la versión del almacén en memoria) |
+| `consumo` | Lecturas y escrituras de la app por día de cuota |
 | `transaccionesAmazon` | Movimientos de la Finances API resumidos por SKU (para recalcular comisiones y reembolsos) |
 | `productos` | Foto principal y título de cada ASIN (Catalog Items API) |
 | `tiposCambio` | Tipos de cambio del BCE por día |

@@ -1,5 +1,6 @@
 import { cargarMarketplaces, cargarUltimaSync, syncEnCurso } from "@/lib/datos/panel";
-import { datosVentas } from "@/lib/datos/cache";
+import { datosVentas } from "@/lib/datos/almacen";
+import { consumoDeHoy } from "@/lib/datos/consumo";
 import { construirPanel, resolverPanel } from "@/lib/datos/tablero";
 import { formatFechaHora } from "@/lib/format";
 import { isAmazonConfigured } from "@/lib/amazon/cliente";
@@ -22,8 +23,9 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
     { p: texto(sp.p), e: texto(sp.e), desde: texto(sp.desde), hasta: texto(sp.hasta), pais: texto(sp.pais), mes: texto(sp.mes) },
     marketplaces.map((m) => m.id),
   );
-  // ~4 Firestore reads per load: the sales data comes from the in-memory cache, refreshed after each sync.
+  // ~3 Firestore reads per load: the sales data comes from the in-memory mirror (lib/datos/almacen.ts).
   const { lineas, reembolsos, imagenes } = await datosVentas(ultimaSync?.id ?? null);
+  const consumo = await consumoDeHoy();
   const { tarjetas, productos, serie } = construirPanel(lineas, reembolsos, panel);
 
   return (
@@ -34,6 +36,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
       tarjetas={tarjetas}
       seleccionado={panel.seleccionado}
       serie={serie}
+      consumo={consumo}
       productos={productos.map((p) => ({ ...p, imagen: imagenes.get(p.asin) ?? null }))}
       marketplaces={marketplaces}
       acciones={<BotonSync ultima={ultimaSync ? formatFechaHora(ultimaSync.fecha) : null} enCurso={enCurso} />}
