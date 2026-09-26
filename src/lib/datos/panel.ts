@@ -4,6 +4,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { diaMadrid, diasEntre, inicioDia, sumarDias } from "./fechas";
 import { redondear, type Marketplace } from "./tipos";
+import type { LineaVenta } from "./ventas";
 
 export type Metricas = {
   ventas: number;
@@ -154,26 +155,25 @@ export async function cargarUltimaSync(): Promise<UltimaSync> {
   return { fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
 }
 
-export type UnidadesPais = { marketplaceId: string; pais: string; codigoPais: string; unidades: number };
-export type ProductoVendido = { sku: string; asin: string; titulo: string; unidades: number; imagen: string | null; porPais: UnidadesPais[] };
+/** Order lines of [desde, hasta] (Madrid days) with just what the sales dashboard needs. */
+export async function leerLineasVenta(desde: string, hasta: string): Promise<LineaVenta[]> {
+  const snap = await adminDb()
+    .collection("pedidos")
+    .where("fecha", ">=", Timestamp.fromDate(inicioDia(desde)))
+    .where("fecha", "<", Timestamp.fromDate(inicioDia(sumarDias(hasta, 1))))
+    .select("amazonOrderId", "fecha", "marketplaceId", "estado", "sku", "asin", "titulo", "unidades", "ventaTotal")
+    .get();
+  return snap.docs.map((d) => {
+    const x = d.data();
+    return { ...(x as Omit<LineaVenta, "fecha">), fecha: (x.fecha as Timestamp).toDate() };
+  });
+}
 
-/** Simplified phase-1 table: units per SKU plus the listing photo stored by the sync (`productos/{asin}`). */
-export async function productosVendidos(productos: FilaProducto[], marketplaces: Marketplace[]): Promise<ProductoVendido[]> {
-  const mk = new Map(marketplaces.map((m) => [m.id, m]));
-  const asins = [...new Set(productos.map((p) => p.asin).filter(Boolean))];
+/** Listing photo per ASIN, as stored by the sync in `productos/{asin}`. */
+export async function imagenesProductos(asins: string[]): Promise<Map<string, string>> {
+  const unicos = [...new Set(asins.filter(Boolean))];
+  if (unicos.length === 0) return new Map();
   const db = adminDb();
-  const docs = asins.length ? await db.getAll(...asins.map((a) => db.collection("productos").doc(a))) : [];
-  const imagenes = new Map(docs.filter((d) => d.exists).map((d) => [d.id, (d.get("imagen") as string | null) ?? null]));
-  return productos
-    .map((p) => ({
-      sku: p.sku,
-      asin: p.asin,
-      titulo: p.titulo,
-      unidades: p.unidades,
-      imagen: imagenes.get(p.asin) ?? null,
-      porPais: Object.entries(p.unidadesPorMarketplace)
-        .map(([id, unidades]) => ({ marketplaceId: id, pais: mk.get(id)?.pais ?? id, codigoPais: mk.get(id)?.codigoPais ?? "", unidades }))
-        .sort((a, b) => b.unidades - a.unidades),
-    }))
-    .sort((a, b) => b.unidades - a.unidades);
+  const docs = await db.getAll(...unicos.map((a) => db.collection("productos").doc(a)));
+  return new Map(docs.filter((d) => d.exists && d.get("imagen")).map((d) => [d.id, d.get("imagen") as string]));
 }

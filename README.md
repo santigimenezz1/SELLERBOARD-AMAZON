@@ -42,8 +42,18 @@ Si el antivirus inspecciona HTTPS (Avast, AVG…) y aparece `UNABLE_TO_VERIFY_LE
 
 ## Qué muestra ahora el panel (Fase 1 simplificada)
 
-Solo **ventas totales** y **unidades vendidas**, de todos los países juntos por defecto ("Todos los países") o de uno
-concreto con el filtro, y debajo la lista de productos vendidos con **foto del listing, SKU, ASIN y unidades**.
+Diseño tipo Sellerboard, con los colores de la app:
+
+- **Tarjetas de período:** Hoy, Ayer, Este mes, Este mes (pronóstico) y El mes pasado, cada una con su fecha, **ventas** y
+  **pedidos / unidades**. Al pulsar una se selecciona y la lista de abajo muestra sus productos. El pronóstico proyecta
+  las ventas del mes al ritmo actual (no se puede seleccionar). El menú **Período** añade una tarjeta más (últimos 7 o 30
+  días, o un rango personalizado).
+- **Todos los mercados** por defecto; al elegir un país todo se limita a ese país.
+- **Productos** del período seleccionado, como en Seller Central: foto, ASIN · SKU, título, unidades y ventas; en la vista de
+  todos los mercados, debajo de cada producto, la bandera de cada país con sus unidades.
+
+La lógica de agregación es pura (`src/lib/datos/ventas.ts`, `periodos.ts`, `tablero.ts`) y la comparten el panel y la
+vista `VistaPanel`.
 
 El cálculo de comisiones, IVA, coste y beneficio neto **sigue funcionando** en la sincronización y en `cargarPanel`,
 pero no se muestra. Los componentes que lo enseñan (`Tarjetas`, `GraficoDiario`, `TablaProductos`) siguen en

@@ -28,19 +28,19 @@ export function BotonSync({ ultima }: { ultima: string | null }) {
   const cargando = estado.tipo === "cargando";
 
   return (
-    <div className="flex flex-col items-start gap-2 sm:items-end">
+    <div className="flex flex-col items-start gap-2">
       <div className="flex items-center gap-3">
-        {ultima && !cargando && <span className="text-xs text-ink-400">Última: {ultima}</span>}
         <button
           onClick={sincronizar}
           disabled={cargando}
-          className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-sm font-medium text-ink-950 transition-all hover:bg-accent-400 hover:shadow-glow active:scale-[0.97] disabled:cursor-wait disabled:opacity-70"
+          className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-sm font-medium whitespace-nowrap text-ink-950 transition-all hover:bg-accent-400 hover:shadow-glow active:scale-[0.97] disabled:cursor-wait disabled:opacity-70"
         >
           {cargando ? <Spinner tamano="sm" /> : <span aria-hidden>↻</span>}
           {cargando ? "Sincronizando…" : "Sincronizar ahora"}
         </button>
+        {ultima && !cargando && <span className="text-xs text-ink-400">Última sincronización: {ultima}</span>}
       </div>
-      <div aria-live="polite" className="max-w-md text-sm sm:text-right">
+      <div aria-live="polite" className="max-w-md text-sm">
         {cargando && <p className="text-ink-400">La primera vez puede tardar unos minutos (límites de peticiones de Amazon).</p>}
         {estado.tipo === "ok" && (
           <div className="rounded-lg border border-white/[0.06] bg-ink-900/80 px-3 py-2">
