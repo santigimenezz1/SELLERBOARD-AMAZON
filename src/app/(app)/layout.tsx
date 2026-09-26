@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth/session";
 import { Logo } from "@/components/Logo";
 import { LogoutButton } from "@/components/LogoutButton";
 import { Nav } from "@/components/Nav";
+import { ContadorConsumo } from "@/components/ContadorConsumo";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
@@ -15,6 +16,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             <Nav />
           </div>
           <div className="flex items-center gap-3">
+            {/* TEMPORARY: Firestore usage while testing the free-plan consumption. */}
+            <ContadorConsumo />
             <span className="hidden max-w-[220px] truncate text-sm text-ink-400 md:block">{user.email}</span>
             <LogoutButton />
           </div>

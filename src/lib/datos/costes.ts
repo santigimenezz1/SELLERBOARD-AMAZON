@@ -25,7 +25,9 @@ export async function listarSkus(): Promise<SkuConCoste[]> {
 
   const porSku = new Map<string, SkuConCoste>();
   for (const l of lineas) {
-    const s = porSku.get(l.sku) ?? { sku: l.sku, titulo: l.titulo, asin: l.asin, unidades: 0, costeUnitario: null, actualizadoEn: null };
+    const s = porSku.get(l.sku) ?? { sku: l.sku, titulo: "", asin: l.asin, unidades: 0, costeUnitario: null, actualizadoEn: null };
+    // Amazon sometimes sends a placeholder title ("-"): keep the first real one.
+    if (!s.titulo && l.titulo && l.titulo.trim().length > 1) s.titulo = l.titulo;
     if (l.estado !== "CANCELLED") s.unidades += l.unidades;
     porSku.set(l.sku, s);
   }

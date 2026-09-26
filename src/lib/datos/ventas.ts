@@ -81,7 +81,15 @@ export function resumenVentas(lineas: LineaVenta[], reembolsos: LineaReembolso[]
 export function productosDelPeriodo(lineas: LineaVenta[], reembolsos: LineaReembolso[], desde: string, hasta: string, marketplaceId: string | null): ProductoPeriodo[] {
   type Acumulado = ProductoPeriodo & { mk: Map<string, number>; pedidosReembolsados: Set<string> };
   const porSku = new Map<string, Acumulado>();
-  const fichaDe = new Map(lineas.map((l) => [l.sku, { asin: l.asin, titulo: l.titulo }]));
+  // Amazon sometimes sends a placeholder title ("-") on some order lines: keep the first real one per SKU.
+  const fichaDe = new Map<string, { asin: string; titulo: string }>();
+  for (const l of lineas) {
+    const previa = fichaDe.get(l.sku);
+    const tituloReal = l.titulo && l.titulo.trim().length > 1 ? l.titulo : "";
+    if (!previa) fichaDe.set(l.sku, { asin: l.asin, titulo: tituloReal });
+    else if (!previa.titulo && tituloReal) previa.titulo = tituloReal;
+    else if (!previa.asin && l.asin) previa.asin = l.asin;
+  }
   const nuevo = (sku: string): Acumulado => ({
     sku,
     asin: fichaDe.get(sku)?.asin ?? "",
