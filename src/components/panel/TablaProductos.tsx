@@ -1,5 +1,6 @@
 "use client";
 
+// Not rendered in the simplified phase 1 (sales and units only): kept for when the profit breakdown table is re-enabled.
 import { useState } from "react";
 import Link from "next/link";
 import type { FilaProducto } from "@/lib/datos/panel";

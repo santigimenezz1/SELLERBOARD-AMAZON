@@ -1,3 +1,4 @@
+// Not rendered in the simplified phase 1 (sales and units only): kept for when the profit cards are re-enabled.
 import type { Metricas } from "@/lib/datos/panel";
 import { formatEuros, formatNumero, formatPorcentaje } from "@/lib/format";
 

@@ -6,9 +6,9 @@ import type { Marketplace } from "@/lib/datos/tipos";
 import { bandera } from "@/lib/datos/paises";
 import { useNavegarPanel } from "./Transicion";
 
-type Props = { rango: Rango; desde: string; hasta: string; pais: string | null; marketplaces: Marketplace[] };
+type Props = { rango: Rango; desde: string; hasta: string; pais: string | null; marketplaces: Marketplace[]; base?: string };
 
-export function Filtros({ rango, desde, hasta, pais, marketplaces }: Props) {
+export function Filtros({ rango, desde, hasta, pais, marketplaces, base = "/" }: Props) {
   const { navegar } = useNavegarPanel();
   const [personal, setPersonal] = useState({ desde, hasta });
   const [abierto, setAbierto] = useState(rango === "personalizado");
@@ -22,7 +22,7 @@ export function Filtros({ rango, desde, hasta, pais, marketplaces }: Props) {
     };
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries({ ...actual, ...cambios })) if (v) p.set(k, v);
-    navegar(`/?${p.toString()}`);
+    navegar(`${base}?${p.toString()}`);
   }
 
   const presets = (Object.keys(RANGOS) as Rango[]).filter((r) => r !== "personalizado");
@@ -77,7 +77,7 @@ export function Filtros({ rango, desde, hasta, pais, marketplaces }: Props) {
         País
       </label>
       <select id="pais" value={pais ?? ""} onChange={(e) => ir({ pais: e.target.value || null })} className={campo}>
-        <option value="">Todos los países</option>
+        <option value="">🌍 Todos los países</option>
         {marketplaces.map((m) => (
           <option key={m.id} value={m.id}>
             {bandera(m.codigoPais)} {m.pais}

@@ -5,7 +5,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { calcularBeneficio, redondear, type Marketplace, type Pedido } from "@/lib/datos/tipos";
 import { nombrePais } from "@/lib/datos/paises";
 import { ivaIncluido } from "@/lib/datos/iva";
-import { marketplacesActivos, pedidosActualizados, transacciones, type PedidoAmazon } from "./apis";
+import { imagenesCatalogo, marketplacesActivos, pedidosActualizados, transacciones, type PedidoAmazon } from "./apis";
 import { resumirTransaccion, type TransaccionResumida } from "./finanzas";
 import { ahoraMenos3Min } from "./cliente";
 import { eurPorUnidad } from "./tiposCambio";
@@ -23,6 +23,9 @@ import { eurPorUnidad } from "./tiposCambio";
  *                   asking per order also catches refunds of old orders.
  * 4. Every order touched in 2 or 3 gets comisiones/reembolso/beneficio
  *    recomputed from ALL its stored transactions, so re-running is idempotent.
+ *
+ * 5. Catalog Items API → main listing photo of every ASIN that doesn't have one
+ *    yet (`productos/{asin}`); fetched once per ASIN, 20 per call.
  *
  * Each cursor only advances when its stage completes; a failed stage is simply
  * retried from the same point next time.
@@ -154,6 +157,13 @@ export async function sincronizar(): Promise<ResultadoSync> {
       errores.push(...(await recalcularPedidos(db, [...tocados])));
     } catch (e) {
       errores.push(`Recalcular beneficio: ${mensaje(e)}`);
+    }
+
+    // 5. Listing photos (a failure here never blocks the sales data)
+    try {
+      errores.push(...(await descargarImagenes(db)));
+    } catch (e) {
+      errores.push(`Catalog Items API (fotos): ${mensaje(e)}`);
     }
 
     const duracionMs = Date.now() - inicio;
@@ -356,3 +366,39 @@ export async function aplicarCosteAPedidosSinCoste(db: Firestore, sku: string, c
   return snap.size;
 }
 
+
+/** Fetches the listing photo of every sold ASIN still missing from `productos`, grouped by the marketplace it sold in. */
+async function descargarImagenes(db: Firestore): Promise<string[]> {
+  const [vendidos, conocidos] = await Promise.all([db.collection("pedidos").select("asin", "marketplaceId").get(), db.collection("productos").select().get()]);
+  const yaTienen = new Set(conocidos.docs.map((d) => d.id));
+  const pendientes = new Map<string, string>(); // asin → marketplace where it sold
+  for (const d of vendidos.docs) {
+    const asin = d.get("asin") as string;
+    if (asin && !yaTienen.has(asin) && !pendientes.has(asin)) pendientes.set(asin, d.get("marketplaceId") as string);
+  }
+
+  const porMarketplace = new Map<string, string[]>();
+  for (const [asin, mk] of pendientes) porMarketplace.set(mk, [...(porMarketplace.get(mk) ?? []), asin]);
+
+  const errores: string[] = [];
+  for (const [marketplaceId, asins] of porMarketplace) {
+    for (const lote of trocear(asins, 20)) {
+      try {
+        const items = await imagenesCatalogo(lote, marketplaceId);
+        // ASINs Amazon didn't return (e.g. closed listings) are stored without photo so they aren't asked for again.
+        const porAsin = new Map(items.map((i) => [i.asin, i]));
+        await escribirEnLotes(
+          db,
+          lote.map((asin) => ({
+            ref: db.collection("productos").doc(asin),
+            data: { asin, imagen: porAsin.get(asin)?.imagen ?? null, titulo: porAsin.get(asin)?.titulo ?? null, marketplaceId, actualizadoEn: Timestamp.now() },
+          })),
+        );
+      } catch (e) {
+        // Nothing stored: these ASINs are retried on the next sync.
+        return [...errores, `Catalog Items API (fotos): ${mensaje(e)}`];
+      }
+    }
+  }
+  return errores;
+}

@@ -1,12 +1,11 @@
-import { cargarMarketplaces, cargarPanel, cargarUltimaSync } from "@/lib/datos/panel";
+import { cargarMarketplaces, cargarPanel, cargarUltimaSync, productosVendidos } from "@/lib/datos/panel";
 import { resolverRango, RANGOS } from "@/lib/datos/fechas";
 import { formatDiaLargo, formatFechaHora } from "@/lib/format";
 import { isAmazonConfigured } from "@/lib/amazon/cliente";
 import { Filtros } from "@/components/panel/Filtros";
 import { BotonSync } from "@/components/panel/BotonSync";
-import { Tarjetas } from "@/components/panel/Tarjetas";
-import { GraficoDiario } from "@/components/panel/GraficoDiario";
-import { TablaProductos } from "@/components/panel/TablaProductos";
+import { TarjetasVentas } from "@/components/panel/TarjetasVentas";
+import { TablaVendidos } from "@/components/panel/TablaVendidos";
 import { Atenuable, TransicionPanel } from "@/components/panel/Transicion";
 
 const texto = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
@@ -19,6 +18,8 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
   const paisPedido = texto(sp.pais) ?? null;
   const pais = marketplaces.some((m) => m.id === paisPedido) ? paisPedido : null;
   const datos = await cargarPanel(desde, hasta, pais);
+  const vendidos = await productosVendidos(datos.productos);
+  const mercado = marketplaces.find((m) => m.id === pais);
 
   const subtitulo = desde === hasta ? formatDiaLargo(desde) : `${formatDiaLargo(desde)} – ${formatDiaLargo(hasta)}`;
 
@@ -27,7 +28,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Panel de beneficio</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Ventas {mercado ? `· ${mercado.pais}` : "internacionales"}</h1>
             <p className="mt-1 text-sm text-ink-400">
               {rango === "personalizado" ? subtitulo : `${RANGOS[rango]} · ${subtitulo}`} · importes en EUR
             </p>
@@ -50,9 +51,10 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
 
         <Atenuable>
           <div className="flex flex-col gap-6">
-            <Tarjetas m={datos.metricas} />
-            <GraficoDiario serie={datos.serie} />
-            <TablaProductos productos={datos.productos} />
+            {/* Simplified phase 1: sales and units only. The profit maths (fees, VAT, cost, net profit) still runs in
+                cargarPanel and the sync; <Tarjetas>, <GraficoDiario> and <TablaProductos> show it once re-enabled. */}
+            <TarjetasVentas m={datos.metricas} />
+            <TablaVendidos productos={vendidos} dominio={mercado?.dominio.replace(/^https?:\/\//, "") || "www.amazon.es"} />
           </div>
         </Atenuable>
       </div>

@@ -150,3 +150,16 @@ export async function cargarUltimaSync(): Promise<UltimaSync> {
   if (!d) return null;
   return { fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
 }
+
+export type ProductoVendido = { sku: string; asin: string; titulo: string; unidades: number; imagen: string | null };
+
+/** Simplified phase-1 table: units per SKU plus the listing photo stored by the sync (`productos/{asin}`). */
+export async function productosVendidos(productos: FilaProducto[]): Promise<ProductoVendido[]> {
+  const asins = [...new Set(productos.map((p) => p.asin).filter(Boolean))];
+  const db = adminDb();
+  const docs = asins.length ? await db.getAll(...asins.map((a) => db.collection("productos").doc(a))) : [];
+  const imagenes = new Map(docs.filter((d) => d.exists).map((d) => [d.id, (d.get("imagen") as string | null) ?? null]));
+  return productos
+    .map((p) => ({ sku: p.sku, asin: p.asin, titulo: p.titulo, unidades: p.unidades, imagen: imagenes.get(p.asin) ?? null }))
+    .sort((a, b) => b.unidades - a.unidades);
+}

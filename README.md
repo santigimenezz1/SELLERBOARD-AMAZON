@@ -23,7 +23,8 @@ En Seller Central → Apps y servicios → Develop Apps, en tu app ya registrada
 
 1. **Regenera el Client Secret** (el anterior se compartió en un chat y no debe reutilizarse).
 2. Pulsa **Authorize app** para generar un **Refresh Token** nuevo vinculado a tu cuenta de vendedor.
-3. La app necesita los roles que dan acceso a *Orders*, *Finance and Accounting* y *Sellers* (Selling Partner Insights).
+3. La app necesita los roles que dan acceso a *Orders*, *Finance and Accounting*, *Sellers* (Selling Partner Insights) y
+   *Product Listing* (Catalog Items, para la foto de cada producto).
 
 No hace falta nada de AWS (IAM ni SigV4): basta con LWA.
 
@@ -39,6 +40,15 @@ npm run dev
 Si el antivirus inspecciona HTTPS (Avast, AVG…) y aparece `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, arranca con
 `$env:NODE_OPTIONS="--use-system-ca"; npm run dev` (igual que en MakerLab).
 
+## Qué muestra ahora el panel (Fase 1 simplificada)
+
+Solo **ventas totales** y **unidades vendidas**, de todos los países juntos por defecto ("Todos los países") o de uno
+concreto con el filtro, y debajo la lista de productos vendidos con **foto del listing, SKU, ASIN y unidades**.
+
+El cálculo de comisiones, IVA, coste y beneficio neto **sigue funcionando** en la sincronización y en `cargarPanel`,
+pero no se muestra. Los componentes que lo enseñan (`Tarjetas`, `GraficoDiario`, `TablaProductos`) siguen en
+`src/components/panel/` para reactivarlos cuando lo básico esté validado.
+
 ## Cómo funciona la sincronización
 
 Botón **Sincronizar ahora** → `POST /api/sync` (`src/lib/amazon/sincronizar.ts`):
@@ -53,6 +63,9 @@ Botón **Sincronizar ahora** → `POST /api/sync` (`src/lib/amazon/sincronizar.t
 4. Cada pedido tocado se **recalcula** a partir de todas sus transacciones guardadas: comisiones, reembolso y
    `beneficioNeto = (ventaTotal − impuestos) − comisionesAmazon − (reembolso − impuestosReembolso) − costeProducto`.
    Repetir una sincronización no duplica nada.
+
+5. **Catalog Items API** (`searchCatalogItems`, 20 ASIN por llamada) → foto principal de cada ASIN vendido que aún no
+   la tenga, en `productos/{asin}`. Se pide una sola vez por ASIN; si falla, no bloquea las ventas y se reintenta.
 
 Cada etapa tiene su propio cursor (`cursorPedidos`, `cursorFinanzas` en `sincronizaciones`), que solo avanza si la etapa termina
 bien; si falla, la siguiente sincronización la reintenta desde el mismo punto. La primera sincronización trae
@@ -87,6 +100,7 @@ retira el 27/03/2027 y el 27/08/2027.
 | `costesProducto` | Coste unitario vigente por SKU |
 | `sincronizaciones` | Resultado de cada sincronización + cursores |
 | `transaccionesAmazon` | Movimientos de la Finances API resumidos por SKU (para recalcular comisiones y reembolsos) |
+| `productos` | Foto principal y título de cada ASIN (Catalog Items API) |
 | `tiposCambio` | Tipos de cambio del BCE por día |
 | `config` | `marketplaces` (activos) y `sync` (bloqueo para no lanzar dos sincronizaciones a la vez) |
 
