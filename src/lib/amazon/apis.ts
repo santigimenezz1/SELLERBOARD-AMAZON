@@ -53,7 +53,8 @@ export async function pedidosActualizados(desde: Date, hasta: Date, marketplaceI
     const res = await spGet<{ orders?: PedidoAmazon[]; pagination?: { nextToken?: string } }>("/orders/2026-01-01/orders", {
       lastUpdatedAfter: desde.toISOString(),
       lastUpdatedBefore: hasta.toISOString(),
-      marketplaceIds: marketplaceIds.slice(0, 50),
+      // Empty list = every marketplace the account sells in.
+      marketplaceIds: marketplaceIds.length ? marketplaceIds.slice(0, 50) : undefined,
       includedData: ["PROCEEDS", "FULFILLMENT"],
       maxResultsPerPage: 100,
       paginationToken,

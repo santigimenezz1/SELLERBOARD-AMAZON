@@ -5,6 +5,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { calcularBeneficio, redondear, type Marketplace, type Pedido } from "@/lib/datos/tipos";
 import { nombrePais } from "@/lib/datos/paises";
 import { ivaIncluido } from "@/lib/datos/iva";
+import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
 import { imagenesCatalogo, marketplacesActivos, pedidosActualizados, transacciones, type PedidoAmazon } from "./apis";
 import { resumirTransaccion, type TransaccionResumida } from "./finanzas";
 import { ahoraMenos3Min } from "./cliente";
@@ -98,6 +99,7 @@ export async function sincronizar(): Promise<ResultadoSync> {
 
     // 1. Marketplaces
     let marketplaces: Marketplace[] = [];
+    let sellersOk = false;
     try {
       marketplaces = (await marketplacesActivos()).map((p) => ({
         id: p.marketplace.id,
@@ -107,19 +109,30 @@ export async function sincronizar(): Promise<ResultadoSync> {
         moneda: p.marketplace.defaultCurrencyCode,
       }));
       await db.collection("config").doc("marketplaces").set({ lista: marketplaces, actualizadoEn: Timestamp.now() });
+      sellersOk = true;
     } catch (e) {
-      errores.push(`Sellers API: ${mensaje(e)}`);
+      // Without the Sellers API role the orders still work: markets are taken from the orders themselves (step 2).
+      errores.push(`Sellers API: ${mensaje(e)} (se usan los países de los propios pedidos)`);
       marketplaces = ((await db.collection("config").doc("marketplaces").get()).get("lista") as Marketplace[] | undefined) ?? [];
     }
 
     // 2. Orders
-    if (marketplaces.length === 0) {
-      errores.push("No hay marketplaces activos conocidos: no se pueden pedir pedidos.");
-    } else {
+    {
       try {
         const hasta = ahoraMenos3Min();
         const desde = cursorPedidos ? new Date(cursorPedidos.getTime() - SOLAPE_PEDIDOS_MS) : primeraVez;
-        const pedidos = await pedidosActualizados(desde, hasta, marketplaces.map((m) => m.id));
+        // No Sellers API: ask for every market, so a country we haven't seen yet isn't missed.
+        const pedidos = await pedidosActualizados(desde, hasta, sellersOk ? marketplaces.map((m) => m.id) : []);
+        if (!sellersOk) {
+          const conocidos = new Set(marketplaces.map((m) => m.id));
+          const nuevos = [...new Set(pedidos.map((p) => p.salesChannel.marketplaceId ?? ""))]
+            .filter((id) => id && !conocidos.has(id))
+            .map((id) => marketplaceConocido(id) ?? { id, pais: id, codigoPais: "", dominio: "", moneda: "EUR" });
+          if (nuevos.length) {
+            marketplaces = [...marketplaces, ...nuevos];
+            await db.collection("config").doc("marketplaces").set({ lista: marketplaces, actualizadoEn: Timestamp.now(), origen: "pedidos" });
+          }
+        }
         const r = await guardarPedidos(db, pedidos, marketplaces);
         pedidosNuevos = r.nuevos;
         pedidosActualizadosN = pedidos.length;
