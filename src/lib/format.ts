@@ -25,3 +25,8 @@ export function formatDiaLargo(dia: string): string {
 export function formatFechaHora(d: Date): string {
   return d.toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
 }
+
+/** 31.99, "GBP" → "31,99 £" (Spanish formatting, the marketplace's currency). */
+export function formatMoneda(v: number | null, moneda: string): string {
+  return v === null ? "—" : v.toLocaleString("es-ES", { style: "currency", currency: moneda || "EUR", currencyDisplay: "narrowSymbol", useGrouping: "always" });
+}

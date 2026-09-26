@@ -5,11 +5,12 @@ import { adminDb } from "@/lib/firebase/admin";
 import type { TransaccionResumida } from "@/lib/amazon/finanzas";
 import { contarEscrituras, contarLecturas } from "./consumo";
 import type { Pedido } from "./tipos";
+import type { Ficha } from "./fichas";
 import type { LineaReembolso, LineaVenta } from "./ventas";
 
 /*
- * In-memory mirror of the three big collections (`pedidos`,
- * `transaccionesAmazon`, `productos`), so the app stays well inside the free
+ * In-memory mirror of the big collections (`pedidos`,
+ * `transaccionesAmazon`, `productos`, `fichas`), so the app stays well inside the free
  * Spark quota (50,000 reads / 20,000 writes a day):
  *
  * - Reading: loaded once; afterwards only docs written since the last load are
@@ -24,7 +25,7 @@ import type { LineaReembolso, LineaVenta } from "./ventas";
  * Railway deployment runs one instance — so no cross-instance invalidation.
  */
 
-export type ColeccionAlmacen = "pedidos" | "transaccionesAmazon" | "productos";
+export type ColeccionAlmacen = "pedidos" | "transaccionesAmazon" | "productos" | "fichas";
 
 export type TransaccionGuardada = TransaccionResumida & { sincronizadoEn?: Date };
 export type ProductoGuardado = { asin: string; imagen: string | null; titulo: string | null; marketplaceId: string; actualizadoEn: Date };
@@ -36,6 +37,7 @@ type Almacen = {
   pedidos: Map<string, Pedido>;
   transaccionesAmazon: Map<string, TransaccionGuardada>;
   productos: Map<string, ProductoGuardado>;
+  fichas: Map<string, Ficha>;
   /** Bumped on every change, to memoise derived views. */
   revision: number;
 };
@@ -43,12 +45,15 @@ type Almacen = {
 const g = globalThis as unknown as { __almacen?: Almacen; __almacenCargando?: Promise<void>; __almacenDerivado?: { revision: number; datos: DatosVentas } };
 
 function almacen(): Almacen {
-  return (g.__almacen ??= { version: null, marca: null, pedidos: new Map(), transaccionesAmazon: new Map(), productos: new Map(), revision: 0 });
+  const a = (g.__almacen ??= { version: null, marca: null, pedidos: new Map(), transaccionesAmazon: new Map(), productos: new Map(), fichas: new Map(), revision: 0 });
+  // A mirror created by an older version of this code (dev hot reload) may lack a newer collection.
+  for (const col of Object.keys(CAMPO_MARCA) as ColeccionAlmacen[]) a[col] ??= new Map() as never;
+  return a;
 }
 
 /** Clock-skew margin between this server and the write stamps. */
 const MARGEN_MS = 2 * 60_000;
-const CAMPO_MARCA: Record<ColeccionAlmacen, string> = { pedidos: "sincronizadoEn", transaccionesAmazon: "sincronizadoEn", productos: "actualizadoEn" };
+const CAMPO_MARCA: Record<ColeccionAlmacen, string> = { pedidos: "sincronizadoEn", transaccionesAmazon: "sincronizadoEn", productos: "actualizadoEn", fichas: "actualizadoEn" };
 
 /** Firestore Timestamps → Dates (top-level fields), so the mirror holds plain values. */
 function aPlano(d: DocumentData): DocumentData {
@@ -104,6 +109,7 @@ export function invalidarAlmacen() {
 export const pedidosEnAlmacen = (): ReadonlyMap<string, Pedido> => almacen().pedidos;
 export const transaccionesEnAlmacen = (): ReadonlyMap<string, TransaccionGuardada> => almacen().transaccionesAmazon;
 export const productosEnAlmacen = (): ReadonlyMap<string, ProductoGuardado> => almacen().productos;
+export const fichasEnAlmacen = (): ReadonlyMap<string, Ficha> => almacen().fichas;
 
 // ---------- Writing ----------
 
@@ -129,16 +135,19 @@ function cambia(actual: DocumentData | undefined, datos: DocumentData): boolean 
  * Committed batches are applied to the mirror right away.
  */
 export class Escritor {
-  private pendientes = new Map<string, { col: ColeccionAlmacen; id: string; datos: DocumentData }>();
+  private pendientes = new Map<string, { col: ColeccionAlmacen; id: string; datos: DocumentData; reemplazar: boolean }>();
 
-  /** Queues a merge-write; returns false (and queues nothing) if the doc wouldn't change. */
-  set(col: ColeccionAlmacen, id: string, datos: DocumentData): boolean {
+  /**
+   * Queues a write; returns false (and queues nothing) if the doc wouldn't change. Merges into the stored doc,
+   * unless `reemplazar`: then the doc is overwritten whole (nested maps included).
+   */
+  set(col: ColeccionAlmacen, id: string, datos: DocumentData, { reemplazar = false } = {}): boolean {
     const clave = `${col}/${id}`;
     const previo = this.pendientes.get(clave);
     const actual = { ...((almacen()[col] as Map<string, DocumentData>).get(id) ?? {}), ...(previo?.datos ?? {}) };
     const existe = (almacen()[col] as Map<string, DocumentData>).has(id) || !!previo;
     if (existe && !cambia(actual, datos)) return false;
-    this.pendientes.set(clave, { col, id, datos: { ...(previo?.datos ?? {}), ...datos } });
+    this.pendientes.set(clave, { col, id, datos: reemplazar ? datos : { ...(previo?.datos ?? {}), ...datos }, reemplazar: reemplazar || !!previo?.reemplazar });
     return true;
   }
 
@@ -154,12 +163,15 @@ export class Escritor {
     for (let i = 0; i < ops.length; i += 400) {
       const grupo = ops.slice(i, i + 400);
       const batch = db.batch();
-      for (const o of grupo) batch.set(db.collection(o.col).doc(o.id), o.datos, { merge: true });
+      for (const o of grupo) {
+        if (o.reemplazar) batch.set(db.collection(o.col).doc(o.id), o.datos);
+        else batch.set(db.collection(o.col).doc(o.id), o.datos, { merge: true });
+      }
       await batch.commit();
       contarEscrituras(grupo.length);
       for (const o of grupo) {
         const mapa = a[o.col] as Map<string, DocumentData>;
-        mapa.set(o.id, { ...(mapa.get(o.id) ?? {}), ...o.datos });
+        mapa.set(o.id, o.reemplazar ? { ...o.datos } : { ...(mapa.get(o.id) ?? {}), ...o.datos });
       }
       a.revision++;
     }

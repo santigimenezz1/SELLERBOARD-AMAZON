@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { ProductoPeriodo } from "@/lib/datos/ventas";
 import type { Marketplace } from "@/lib/datos/tipos";
 import { formatEuros, formatNumero } from "@/lib/format";
@@ -110,7 +111,13 @@ export function TablaProductosPeriodo({ titulo, productos, marketplaces, dominio
                           )}
                         </p>
                         <p className="mt-0.5 line-clamp-1 text-[14px] text-ink-100" title={p.titulo}>
-                          {p.titulo || p.sku}
+                          {p.asin ? (
+                            <Link href={`/productos/${p.asin}`} className="hover:text-accent-300 hover:underline">
+                              {p.titulo || p.sku}
+                            </Link>
+                          ) : (
+                            p.titulo || p.sku
+                          )}
                         </p>
                         {desglosePorPais && p.porMarketplace.length > 0 && (
                           <ul className="mt-2.5 flex flex-wrap gap-x-5 gap-y-2" aria-label="Unidades por mercado">

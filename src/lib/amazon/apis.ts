@@ -180,3 +180,67 @@ export async function inventarioFBA(marketplaceId: string): Promise<ResumenInven
   } while (nextToken);
   return todos;
 }
+
+// ---------- Catalog Items 2022-04-01: full listing card ----------
+
+type ValorAtributo = { value?: unknown; language_tag?: string; marketplace_id?: string; unit?: string };
+type Medida = { unit?: string; value?: number };
+
+export type ItemCatalogoCompleto = {
+  asin: string;
+  attributes?: Record<string, (ValorAtributo & Record<string, unknown>)[]>;
+  images?: { marketplaceId: string; images: { variant: string; link: string; height: number; width: number }[] }[];
+  summaries?: { marketplaceId: string; itemName?: string; brand?: string; color?: string; size?: string; modelNumber?: string }[];
+  salesRanks?: {
+    marketplaceId: string;
+    classificationRanks?: { title: string; link?: string; rank: number }[];
+    displayGroupRanks?: { title: string; link?: string; rank: number }[];
+  }[];
+  dimensions?: { marketplaceId: string; item?: { height?: Medida; length?: Medida; width?: Medida; weight?: Medida } }[];
+};
+
+/** Everything a buyer sees on a listing, for up to 20 ASINs in one marketplace, in that marketplace's language. */
+export async function fichasCatalogo(asins: string[], marketplaceId: string, locale?: string): Promise<ItemCatalogoCompleto[]> {
+  const res = await spGet<{ items?: ItemCatalogoCompleto[] }>("/catalog/2022-04-01/items", {
+    identifiers: asins.slice(0, 20),
+    identifiersType: "ASIN",
+    marketplaceIds: marketplaceId,
+    includedData: ["attributes", "images", "summaries", "salesRanks", "dimensions"],
+    locale,
+    pageSize: 20,
+  });
+  return res.items ?? [];
+}
+
+// ---------- Product Pricing v0: own price and Buy Box, 20 ASINs per call ----------
+
+type PrecioV0 = { Amount?: number; CurrencyCode?: string };
+
+export type PrecioPropio = {
+  ASIN: string;
+  status: string;
+  Product?: { Offers?: { SellerSKU?: string; FulfillmentChannel?: string; BuyingPrice?: { ListingPrice?: PrecioV0; Shipping?: PrecioV0; LandedPrice?: PrecioV0 } }[] };
+};
+
+export type PrecioCompetitivo = {
+  ASIN: string;
+  status: string;
+  Product?: {
+    CompetitivePricing?: {
+      CompetitivePrices?: { CompetitivePriceId?: string; belongsToRequester?: boolean; Price?: { LandedPrice?: PrecioV0 } }[];
+      NumberOfOfferListings?: { condition?: string; Count?: number }[];
+    };
+  };
+};
+
+/** The seller's own offer (price, shipping, channel) for up to 20 ASINs in one marketplace. */
+export async function preciosPropios(asins: string[], marketplaceId: string): Promise<PrecioPropio[]> {
+  const r = await spGet<{ payload?: PrecioPropio[] }>("/products/pricing/v0/price", { MarketplaceId: marketplaceId, ItemType: "Asin", Asins: asins.slice(0, 20) });
+  return r.payload ?? [];
+}
+
+/** Buy Box price, whether it's ours, and the number of offers, for up to 20 ASINs in one marketplace. */
+export async function preciosCompetitivos(asins: string[], marketplaceId: string): Promise<PrecioCompetitivo[]> {
+  const r = await spGet<{ payload?: PrecioCompetitivo[] }>("/products/pricing/v0/competitivePrice", { MarketplaceId: marketplaceId, ItemType: "Asin", Asins: asins.slice(0, 20) });
+  return r.payload ?? [];
+}

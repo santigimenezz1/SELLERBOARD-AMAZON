@@ -65,6 +65,17 @@ El cálculo de comisiones, IVA, coste y beneficio neto **sigue funcionando** en 
 pero no se muestra. Los componentes que lo enseñan (`Tarjetas`, `GraficoDiario`, `TablaProductos`) siguen en
 `src/components/panel/` para reactivarlos cuando lo básico esté validado.
 
+## Sección Productos
+
+Todos los listings conocidos (vendidos, con stock FBA o con ficha) como tarjetas, y una **ficha por producto** que imita la
+página de Amazon para un comprador: galería, marca, título, precio (con Prime y envío), ranking de ventas, "Acerca de este
+producto", información del producto y descripción, en el idioma de cada país (selector de los mercados con ventas). Encima,
+una franja con los datos de vendedor: SKUs, stock por región, ventas y reembolsos de 30 días y estado de la Buy Box.
+
+Datos: Catalog Items API (una vez al día) y Product Pricing `getPricing` + `getCompetitivePricing` (cada 3 horas), en lotes
+de 20 ASIN por llamada y país, guardados en `fichas/{asin}` solo si cambian y leídos desde el almacén en memoria.
+**Actualizar ficha** fuerza la descarga de un producto. Amazon no da por API las estrellas y reseñas.
+
 ## Sección Stock
 
 Stock FBA por región (FBA Inventory API). Amazon guarda un stock común para los mercados de la UE (FBA paneuropeo) y otro
@@ -143,6 +154,7 @@ La cuota se reinicia a medianoche de California (9:00 en España).
 | `sincronizaciones` | Resultado de cada sincronización + cursores (su id es la versión del almacén en memoria) |
 | `consumo` | Lecturas y escrituras de la app por día de cuota |
 | `config/stock` | Última foto del stock FBA por región |
+| `fichas` | Ficha de cada ASIN por mercado (catálogo) y precio/Buy Box actuales |
 | `transaccionesAmazon` | Movimientos de la Finances API resumidos por SKU (para recalcular comisiones y reembolsos) |
 | `productos` | Foto principal y título de cada ASIN (Catalog Items API) |
 | `tiposCambio` | Tipos de cambio del BCE por día |

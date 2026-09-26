@@ -9,6 +9,7 @@ import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketpla
 import { asegurarAlmacen, Escritor, fijarVersion, invalidarAlmacen, pedidosEnAlmacen, productosEnAlmacen, transaccionesEnAlmacen } from "@/lib/datos/almacen";
 import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/consumo";
 import { actualizarStock } from "@/lib/datos/stock";
+import { actualizarFichas } from "@/lib/datos/fichas";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { resumirEventos, type TransaccionResumida } from "./finanzas";
 import { ahoraMenos3Min } from "./cliente";
@@ -31,6 +32,8 @@ import { eurPorUnidad } from "./tiposCambio";
  *    (`productos/{asin}`); once per ASIN, 20 per call.
  * 6. FBA Inventory API → stock snapshot per region (`config/stock`), written
  *    only when it changed.
+ * 7. Catalog + Pricing → listing cards (`fichas/{asin}`) of the marketplaces with
+ *    sales: catalog once a day, prices every 3 hours, 20 ASINs per call.
  *
  * Quota-wise (free Spark plan): the existing data comes from the in-memory
  * mirror (lib/datos/almacen.ts), never from re-reading collections, and every
@@ -210,6 +213,14 @@ export async function sincronizar(): Promise<ResultadoSync> {
       await actualizarStock(marketplaces);
     } catch (e) {
       errores.push(`FBA Inventory API (stock): ${mensaje(e)}`);
+    }
+
+    // 7. Listing cards and prices (never blocks the sales data)
+    try {
+      const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
+      escrituras += await actualizarFichas(marketplaces.filter((m) => conVentas.has(m.id)));
+    } catch (e) {
+      errores.push(`Catalog/Pricing API (fichas): ${mensaje(e)}`);
     }
 
     const duracionMs = Date.now() - inicio;
