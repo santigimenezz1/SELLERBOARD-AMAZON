@@ -8,7 +8,8 @@ import { spGet } from "./cliente";
  * - Sellers API v1        getMarketplaceParticipations
  * - Orders API 2026-01-01 searchOrders (replaces Orders v0, removed 27/03/2027;
  *   it returns the order items inline, so no per-order getOrderItems calls)
- * - Finances 2024-06-19   listTransactions (replaces Finances v0, removed 27/08/2027)
+ * - Finances v0           listFinancialEvents. The 2024-06-19 version answers 403 for this
+ *   account; v0 is removed on 27/08/2027, so migrate before then.
  * - Catalog Items 2022-04-01 searchCatalogItems (listing photo)
  */
 
@@ -65,45 +66,56 @@ export async function pedidosActualizados(desde: Date, hasta: Date, marketplaceI
   return pedidos;
 }
 
-// ---------- Finances ----------
+// ---------- Finances v0 ----------
 
-export type Importe = { currencyCode: string; currencyAmount: number };
-export type Desglose = { breakdownType: string; breakdownAmount: Importe; breakdowns?: Desglose[] };
-type Contexto = { contextType?: string; sku?: string; asin?: string; quantityShipped?: number };
+export type Importe = { CurrencyCode: string; CurrencyAmount: number };
+export type Componente = { ChargeType?: string; FeeType?: string; PromotionType?: string; ChargeAmount?: Importe; FeeAmount?: Importe; PromotionAmount?: Importe };
 
-export type TransaccionAmazon = {
-  transactionId: string;
-  transactionType?: string;
-  transactionStatus?: string;
-  description?: string;
-  postedDate: string;
-  totalAmount?: Importe;
-  marketplaceDetails?: { marketplaceId?: string };
-  relatedIdentifiers?: { relatedIdentifierName: string; relatedIdentifierValue: string }[];
-  breakdowns?: Desglose[];
-  items?: {
-    description?: string;
-    totalAmount?: Importe;
-    breakdowns?: Desglose[];
-    contexts?: Contexto[];
-    relatedIdentifiers?: { itemRelatedIdentifierName: string; itemRelatedIdentifierValue: string }[];
-  }[];
+export type ItemEvento = {
+  SellerSKU?: string;
+  OrderItemId?: string;
+  OrderAdjustmentItemId?: string;
+  QuantityShipped?: number;
+  ItemChargeList?: Componente[];
+  ItemChargeAdjustmentList?: Componente[];
+  ItemFeeList?: Componente[];
+  ItemFeeAdjustmentList?: Componente[];
+  PromotionList?: Componente[];
+  PromotionAdjustmentList?: Componente[];
 };
 
-/** Transactions posted in [desde, hasta). The API returns nothing if the window exceeds 180 days. */
-export async function transacciones(desde: Date, hasta: Date): Promise<TransaccionAmazon[]> {
-  const todas: TransaccionAmazon[] = [];
-  let nextToken: string | undefined;
+/** Shape shared by shipment, refund, guarantee-claim and chargeback events. */
+export type EventoPedido = {
+  AmazonOrderId?: string;
+  MarketplaceName?: string;
+  PostedDate?: string;
+  ShipmentItemList?: ItemEvento[];
+  ShipmentItemAdjustmentList?: ItemEvento[];
+};
+
+export type EventosFinancieros = {
+  ShipmentEventList: EventoPedido[];
+  RefundEventList: EventoPedido[];
+  GuaranteeClaimEventList: EventoPedido[];
+  ChargebackEventList: EventoPedido[];
+};
+
+/** Order-linked financial events posted in [desde, hasta). Empty if the window exceeds 180 days. */
+export async function eventosFinancieros(desde: Date, hasta: Date): Promise<EventosFinancieros> {
+  const res: EventosFinancieros = { ShipmentEventList: [], RefundEventList: [], GuaranteeClaimEventList: [], ChargebackEventList: [] };
+  let NextToken: string | undefined;
   do {
-    const res = await spGet<{ payload?: { transactions?: TransaccionAmazon[]; nextToken?: string } }>("/finances/2024-06-19/transactions", {
-      postedAfter: desde.toISOString(),
-      postedBefore: hasta.toISOString(),
-      nextToken,
+    const r = await spGet<{ payload?: { FinancialEvents?: Partial<EventosFinancieros>; NextToken?: string } }>("/finances/v0/financialEvents", {
+      PostedAfter: desde.toISOString(),
+      PostedBefore: hasta.toISOString(),
+      MaxResultsPerPage: 100,
+      NextToken,
     });
-    todas.push(...(res.payload?.transactions ?? []));
-    nextToken = res.payload?.nextToken || undefined;
-  } while (nextToken);
-  return todas;
+    const ev = r.payload?.FinancialEvents ?? {};
+    for (const k of Object.keys(res) as (keyof EventosFinancieros)[]) res[k].push(...(ev[k] ?? []));
+    NextToken = r.payload?.NextToken || undefined;
+  } while (NextToken);
+  return res;
 }
 
 // ---------- Catalog Items 2022-04-01 ----------

@@ -1,14 +1,14 @@
 import "server-only";
 
-import type { Desglose, Importe, TransaccionAmazon } from "./apis";
+import type { Componente, EventoPedido, EventosFinancieros, ItemEvento } from "./apis";
 
 /**
- * A Finances transaction reduced to what the profit maths needs, per SKU.
- * Amounts stay in the transaction's own currency and are positive when they
- * cost the seller money: `comisiones` 3.40 = Amazon kept 3.40 in fees;
+ * A financial event reduced to what the profit maths needs, per SKU.
+ * Amounts stay in the event's own currency and are positive when they cost
+ * the seller money: `comisiones` 3.40 = Amazon kept 3.40 in fees;
  * `reembolso` 19.99 = 19.99 went back to the customer.
  * `iva` is the VAT inside the sale (or inside the refund, for refunds), or
- * null when the transaction doesn't break tax out.
+ * null when the event doesn't break tax out.
  */
 export type TransaccionResumida = {
   transactionId: string;
@@ -19,93 +19,68 @@ export type TransaccionResumida = {
   fechaPublicacion: Date;
   marketplaceId: string | null;
   moneda: string;
-  /** true for the sale's own charge ("Order Payment"): once it exists the order's real fees are known. */
+  /** true for the sale's own charge (shipment event): once it exists the order's real fees are known. */
   esCargoVenta: boolean;
   lineas: { sku: string | null; comisiones: number; reembolso: number; iva: number | null }[];
 };
 
-const FEE = /fee|commission|expense/i;
-const TAX = /tax|vat/i;
-// Tax Amazon collects and remits itself (marketplace facilitator): it offsets the tax line, it isn't extra VAT.
-const RETENIDO = /withh/i;
-const REEMBOLSO = /refund|chargeback|guarantee/i;
-const VENTA = /shipment|order payment/i;
+const importe = (c: Componente) => c.ChargeAmount ?? c.FeeAmount ?? c.PromotionAmount;
+const suma = (cs: Componente[] | undefined, filtro: (c: Componente) => boolean = () => true) =>
+  (cs ?? []).filter(filtro).reduce((s, c) => s + (Number(importe(c)?.CurrencyAmount) || 0), 0);
+// "Tax", "ShippingTax", "GiftWrapTax"… (the withheld marketplace-facilitator VAT lives in a separate list and isn't extra VAT).
+const esIva = (c: Componente) => /tax/i.test(c.ChargeType ?? "");
 
-type Hoja = { ruta: string[]; importe: Importe };
-
-/** Only leaves are summed: parent breakdowns already contain their children's amounts. */
-function hojas(desgloses: Desglose[] | undefined, ruta: string[] = []): Hoja[] {
-  const res: Hoja[] = [];
-  for (const d of desgloses ?? []) {
-    const r = [...ruta, d.breakdownType ?? ""];
-    if (d.breakdowns?.length) res.push(...hojas(d.breakdowns, r));
-    else if (d.breakdownAmount) res.push({ ruta: r, importe: d.breakdownAmount });
-  }
-  return res;
+/** Stable id from the event's own fields, so re-fetching the same event overwrites it instead of duplicating. */
+function idEvento(tipo: string, e: EventoPedido, items: ItemEvento[]): string {
+  const partes = items.map((i) => i.OrderItemId ?? i.OrderAdjustmentItemId ?? i.SellerSKU ?? "").join("-");
+  return `v0_${tipo}_${e.AmazonOrderId}_${e.PostedDate}_${partes}`.replace(/[^A-Za-z0-9_-]/g, "");
 }
 
-function clasificar(desgloses: Desglose[] | undefined) {
-  let fees = 0;
-  let cargos = 0; // principal, shipping, gift wrap, promotions… and the tax on them
-  let iva: number | null = null; // the tax part of `cargos`
-  for (const h of hojas(desgloses)) {
-    const v = Number(h.importe.currencyAmount) || 0;
-    // VAT charged on Amazon's own fees is part of the fee cost, so FEE wins over TAX.
-    if (h.ruta.some((s) => FEE.test(s))) {
-      fees += v;
-      continue;
-    }
-    cargos += v;
-    if (h.ruta.some((s) => TAX.test(s)) && !h.ruta.some((s) => RETENIDO.test(s))) iva = (iva ?? 0) + v;
-  }
-  return { fees, cargos, iva };
-}
+function resumir(tipo: "Shipment" | "Refund" | "GuaranteeClaim" | "Chargeback", e: EventoPedido, marketplaceId: (nombre: string | undefined) => string | null): TransaccionResumida | null {
+  // Account-level movements (storage fees, subscription, payouts…) aren't order events: out of scope for phase 1.
+  if (!e.AmazonOrderId || !e.PostedDate) return null;
+  const esVenta = tipo === "Shipment";
+  const items = (esVenta ? e.ShipmentItemList : e.ShipmentItemAdjustmentList) ?? [];
+  if (items.length === 0) return null;
 
-export function resumirTransaccion(t: TransaccionAmazon): TransaccionResumida | null {
-  const orderId = t.relatedIdentifiers?.find((r) => r.relatedIdentifierName === "ORDER_ID")?.relatedIdentifierValue;
-  // Account-level movements (storage fees, subscription, payouts…) have no order: out of scope for phase 1.
-  if (!orderId) return null;
+  const lineas = items.map((i) => {
+    const cargos = esVenta ? i.ItemChargeList : i.ItemChargeAdjustmentList;
+    const fees = esVenta ? i.ItemFeeList : i.ItemFeeAdjustmentList;
+    const promos = esVenta ? i.PromotionList : i.PromotionAdjustmentList;
+    const hayIva = (cargos ?? []).some(esIva);
+    const iva = hayIva ? suma(cargos, esIva) : null;
+    return {
+      sku: i.SellerSKU ?? null,
+      // Fees come negative on a sale; on a refund Amazon gives part back (positive) and charges a refund fee.
+      comisiones: -suma(fees),
+      // Money back to the customer comes negative: principal, shipping, gift wrap and their tax, net of promotions.
+      reembolso: esVenta ? 0 : -(suma(cargos) + suma(promos)),
+      iva: iva === null ? null : esVenta ? iva : -iva,
+    };
+  });
 
-  const clase = `${t.transactionType ?? ""} ${t.description ?? ""}`;
-  const esReembolso = REEMBOLSO.test(clase);
-  const esVenta = !esReembolso && VENTA.test(clase);
-
-  const convertir = (d: Desglose[] | undefined, total: Importe | undefined) => {
-    const { fees, cargos, iva } = clasificar(d);
-    const hayDesglose = (d?.length ?? 0) > 0;
-    const totalNum = Number(total?.currencyAmount) || 0;
-    if (esReembolso) {
-      // Money back to the customer (negative charges) → reembolso; fee refunds/admin fees → comisiones.
-      return hayDesglose ? { comisiones: -fees, reembolso: -cargos, iva: iva === null ? null : -iva } : { comisiones: 0, reembolso: -totalNum, iva: null };
-    }
-    if (esVenta) return { comisiones: -fees, reembolso: 0, iva };
-    // Any other order-linked adjustment (retrocharges, reimbursements…): its net effect counts as fees.
-    return { comisiones: -(hayDesglose ? fees + cargos : totalNum), reembolso: 0, iva: null };
-  };
-
-  const skuDe = (item: NonNullable<TransaccionAmazon["items"]>[number]) => item.contexts?.find((c) => c.sku)?.sku ?? null;
-  const items = t.items ?? [];
-  let lineas: TransaccionResumida["lineas"];
-  if (items.some((i) => i.breakdowns?.length)) {
-    // Per-item breakdowns: the transaction-level ones are just their sum, so they're ignored.
-    lineas = items.map((i) => ({ sku: skuDe(i), ...convertir(i.breakdowns, i.totalAmount) }));
-  } else {
-    // Only a transaction-level breakdown: a sku=null line is split across the order's lines by sales weight.
-    lineas = [{ sku: items.length === 1 ? skuDe(items[0]) : null, ...convertir(t.breakdowns, t.totalAmount) }];
-  }
-
-  const moneda = t.totalAmount?.currencyCode ?? t.items?.[0]?.totalAmount?.currencyCode ?? hojas(t.breakdowns)[0]?.importe.currencyCode ?? "EUR";
-
+  const primero = items.flatMap((i) => [...(i.ItemChargeList ?? []), ...(i.ItemChargeAdjustmentList ?? []), ...(i.ItemFeeList ?? []), ...(i.ItemFeeAdjustmentList ?? [])])[0];
   return {
-    transactionId: t.transactionId,
-    orderId,
-    tipo: t.transactionType ?? "",
-    estado: t.transactionStatus ?? null,
-    descripcion: t.description ?? null,
-    fechaPublicacion: new Date(t.postedDate),
-    marketplaceId: t.marketplaceDetails?.marketplaceId ?? null,
-    moneda,
+    transactionId: idEvento(tipo, e, items),
+    orderId: e.AmazonOrderId,
+    tipo,
+    estado: null,
+    descripcion: null,
+    fechaPublicacion: new Date(e.PostedDate),
+    marketplaceId: marketplaceId(e.MarketplaceName),
+    moneda: (primero && importe(primero)?.CurrencyCode) || "EUR",
     esCargoVenta: esVenta,
     lineas,
   };
+}
+
+/** Order-linked events → summaries. Guarantee claims and chargebacks take money back like refunds. */
+export function resumirEventos(ev: EventosFinancieros, marketplaceId: (nombre: string | undefined) => string | null): TransaccionResumida[] {
+  const res = [
+    ...ev.ShipmentEventList.map((e) => resumir("Shipment", e, marketplaceId)),
+    ...ev.RefundEventList.map((e) => resumir("Refund", e, marketplaceId)),
+    ...ev.GuaranteeClaimEventList.map((e) => resumir("GuaranteeClaim", e, marketplaceId)),
+    ...ev.ChargebackEventList.map((e) => resumir("Chargeback", e, marketplaceId)),
+  ];
+  return res.filter((t): t is TransaccionResumida => t !== null);
 }

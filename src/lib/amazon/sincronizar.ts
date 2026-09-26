@@ -5,11 +5,11 @@ import { adminDb } from "@/lib/firebase/admin";
 import { calcularBeneficio, redondear, type Marketplace, type Pedido } from "@/lib/datos/tipos";
 import { nombrePais } from "@/lib/datos/paises";
 import { ivaIncluido } from "@/lib/datos/iva";
-import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
+import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketplacesConocidos";
 import { asegurarAlmacen, Escritor, fijarVersion, invalidarAlmacen, pedidosEnAlmacen, productosEnAlmacen, transaccionesEnAlmacen } from "@/lib/datos/almacen";
 import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/consumo";
-import { imagenesCatalogo, marketplacesActivos, pedidosActualizados, transacciones, type PedidoAmazon } from "./apis";
-import { resumirTransaccion, type TransaccionResumida } from "./finanzas";
+import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
+import { resumirEventos, type TransaccionResumida } from "./finanzas";
 import { ahoraMenos3Min } from "./cliente";
 import { eurPorUnidad } from "./tiposCambio";
 
@@ -20,9 +20,9 @@ import { eurPorUnidad } from "./tiposCambio";
  * 2. Orders API   → orders UPDATED since the last sync (not just created: a
  *                   pending order gets its price, a cancellation flips its
  *                   status…). One `pedidos` doc per order line.
- * 3. Finances API → transactions POSTED since the last sync (sale charges with
- *                   their fees, refunds…), in `transaccionesAmazon`. Pulling the
- *                   event stream instead of asking per order also catches
+ * 3. Finances API → financial events POSTED since the last sync (sale charges
+ *                   with their fees, refunds…), in `transaccionesAmazon`. Pulling
+ *                   the event stream instead of asking per order also catches
  *                   refunds of old orders.
  * 4. Every order touched in 2 or 3 gets comisiones/reembolso/beneficio
  *    recomputed from ALL its stored transactions, so re-running is idempotent.
@@ -166,7 +166,7 @@ export async function sincronizar(): Promise<ResultadoSync> {
       const hasta = ahoraMenos3Min();
       let desde = cursorFinanzas ? new Date(cursorFinanzas.getTime() - SOLAPE_FINANZAS_MS) : primeraVez;
       if (hasta.getTime() - desde.getTime() > MAX_VENTANA_FINANZAS_MS) desde = new Date(hasta.getTime() - MAX_VENTANA_FINANZAS_MS);
-      const resumidas = (await transacciones(desde, hasta)).map(resumirTransaccion).filter((t): t is TransaccionResumida => t !== null);
+      const resumidas: TransaccionResumida[] = resumirEventos(await eventosFinancieros(desde, hasta), marketplacePorNombre);
       const esc = new Escritor();
       for (const t of resumidas) {
         // The 10-day overlap brings back mostly unchanged transactions: only new or changed ones are written.

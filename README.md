@@ -73,7 +73,7 @@ Botón **Sincronizar ahora** → `POST /api/sync` (`src/lib/amazon/sincronizar.t
 2. **Orders API v2026-01-01** (`searchOrders`) → pedidos **actualizados** desde la última sincronización. Se usa la fecha de
    actualización y no la de creación para recoger también cambios de estado (pendiente → enviado, cancelaciones) y el precio
    de pedidos que estaban pendientes. Cada línea (SKU) se guarda en `pedidos` con id `{amazonOrderId}_{orderItemId}`.
-3. **Finances API v2024-06-19** (`listTransactions`) → movimientos financieros publicados desde la última sincronización
+3. **Finances API v0** (`listFinancialEvents`) → movimientos financieros publicados desde la última sincronización
    (cargo de la venta con sus comisiones, reembolsos…), guardados en `transaccionesAmazon`. Leer el flujo de movimientos en
    vez de preguntar pedido a pedido cuesta muchas menos peticiones y además detecta reembolsos de pedidos antiguos.
 4. Cada pedido tocado se **recalcula** a partir de todas sus transacciones guardadas: comisiones, reembolso y
@@ -88,8 +88,8 @@ bien; si falla, la siguiente sincronización la reintenta desde el mismo punto. 
 `SYNC_DIAS_INICIALES` días (90 por defecto, máx. 180). Los reintentos ante límites de peticiones (HTTP 429) respetan la tasa
 que devuelve Amazon en `x-amzn-RateLimit-Limit`.
 
-Se usan las versiones nuevas de Orders y Finances: las antiguas (Orders v0 y Finances v0) están obsoletas y Amazon las
-retira el 27/03/2027 y el 27/08/2027.
+Orders usa la versión nueva (v2026-01-01). Finances usa la **v0**, porque la 2024-06-19 responde 403 para esta cuenta;
+Amazon retira la v0 el **27/08/2027**, así que hay que migrar antes de esa fecha.
 
 ### Detalles de cálculo
 

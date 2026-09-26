@@ -28,3 +28,11 @@ export function marketplaceConocido(id: string): Marketplace | null {
   const m = CONOCIDOS[id];
   return m ? { id, ...m, pais: nombrePais(m.codigoPais) } : null;
 }
+
+/** "Amazon.co.uk" (as Finances names marketplaces) → its id, or null if unknown. */
+export function marketplacePorNombre(nombre: string | undefined): string | null {
+  if (!nombre) return null;
+  const dominio = nombre.toLowerCase().replace(/^www\./, "");
+  const id = Object.entries(CONOCIDOS).find(([, m]) => m.dominio.replace(/^www\./, "") === dominio)?.[0];
+  return id ?? null;
+}
