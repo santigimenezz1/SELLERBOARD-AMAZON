@@ -1,0 +1,22 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { mismoOrigen } from "@/lib/origen";
+import { getSessionUser } from "@/lib/auth/session";
+import { isAmazonConfigured } from "@/lib/amazon/cliente";
+import { cargarMarketplaces } from "@/lib/datos/panel";
+import { actualizarStock } from "@/lib/datos/stock";
+import { volcarConsumo } from "@/lib/datos/consumo";
+
+/** "Actualizar stock": asks Amazon for the current FBA stock without a full sync. */
+export async function POST(req: NextRequest) {
+  if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
+  if (!(await getSessionUser(true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  if (!isAmazonConfigured) return NextResponse.json({ error: "Faltan las credenciales de Amazon (SPAPI_*) en .env.local" }, { status: 500 });
+  try {
+    const stock = await actualizarStock(await cargarMarketplaces());
+    await volcarConsumo().catch(() => {});
+    return NextResponse.json({ ok: true, actualizadoEn: stock.actualizadoEn });
+  } catch (e) {
+    console.error("[api/stock]", e);
+    return NextResponse.json({ error: e instanceof Error ? e.message : "No se pudo actualizar el stock" }, { status: 500 });
+  }
+}

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const ENLACES = [
   { href: "/", texto: "Panel" },
+  { href: "/stock", texto: "Stock" },
   { href: "/costes", texto: "Costes" },
 ] as const;
 

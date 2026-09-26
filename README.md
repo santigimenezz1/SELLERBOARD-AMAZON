@@ -65,6 +65,14 @@ El cálculo de comisiones, IVA, coste y beneficio neto **sigue funcionando** en 
 pero no se muestra. Los componentes que lo enseñan (`Tarjetas`, `GraficoDiario`, `TablaProductos`) siguen en
 `src/components/panel/` para reactivarlos cuando lo básico esté validado.
 
+## Sección Stock
+
+Stock FBA por región (FBA Inventory API). Amazon guarda un stock común para los mercados de la UE (FBA paneuropeo) y otro
+para Reino Unido: se consulta cada mercado y los que devuelven el mismo stock se agrupan en una región. Por producto:
+vendible por región, vendible total, reservado (pedidos, traslados entre almacenes y proceso), en camino a Amazon y no
+vendible (incluye lo que está en investigación). Se actualiza en cada sincronización o con **Actualizar stock**; se guarda en
+un único documento (`config/stock`), solo si cambió, y se lee de memoria.
+
 ## Cómo funciona la sincronización
 
 Botón **Sincronizar ahora** → `POST /api/sync` (`src/lib/amazon/sincronizar.ts`):
@@ -134,6 +142,7 @@ La cuota se reinicia a medianoche de California (9:00 en España).
 | `costesProducto` | Coste unitario vigente por SKU |
 | `sincronizaciones` | Resultado de cada sincronización + cursores (su id es la versión del almacén en memoria) |
 | `consumo` | Lecturas y escrituras de la app por día de cuota |
+| `config/stock` | Última foto del stock FBA por región |
 | `transaccionesAmazon` | Movimientos de la Finances API resumidos por SKU (para recalcular comisiones y reembolsos) |
 | `productos` | Foto principal y título de cada ASIN (Catalog Items API) |
 | `tiposCambio` | Tipos de cambio del BCE por día |

@@ -142,3 +142,41 @@ export async function imagenesCatalogo(asins: string[], marketplaceId: string): 
     return { asin: item.asin, imagen: principal?.link ?? null, titulo: item.summaries?.[0]?.itemName ?? null };
   });
 }
+
+// ---------- FBA Inventory v1 ----------
+
+export type ResumenInventario = {
+  asin?: string;
+  fnSku?: string;
+  sellerSku?: string;
+  productName?: string;
+  totalQuantity?: number;
+  lastUpdatedTime?: string;
+  inventoryDetails?: {
+    fulfillableQuantity?: number;
+    inboundWorkingQuantity?: number;
+    inboundShippedQuantity?: number;
+    inboundReceivingQuantity?: number;
+    reservedQuantity?: { totalReservedQuantity?: number };
+    unfulfillableQuantity?: { totalUnfulfillableQuantity?: number };
+    researchingQuantity?: { totalResearchingQuantity?: number };
+  };
+};
+
+/** FBA stock as seen from one marketplace (in Pan-European FBA every EU marketplace returns the same shared pool). */
+export async function inventarioFBA(marketplaceId: string): Promise<ResumenInventario[]> {
+  const todos: ResumenInventario[] = [];
+  let nextToken: string | undefined;
+  do {
+    const r = await spGet<{ payload?: { inventorySummaries?: ResumenInventario[] }; pagination?: { nextToken?: string } }>("/fba/inventory/v1/summaries", {
+      details: "true",
+      granularityType: "Marketplace",
+      granularityId: marketplaceId,
+      marketplaceIds: marketplaceId,
+      nextToken,
+    });
+    todos.push(...(r.payload?.inventorySummaries ?? []));
+    nextToken = r.pagination?.nextToken || undefined;
+  } while (nextToken);
+  return todos;
+}

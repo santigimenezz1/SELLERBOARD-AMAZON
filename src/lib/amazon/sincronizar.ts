@@ -8,6 +8,7 @@ import { ivaIncluido } from "@/lib/datos/iva";
 import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketplacesConocidos";
 import { asegurarAlmacen, Escritor, fijarVersion, invalidarAlmacen, pedidosEnAlmacen, productosEnAlmacen, transaccionesEnAlmacen } from "@/lib/datos/almacen";
 import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/consumo";
+import { actualizarStock } from "@/lib/datos/stock";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { resumirEventos, type TransaccionResumida } from "./finanzas";
 import { ahoraMenos3Min } from "./cliente";
@@ -28,6 +29,8 @@ import { eurPorUnidad } from "./tiposCambio";
  *    recomputed from ALL its stored transactions, so re-running is idempotent.
  * 5. Catalog Items API → main listing photo of every ASIN without one yet
  *    (`productos/{asin}`); once per ASIN, 20 per call.
+ * 6. FBA Inventory API → stock snapshot per region (`config/stock`), written
+ *    only when it changed.
  *
  * Quota-wise (free Spark plan): the existing data comes from the in-memory
  * mirror (lib/datos/almacen.ts), never from re-reading collections, and every
@@ -196,6 +199,13 @@ export async function sincronizar(): Promise<ResultadoSync> {
       escrituras += r.escrituras;
     } catch (e) {
       errores.push(`Catalog Items API (fotos): ${mensaje(e)}`);
+    }
+
+    // 6. FBA stock (a failure here never blocks the sales data)
+    try {
+      await actualizarStock(marketplaces);
+    } catch (e) {
+      errores.push(`FBA Inventory API (stock): ${mensaje(e)}`);
     }
 
     const duracionMs = Date.now() - inicio;
