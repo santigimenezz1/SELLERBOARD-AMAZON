@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/* Design tokens. Dark only (like MakerLab); the accent is Amazon-ish amber. */
+@theme {
+  --color-ink-950: #09090b;
+  --color-ink-900: #0f0f12;
+  --color-ink-850: #141418;
+  --color-ink-800: #1a1a1f;
+  --color-ink-700: #26262d;
+  --color-ink-600: #3a3a44;
+  --color-ink-400: #8b8b98;
+  --color-ink-300: #b4b4bf;
+  --color-ink-100: #ececf1;
+
+  --color-accent-300: #ffd07a;
+  --color-accent-400: #ffbd45;
+  --color-accent-500: #ffa91a;
+  --color-accent-600: #e8900a;
+
+  /* Chart series (validated for CVD separation and 3:1 contrast on ink-900). */
+  --color-serie-ventas: #3987e5;
+  --color-serie-beneficio: #199e70;
+
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --shadow-soft: 0 1px 0 0 rgb(255 255 255 / 0.04) inset, 0 12px 32px -12px rgb(0 0 0 / 0.6);
+  --shadow-glow: 0 0 0 1px rgb(255 169 26 / 0.35), 0 8px 30px -6px rgb(255 169 26 / 0.4);
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-ink-950);
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: rgb(255 169 26 / 0.35);
+}
+
+.ambient {
+  background:
+    radial-gradient(60rem 30rem at 15% -10%, rgb(255 169 26 / 0.07), transparent 60%),
+    radial-gradient(40rem 24rem at 100% 0%, rgb(57 135 229 / 0.05), transparent 60%),
+    var(--color-ink-950);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:is(a, button, summary, select, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--color-accent-400) !important;
+  outline-offset: 2px;
+}
+:is(input, textarea):focus-visible {
+  outline: 2px solid rgb(255 189 69 / 0.55);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

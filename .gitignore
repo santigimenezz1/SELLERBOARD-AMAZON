@@ -1,0 +1,28 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+/build
+/coverage
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# secretos: NUNCA al repositorio
+.env*
+!.env.example
+*-firebase-adminsdk-*.json
+service-account*.json
+
+# configuración local de Claude Code
+.claude/
