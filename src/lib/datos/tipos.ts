@@ -20,10 +20,15 @@ export type Pedido = {
   unidades: number;
   /** Lo que pagó el cliente (IVA incluido cuando Amazon lo incluye en el precio). */
   ventaTotal: number;
-  /** Parte de ventaTotal que es impuesto (IVA), según Amazon. Informativo: no se resta en beneficioNeto. */
+  /** IVA contenido en ventaTotal: no es dinero del vendedor, se resta en beneficioNeto. */
   impuestos: number;
+  /** true si Amazon no informó el IVA y se ha estimado con el tipo general del país. */
+  ivaEstimado: boolean;
   comisionesAmazon: number;
+  /** Lo devuelto al cliente, IVA incluido. */
   reembolso: number;
+  /** IVA contenido en el reembolso (ese IVA ya no se debe, así que no se descuenta dos veces). */
+  impuestosReembolso: number;
   costeProducto: number | null;
   beneficioNeto: number | null;
   /** true cuando Amazon ya ha registrado el cargo del envío (y por tanto sus comisiones reales). */
@@ -69,10 +74,15 @@ export function idDocSku(sku: string): string {
   return encodeURIComponent(sku).replace(/\./g, "%2E");
 }
 
-/** ventaTotal - comisiones - reembolso - coste, o null si falta el coste. */
-export function calcularBeneficio(p: Pick<Pedido, "ventaTotal" | "comisionesAmazon" | "reembolso" | "costeProducto">): number | null {
+type CamposBeneficio = "ventaTotal" | "impuestos" | "comisionesAmazon" | "reembolso" | "impuestosReembolso" | "costeProducto";
+
+/**
+ * (ventaTotal - IVA) - comisiones - (reembolso - IVA del reembolso) - coste,
+ * o null si falta el coste. Todo sin IVA: ni el cobrado ni el devuelto son del vendedor.
+ */
+export function calcularBeneficio(p: Pick<Pedido, CamposBeneficio>): number | null {
   if (p.costeProducto === null) return null;
-  return redondear(p.ventaTotal - p.comisionesAmazon - p.reembolso - p.costeProducto);
+  return redondear(p.ventaTotal - p.impuestos - p.comisionesAmazon - (p.reembolso - p.impuestosReembolso) - p.costeProducto);
 }
 
 export function redondear(v: number): number {

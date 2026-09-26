@@ -7,6 +7,7 @@ export function Tarjetas({ m }: { m: Metricas }) {
     { titulo: "Unidades vendidas", valor: formatNumero(m.unidades) },
     { titulo: "Comisiones de Amazon", valor: formatEuros(m.comisiones), negativo: true },
     { titulo: "Reembolsos", valor: formatEuros(m.reembolsos), negativo: true },
+    { titulo: "IVA", valor: formatEuros(m.iva), negativo: true, nota: m.pedidosIvaEstimado > 0 ? `estimado en ${formatNumero(m.pedidosIvaEstimado)} ${m.pedidosIvaEstimado === 1 ? "pedido" : "pedidos"}` : undefined },
     { titulo: "Coste de producto", valor: formatEuros(m.coste), negativo: true },
   ];
 
@@ -17,15 +18,24 @@ export function Tarjetas({ m }: { m: Metricas }) {
         <h2 className="text-sm font-medium text-ink-300">Beneficio neto</h2>
         <p className={`tabular mt-2 text-4xl font-semibold tracking-tight ${m.beneficio < 0 ? "text-danger" : "text-ink-100"}`}>{formatEuros(m.beneficio)}</p>
         <p className="mt-1 text-sm text-ink-300">
-          Margen <span className="tabular font-medium text-ink-100">{formatPorcentaje(m.margen)}</span>
+          Sin IVA · margen <span className="tabular font-medium text-ink-100">{formatPorcentaje(m.margen)}</span>
         </p>
-        {(m.unidadesSinCoste > 0 || m.pedidosSinLiquidar > 0) && (
+        {(m.unidadesSinCoste > 0 || m.pedidosSinLiquidar > 0 || m.pedidosIvaEstimado > 0) && (
           <ul className="mt-4 space-y-1.5 text-xs leading-relaxed">
             {m.unidadesSinCoste > 0 && (
               <li className="flex gap-1.5 text-warning">
                 <span aria-hidden>⚠</span>
                 <span>
                   No incluye {formatNumero(m.unidadesSinCoste)} {m.unidadesSinCoste === 1 ? "unidad" : "unidades"} sin coste de producto configurado.
+                </span>
+              </li>
+            )}
+            {m.pedidosIvaEstimado > 0 && (
+              <li className="flex gap-1.5 text-ink-400">
+                <span aria-hidden>≈</span>
+                <span>
+                  IVA estimado con el tipo general del país en {formatNumero(m.pedidosIvaEstimado)} {m.pedidosIvaEstimado === 1 ? "pedido" : "pedidos"}: se sustituye por el real
+                  cuando Amazon liquida la venta.
                 </span>
               </li>
             )}

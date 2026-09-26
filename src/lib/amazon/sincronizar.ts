@@ -4,6 +4,7 @@ import { FieldValue, Timestamp, type DocumentData, type Firestore } from "fireba
 import { adminDb } from "@/lib/firebase/admin";
 import { calcularBeneficio, redondear, type Marketplace, type Pedido } from "@/lib/datos/tipos";
 import { nombrePais } from "@/lib/datos/paises";
+import { ivaIncluido } from "@/lib/datos/iva";
 import { marketplacesActivos, pedidosActualizados, transacciones, type PedidoAmazon } from "./apis";
 import { resumirTransaccion, type TransaccionResumida } from "./finanzas";
 import { ahoraMenos3Min } from "./cliente";
@@ -212,7 +213,7 @@ async function guardarPedidos(db: Firestore, pedidos: PedidoAmazon[], marketplac
           const tipoCambio = await eurPorUnidad(moneda, fecha);
           // Pending orders carry no proceeds yet: fall back to list price × units.
           const ventaOriginal = total ? Number(total.amount) : Number(precio?.amount ?? 0) * item.quantityOrdered;
-          const impuestosOriginal = (item.proceeds?.breakdowns ?? []).filter((b) => b.type === "TAX").reduce((s, b) => s + Number(b.subtotal.amount), 0);
+          const desgloseIva = (item.proceeds?.breakdowns ?? []).filter((b) => b.type === "TAX");
 
           const sku = item.product?.sellerSku ?? "";
           const costeGuardado = (previo?.get("costeProducto") as number | null | undefined) ?? null;
@@ -220,7 +221,14 @@ async function guardarPedidos(db: Firestore, pedidos: PedidoAmazon[], marketplac
           const costeProducto = costeGuardado ?? (costeUnitario !== undefined ? redondear(costeUnitario * item.quantityOrdered) : null);
           const comisionesAmazon = (previo?.get("comisionesAmazon") as number | undefined) ?? 0;
           const reembolso = (previo?.get("reembolso") as number | undefined) ?? 0;
+          const impuestosReembolso = (previo?.get("impuestosReembolso") as number | undefined) ?? 0;
           const ventaTotal = redondear(ventaOriginal * tipoCambio);
+          // VAT: as reported by the Orders API if it breaks it out, otherwise estimated from the country's
+          // standard rate. Once Amazon settles the sale, recalcularPedidos replaces it with the settled VAT.
+          const ivaInformado = desgloseIva.length > 0 ? desgloseIva.reduce((s, b) => s + Number(b.subtotal.amount), 0) : null;
+          const ivaCalculado = ivaInformado ?? ivaIncluido(ventaOriginal, mk?.codigoPais);
+          const impuestos = redondear((ivaCalculado ?? 0) * tipoCambio);
+          const ivaEstimado = ivaInformado === null;
 
           lineas.push({
             id,
@@ -235,11 +243,13 @@ async function guardarPedidos(db: Firestore, pedidos: PedidoAmazon[], marketplac
             titulo: item.product?.title ?? "",
             unidades: item.quantityOrdered,
             ventaTotal,
-            impuestos: redondear(impuestosOriginal * tipoCambio),
+            impuestos,
+            ivaEstimado,
             comisionesAmazon,
             reembolso,
+            impuestosReembolso,
             costeProducto,
-            beneficioNeto: calcularBeneficio({ ventaTotal, comisionesAmazon, reembolso, costeProducto }),
+            beneficioNeto: calcularBeneficio({ ventaTotal, impuestos, comisionesAmazon, reembolso, impuestosReembolso, costeProducto }),
             liquidado: (previo?.get("liquidado") as boolean | undefined) ?? false,
             moneda,
             tipoCambio,
@@ -260,7 +270,11 @@ async function guardarPedidos(db: Firestore, pedidos: PedidoAmazon[], marketplac
 
 type LineaDoc = { ref: FirebaseFirestore.DocumentReference; data: Pedido };
 
-/** Rebuilds comisiones/reembolso/liquidado/beneficio of these orders from all their stored transactions. */
+/**
+ * Rebuilds comisiones/reembolso/IVA/liquidado/beneficio of these orders from all their stored transactions.
+ * VAT from the settled sale replaces the Orders API / estimated one; refunds that don't break out their
+ * VAT are assumed to carry the same VAT share as the sale.
+ */
 export async function recalcularPedidos(db: Firestore, orderIds: string[]): Promise<string[]> {
   const errores: string[] = [];
   for (const grupo of trocear(orderIds, 30)) {
@@ -282,7 +296,8 @@ export async function recalcularPedidos(db: Firestore, orderIds: string[]): Prom
     const ops: { ref: FirebaseFirestore.DocumentReference; data: DocumentData }[] = [];
     for (const [orderId, lineas] of lineasPorPedido) {
       try {
-        const acumulado = new Map<string, { comisiones: number; reembolso: number }>(lineas.map((l) => [l.ref.id, { comisiones: 0, reembolso: 0 }]));
+        type Acumulado = { comisiones: number; reembolso: number; ivaVenta: number | null; ivaReembolso: number; reembolsoSinIva: number };
+        const acumulado = new Map<string, Acumulado>(lineas.map((l) => [l.ref.id, { comisiones: 0, reembolso: 0, ivaVenta: null, ivaReembolso: 0, reembolsoSinIva: 0 }]));
         const txs = txPorPedido.get(orderId) ?? [];
         for (const t of txs) {
           for (const tl of t.lineas) {
@@ -295,6 +310,12 @@ export async function recalcularPedidos(db: Firestore, orderIds: string[]): Prom
               const a = acumulado.get(l.ref.id)!;
               a.comisiones += tl.comisiones * peso * cambio;
               a.reembolso += tl.reembolso * peso * cambio;
+              const iva = tl.iva ?? null; // transactions stored before VAT tracking have no field
+              if (t.esCargoVenta && iva !== null) a.ivaVenta = (a.ivaVenta ?? 0) + iva * peso * cambio;
+              if (tl.reembolso !== 0) {
+                if (iva !== null) a.ivaReembolso += iva * peso * cambio;
+                else a.reembolsoSinIva += tl.reembolso * peso * cambio;
+              }
             }
           }
         }
@@ -303,11 +324,14 @@ export async function recalcularPedidos(db: Firestore, orderIds: string[]): Prom
           const a = acumulado.get(l.ref.id)!;
           const comisionesAmazon = redondear(a.comisiones);
           const reembolso = redondear(a.reembolso);
-          const beneficioNeto = calcularBeneficio({ ventaTotal: l.data.ventaTotal, comisionesAmazon, reembolso, costeProducto: l.data.costeProducto });
           const d = l.data;
-          if (d.comisionesAmazon !== comisionesAmazon || d.reembolso !== reembolso || d.liquidado !== liquidado || d.beneficioNeto !== beneficioNeto) {
-            ops.push({ ref: l.ref, data: { comisionesAmazon, reembolso, liquidado, beneficioNeto } });
-          }
+          const impuestos = a.ivaVenta !== null ? redondear(a.ivaVenta) : (d.impuestos ?? 0);
+          const ivaEstimado = a.ivaVenta !== null ? false : (d.ivaEstimado ?? true);
+          const cuotaIva = d.ventaTotal > 0 ? impuestos / d.ventaTotal : 0;
+          const impuestosReembolso = redondear(a.ivaReembolso + a.reembolsoSinIva * cuotaIva);
+          const beneficioNeto = calcularBeneficio({ ventaTotal: d.ventaTotal, impuestos, comisionesAmazon, reembolso, impuestosReembolso, costeProducto: d.costeProducto });
+          const nuevo = { comisionesAmazon, reembolso, impuestos, ivaEstimado, impuestosReembolso, liquidado, beneficioNeto };
+          if ((Object.keys(nuevo) as (keyof typeof nuevo)[]).some((k) => d[k] !== nuevo[k])) ops.push({ ref: l.ref, data: nuevo });
         }
       } catch (e) {
         errores.push(`Pedido ${orderId}: ${mensaje(e)}`);
@@ -326,7 +350,7 @@ export async function aplicarCosteAPedidosSinCoste(db: Firestore, sku: string, c
     snap.docs.map((d) => {
       const p = d.data() as Pedido;
       const costeProducto = redondear(costeUnitario * p.unidades);
-      return { ref: d.ref, data: { costeProducto, beneficioNeto: calcularBeneficio({ ...p, costeProducto }) } };
+      return { ref: d.ref, data: { costeProducto, beneficioNeto: calcularBeneficio({ ...p, impuestosReembolso: p.impuestosReembolso ?? 0, costeProducto }) } };
     }),
   );
   return snap.size;

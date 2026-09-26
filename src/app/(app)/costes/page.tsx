@@ -10,7 +10,7 @@ export default async function CostesPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Costes de producto</h1>
         <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-400">
-          Lo que te cuesta producir o comprar una unidad de cada SKU. Se aplica a los pedidos que se sincronicen a partir de ahora y a los que aún no tenían coste; los
+          Lo que te cuesta producir o comprar una unidad de cada SKU, <strong className="font-medium text-ink-300">sin IVA</strong> (el IVA de tus compras lo recuperas). Se aplica a los pedidos que se sincronicen a partir de ahora y a los que aún no tenían coste; los
           pedidos que ya tenían un coste lo conservan.
         </p>
       </div>

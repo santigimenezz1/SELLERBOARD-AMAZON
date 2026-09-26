@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { FilaProducto } from "@/lib/datos/panel";
 import { formatEuros, formatNumero, formatPorcentaje } from "@/lib/format";
 
-type Columna = "titulo" | "unidades" | "ventas" | "comisiones" | "reembolsos" | "coste" | "beneficio" | "margen";
+type Columna = "titulo" | "unidades" | "ventas" | "comisiones" | "reembolsos" | "iva" | "coste" | "beneficio" | "margen";
 
 const COLUMNAS: { clave: Columna; texto: string; numero: boolean }[] = [
   { clave: "titulo", texto: "Producto", numero: false },
@@ -13,6 +13,7 @@ const COLUMNAS: { clave: Columna; texto: string; numero: boolean }[] = [
   { clave: "ventas", texto: "Ventas", numero: true },
   { clave: "comisiones", texto: "Comisiones", numero: true },
   { clave: "reembolsos", texto: "Reembolsos", numero: true },
+  { clave: "iva", texto: "IVA", numero: true },
   { clave: "coste", texto: "Coste", numero: true },
   { clave: "beneficio", texto: "Beneficio neto", numero: true },
   { clave: "margen", texto: "Margen", numero: true },
@@ -52,7 +53,7 @@ export function TablaProductos({ productos }: { productos: FilaProducto[] }) {
         <p className="px-5 py-10 text-center text-sm text-ink-400">No hay ventas en este rango.</p>
       ) : (
         <div className="mt-3 overflow-x-auto">
-          <table className="tabular w-full min-w-[860px] text-sm">
+          <table className="tabular w-full min-w-[940px] text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] text-xs text-ink-400">
                 {COLUMNAS.map((c) => {
@@ -91,6 +92,7 @@ export function TablaProductos({ productos }: { productos: FilaProducto[] }) {
                   <td className="px-3 py-2.5 text-right">{formatEuros(p.ventas)}</td>
                   <td className="px-3 py-2.5 text-right text-ink-300">{formatEuros(p.comisiones)}</td>
                   <td className="px-3 py-2.5 text-right text-ink-300">{formatEuros(p.reembolsos)}</td>
+                  <td className="px-3 py-2.5 text-right text-ink-300">{formatEuros(p.iva)}</td>
                   {p.faltaCoste ? (
                     <td colSpan={3} className="py-2.5 pr-5 pl-3 text-right">
                       <Link href="/costes" className="inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-0.5 text-xs text-warning hover:bg-warning/15">

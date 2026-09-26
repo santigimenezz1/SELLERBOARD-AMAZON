@@ -7,6 +7,8 @@ import type { Desglose, Importe, TransaccionAmazon } from "./apis";
  * Amounts stay in the transaction's own currency and are positive when they
  * cost the seller money: `comisiones` 3.40 = Amazon kept 3.40 in fees;
  * `reembolso` 19.99 = 19.99 went back to the customer.
+ * `iva` is the VAT inside the sale (or inside the refund, for refunds), or
+ * null when the transaction doesn't break tax out.
  */
 export type TransaccionResumida = {
   transactionId: string;
@@ -19,10 +21,13 @@ export type TransaccionResumida = {
   moneda: string;
   /** true for the sale's own charge ("Order Payment"): once it exists the order's real fees are known. */
   esCargoVenta: boolean;
-  lineas: { sku: string | null; comisiones: number; reembolso: number }[];
+  lineas: { sku: string | null; comisiones: number; reembolso: number; iva: number | null }[];
 };
 
 const FEE = /fee|commission|expense/i;
+const TAX = /tax|vat/i;
+// Tax Amazon collects and remits itself (marketplace facilitator): it offsets the tax line, it isn't extra VAT.
+const RETENIDO = /withh/i;
 const REEMBOLSO = /refund|chargeback|guarantee/i;
 const VENTA = /shipment|order payment/i;
 
@@ -42,13 +47,18 @@ function hojas(desgloses: Desglose[] | undefined, ruta: string[] = []): Hoja[] {
 function clasificar(desgloses: Desglose[] | undefined) {
   let fees = 0;
   let cargos = 0; // principal, shipping, gift wrap, promotions… and the tax on them
+  let iva: number | null = null; // the tax part of `cargos`
   for (const h of hojas(desgloses)) {
     const v = Number(h.importe.currencyAmount) || 0;
     // VAT charged on Amazon's own fees is part of the fee cost, so FEE wins over TAX.
-    if (h.ruta.some((s) => FEE.test(s))) fees += v;
-    else cargos += v;
+    if (h.ruta.some((s) => FEE.test(s))) {
+      fees += v;
+      continue;
+    }
+    cargos += v;
+    if (h.ruta.some((s) => TAX.test(s)) && !h.ruta.some((s) => RETENIDO.test(s))) iva = (iva ?? 0) + v;
   }
-  return { fees, cargos };
+  return { fees, cargos, iva };
 }
 
 export function resumirTransaccion(t: TransaccionAmazon): TransaccionResumida | null {
@@ -61,16 +71,16 @@ export function resumirTransaccion(t: TransaccionAmazon): TransaccionResumida | 
   const esVenta = !esReembolso && VENTA.test(clase);
 
   const convertir = (d: Desglose[] | undefined, total: Importe | undefined) => {
-    const { fees, cargos } = clasificar(d);
+    const { fees, cargos, iva } = clasificar(d);
     const hayDesglose = (d?.length ?? 0) > 0;
     const totalNum = Number(total?.currencyAmount) || 0;
     if (esReembolso) {
       // Money back to the customer (negative charges) → reembolso; fee refunds/admin fees → comisiones.
-      return hayDesglose ? { comisiones: -fees, reembolso: -cargos } : { comisiones: 0, reembolso: -totalNum };
+      return hayDesglose ? { comisiones: -fees, reembolso: -cargos, iva: iva === null ? null : -iva } : { comisiones: 0, reembolso: -totalNum, iva: null };
     }
-    if (esVenta) return { comisiones: -fees, reembolso: 0 };
+    if (esVenta) return { comisiones: -fees, reembolso: 0, iva };
     // Any other order-linked adjustment (retrocharges, reimbursements…): its net effect counts as fees.
-    return { comisiones: -(hayDesglose ? fees + cargos : totalNum), reembolso: 0 };
+    return { comisiones: -(hayDesglose ? fees + cargos : totalNum), reembolso: 0, iva: null };
   };
 
   const skuDe = (item: NonNullable<TransaccionAmazon["items"]>[number]) => item.contexts?.find((c) => c.sku)?.sku ?? null;

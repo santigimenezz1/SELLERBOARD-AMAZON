@@ -51,7 +51,8 @@ Botón **Sincronizar ahora** → `POST /api/sync` (`src/lib/amazon/sincronizar.t
    (cargo de la venta con sus comisiones, reembolsos…), guardados en `transaccionesAmazon`. Leer el flujo de movimientos en
    vez de preguntar pedido a pedido cuesta muchas menos peticiones y además detecta reembolsos de pedidos antiguos.
 4. Cada pedido tocado se **recalcula** a partir de todas sus transacciones guardadas: comisiones, reembolso y
-   `beneficioNeto = ventaTotal − comisionesAmazon − reembolso − costeProducto`. Repetir una sincronización no duplica nada.
+   `beneficioNeto = (ventaTotal − impuestos) − comisionesAmazon − (reembolso − impuestosReembolso) − costeProducto`.
+   Repetir una sincronización no duplica nada.
 
 Cada etapa tiene su propio cursor (`cursorPedidos`, `cursorFinanzas` en `sincronizaciones`), que solo avanza si la etapa termina
 bien; si falla, la siguiente sincronización la reintenta desde el mismo punto. La primera sincronización trae
@@ -69,8 +70,12 @@ retira el 27/03/2027 y el 27/08/2027.
 - **Pedidos sin liquidar:** Amazon publica las comisiones reales cuando cobra la venta (normalmente al enviar; puede tardar
   hasta 48 h). Hasta entonces el pedido cuenta con comisiones 0 y `liquidado: false`; el panel avisa de cuántos hay.
 - **Cancelados:** se guardan con `estado: CANCELLED` y no cuentan en el panel.
-- **IVA:** `ventaTotal` es lo que pagó el cliente, IVA incluido si Amazon lo incluye. La parte de impuesto se guarda aparte
-  en `impuestos` pero **no se resta** del beneficio (pendiente de decidir).
+- **IVA:** "Ventas" (`ventaTotal`) es lo que pagó el cliente, IVA incluido; el **beneficio neto y el margen son sin IVA**.
+  El IVA sale, por orden de preferencia, de la liquidación de Amazon (Finances), de la Orders API o, si Amazon no lo
+  desglosa (habitual en la UE), se **estima** con el tipo general del país del marketplace (`src/lib/datos/iva.ts`) y el
+  pedido queda con `ivaEstimado: true` hasta que se liquida. El IVA de lo reembolsado se guarda en `impuestosReembolso`
+  para no descontarlo dos veces; si Amazon no lo desglosa, se supone la misma proporción que en la venta. El IVA que
+  Amazon cobra sobre sus comisiones cuenta como comisión. Los costes de producto se introducen sin IVA.
 - **Coste de producto:** al guardar un coste se aplica a los pedidos que se sincronicen después **y** a los pedidos de ese SKU
   que no tenían coste; los que ya tenían uno lo conservan.
 
