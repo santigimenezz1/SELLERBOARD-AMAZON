@@ -5,6 +5,7 @@ import type { ProductoPeriodo } from "@/lib/datos/ventas";
 import type { Marketplace } from "@/lib/datos/tipos";
 import { formatEuros, formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
+import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
 
 type Columna = "unidades" | "reembolsos" | "ventas" | "precioMedio";
 
@@ -102,6 +103,11 @@ export function TablaProductosPeriodo({ titulo, productos, marketplaces, dominio
                           )}
                           <span className="font-sans"> · SKU </span>
                           {p.sku}
+                          {ETIQUETAS_POR_ASIN[p.asin] && (
+                            <span className="ml-2 rounded bg-success/10 px-1.5 py-0.5 font-sans text-[11px] font-semibold tracking-wide text-success">
+                              {ETIQUETAS_POR_ASIN[p.asin]}
+                            </span>
+                          )}
                         </p>
                         <p className="mt-0.5 line-clamp-1 text-[14px] text-ink-100" title={p.titulo}>
                           {p.titulo || p.sku}
