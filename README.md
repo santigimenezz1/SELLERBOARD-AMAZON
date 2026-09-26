@@ -50,7 +50,9 @@ Diseño tipo Sellerboard, con los colores de la app:
   las ventas del mes al ritmo actual (no se puede seleccionar). El menú **Período** añade una tarjeta más (últimos 7 o 30
   días, o un rango personalizado).
 - **Todos los mercados** por defecto; al elegir un país todo se limita a ese país.
-- **Productos** del período seleccionado, como en Seller Central: foto, ASIN · SKU, título, unidades y ventas; en la vista de
+- **Productos** del período seleccionado, como en Seller Central: foto, ASIN · SKU, título, unidades, reembolsos (por fecha
+  de reembolso; un producto reembolsado sin ventas en el período sale con 0 unidades), ventas y precio medio de venta
+  (ventas ÷ unidades); en la vista de
   todos los mercados, debajo de cada producto, la bandera de cada país con sus unidades.
 
 La lógica de agregación es pura (`src/lib/datos/ventas.ts`, `periodos.ts`, `tablero.ts`) y la comparten el panel y la

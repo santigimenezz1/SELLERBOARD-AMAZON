@@ -6,7 +6,7 @@ import type { Marketplace } from "@/lib/datos/tipos";
 import { formatEuros, formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 
-type Columna = "unidades" | "ventas";
+type Columna = "unidades" | "reembolsos" | "ventas" | "precioMedio";
 
 type Props = {
   titulo: string;
@@ -23,13 +23,13 @@ export function TablaProductosPeriodo({ titulo, productos, marketplaces, dominio
   const [orden, setOrden] = useState<{ col: Columna; asc: boolean }>({ col: "unidades", asc: false });
   const mk = new Map(marketplaces.map((m) => [m.id, m]));
 
-  const filas = [...productos].sort((a, b) => (orden.asc ? 1 : -1) * (a[orden.col] - b[orden.col] || a.ventas - b.ventas));
+  const filas = [...productos].sort((a, b) => (orden.asc ? 1 : -1) * ((a[orden.col] ?? -1) - (b[orden.col] ?? -1) || a.ventas - b.ventas));
 
-  const cabecera = (col: Columna, texto: string) => {
+  const cabecera = (col: Columna, texto: React.ReactNode) => {
     const activa = orden.col === col;
     return (
-      <th scope="col" aria-sort={activa ? (orden.asc ? "ascending" : "descending") : "none"} className="px-4 py-3 text-right font-medium">
-        <button onClick={() => setOrden((o) => (o.col === col ? { col, asc: !o.asc } : { col, asc: false }))} className={`inline-flex items-center gap-1 hover:text-ink-100 ${activa ? "text-ink-100" : ""}`}>
+      <th scope="col" aria-sort={activa ? (orden.asc ? "ascending" : "descending") : "none"} className="px-4 py-3 text-right align-bottom font-medium">
+        <button onClick={() => setOrden((o) => (o.col === col ? { col, asc: !o.asc } : { col, asc: false }))} className={`inline-flex items-end gap-1 text-right leading-tight hover:text-ink-100 ${activa ? "text-ink-100" : ""}`}>
           {texto}
           <span aria-hidden className={activa ? "" : "opacity-0"}>
             {orden.asc ? "↑" : "↓"}
@@ -56,14 +56,23 @@ export function TablaProductosPeriodo({ titulo, productos, marketplaces, dominio
         <p className="py-12 text-center text-sm text-ink-400">No hay ventas en este período.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="tabular w-full min-w-[560px] text-sm">
+          <table className="tabular w-full min-w-[760px] text-sm">
             <thead>
               <tr className="border-b border-white/[0.06] text-[13px] text-ink-300">
-                <th scope="col" className="py-3 pr-4 text-left font-medium">
+                <th scope="col" className="py-3 pr-4 text-left align-bottom font-medium">
                   Producto
                 </th>
                 {cabecera("unidades", "Unidades")}
+                {cabecera("reembolsos", "Reembolsos")}
                 {cabecera("ventas", "Ventas")}
+                {cabecera(
+                  "precioMedio",
+                  <>
+                    Precio medio
+                    <br />
+                    de venta
+                  </>,
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
@@ -115,7 +124,9 @@ export function TablaProductosPeriodo({ titulo, productos, marketplaces, dominio
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right text-base font-semibold text-ink-100">{formatNumero(p.unidades)}</td>
+                  <td className={`px-4 py-3 text-right text-base ${p.reembolsos > 0 ? "font-medium text-accent-400" : "text-ink-100"}`}>{formatNumero(p.reembolsos)}</td>
                   <td className="px-4 py-3 text-right text-base text-ink-100">{formatEuros(p.ventas)}</td>
+                  <td className="px-4 py-3 text-right text-base text-ink-100">{formatEuros(p.precioMedio)}</td>
                 </tr>
               ))}
             </tbody>

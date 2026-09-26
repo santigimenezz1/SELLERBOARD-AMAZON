@@ -54,5 +54,5 @@ export function construirPanel(
       },
     };
   });
-  return { tarjetas, productos: productosDelPeriodo(lineas, seleccionado.desde, seleccionado.hasta, estado.pais) };
+  return { tarjetas, productos: productosDelPeriodo(lineas, reembolsos, seleccionado.desde, seleccionado.hasta, estado.pais) };
 }
