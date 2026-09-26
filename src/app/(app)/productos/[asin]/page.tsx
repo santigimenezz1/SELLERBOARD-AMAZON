@@ -188,33 +188,6 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
           </div>
         </div>
 
-        {ficha && ficha.detalles.length > 0 && (
-          <section className="mt-10">
-            <hr className="mb-6 border-[#D5D9D9]" />
-            <h2 className="text-xl font-bold">Información del producto</h2>
-            <table className="mt-3 w-full max-w-2xl text-sm">
-              <tbody>
-                {ficha.detalles.map((x) => (
-                  <tr key={x.etiqueta} className="border-b border-[#E7E7E7]">
-                    <th scope="row" className="w-1/2 bg-[#F0F2F2] px-3 py-2 text-left font-bold">
-                      {x.etiqueta}
-                    </th>
-                    <td className="px-3 py-2">{x.valor}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        )}
-
-        {ficha?.descripcion && (
-          <section className="mt-10">
-            <hr className="mb-6 border-[#D5D9D9]" />
-            <h2 className="text-xl font-bold">Descripción del producto</h2>
-            <p className="mt-3 max-w-4xl text-sm leading-6 whitespace-pre-line">{ficha.descripcion}</p>
-          </section>
-        )}
-
         {!ficha && <p className="mt-6 text-sm text-[#565959]">Aún no hay ficha de catálogo para este país. Pulsa «Actualizar ficha».</p>}
       </article>
     </div>
