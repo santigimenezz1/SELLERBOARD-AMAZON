@@ -36,7 +36,8 @@ import { eurPorUnidad } from "./tiposCambio";
 const SOLAPE_FINANZAS_MS = 10 * 24 * 3600_000;
 const SOLAPE_PEDIDOS_MS = 5 * 60_000;
 const MAX_VENTANA_FINANZAS_MS = 179 * 24 * 3600_000;
-const BLOQUEO_MS = 15 * 60_000;
+/** A lock older than this is considered abandoned (e.g. the server restarted mid-sync). */
+export const BLOQUEO_MS = 15 * 60_000;
 
 export type ResultadoSync = {
   pedidosNuevos: number;

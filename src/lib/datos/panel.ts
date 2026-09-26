@@ -6,6 +6,7 @@ import { diaMadrid, diasEntre, inicioDia, sumarDias } from "./fechas";
 import { redondear, type Marketplace } from "./tipos";
 import type { LineaReembolso, LineaVenta } from "./ventas";
 import type { TransaccionResumida } from "@/lib/amazon/finanzas";
+import { BLOQUEO_MS } from "@/lib/amazon/sincronizar";
 
 export type Metricas = {
   ventas: number;
@@ -154,6 +155,12 @@ export async function cargarUltimaSync(): Promise<UltimaSync> {
   const d = (await adminDb().collection("sincronizaciones").orderBy("fecha", "desc").limit(1).get()).docs[0];
   if (!d) return null;
   return { fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
+}
+
+/** True while a sync holds the lock, so the dashboard can wait for it and refresh itself. */
+export async function syncEnCurso(): Promise<boolean> {
+  const desde = (await adminDb().collection("config").doc("sync").get()).get("enCursoDesde") as Timestamp | undefined;
+  return !!desde && Date.now() - desde.toMillis() < BLOQUEO_MS;
 }
 
 /** Order lines of [desde, hasta] (Madrid days) with just what the sales dashboard needs. */
