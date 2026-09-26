@@ -13,8 +13,8 @@ export type Pieza = { id: string; nombre: string; coste: number };
 export type Proveedor = { id: string; nombre: string; piezas: Pieza[] };
 export type Escandallo = { asin: string; proveedores: Proveedor[]; actualizadoEn: string | null };
 
-const g = globalThis as unknown as { __escandallos?: Map<string, Escandallo> };
-const cache = () => (g.__escandallos ??= new Map());
+const g = globalThis as unknown as { __escandallosV2?: Map<string, Escandallo> };
+const cache = () => (g.__escandallosV2 ??= new Map());
 
 /** Placeholder costs (made up) for the two football-mat listings, until real ones are entered. */
 function ejemploAlfombra(asin: string): Escandallo {
@@ -25,11 +25,8 @@ function ejemploAlfombra(asin: string): Escandallo {
       {
         id: "p1",
         nombre: "Proveedor alfombras",
-        piezas: [
-          { id: "p1a", nombre: "Alfombra", coste: 4.2 },
-          { id: "p1b", nombre: "Calcetines", coste: 0.85 },
-          { id: "p1c", nombre: "Bolsa de transporte", coste: 0.6 },
-        ],
+        // One unified cost: this supplier sells the mat, socks and carry bag as a single set.
+        piezas: [{ id: "p1a", nombre: "Alfombra + calcetines + bolsa de transporte", coste: 5.65 }],
       },
       { id: "p2", nombre: "Proveedor cajas", piezas: [{ id: "p2a", nombre: "Caja premium", coste: 1.1 }] },
     ],

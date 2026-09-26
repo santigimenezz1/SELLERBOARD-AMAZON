@@ -10,7 +10,7 @@ const redondear = (v: number) => Math.round(v * 100) / 100;
 const subtotal = (p: Proveedor) => redondear(p.piezas.reduce((s, x) => s + (Number.isFinite(x.coste) ? x.coste : 0), 0));
 /** "4,20" or "4.20" → 4.2 (NaN if not a number). */
 const aNumero = (t: string) => (t.trim() === "" ? NaN : Number(t.replace(",", ".")));
-const aTexto = (n: number) => (Number.isFinite(n) ? (Math.round(n * 100) === n * 100 ? n.toFixed(2) : String(n)).replace(".", ",") : "");
+const aTexto = (n: number) => (Number.isFinite(n) ? (Number(n.toFixed(2)) === n ? n.toFixed(2) : String(n)).replace(".", ",") : "");
 
 type Estado = { tipo: "idle" | "guardando" } | { tipo: "ok" } | { tipo: "error"; msg: string };
 
