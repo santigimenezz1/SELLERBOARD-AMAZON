@@ -134,9 +134,10 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
       </section>
 
       {/* Buyer's view: as the product page looks on Amazon */}
-      <article className="rounded-2xl bg-white p-5 font-[Arial,sans-serif] text-[#0F1111] sm:p-8">
+      <article className="rounded-2xl bg-white p-5 font-[Arial,sans-serif] text-[#0F1111] sm:p-6">
         <p className="mb-4 text-[11px] tracking-wide text-[#565959] uppercase">Vista del comprador {mk ? `· ${mk.dominio.replace(/^(https?:\/\/)?www\./, "")}` : ""}</p>
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+        {/* Compact gallery so the cost tiles below stay close. */}
+        <div className="grid gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
           <Galeria imagenes={imagenes} titulo={titulo} />
 
           <div className="min-w-0">
@@ -176,17 +177,6 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
               </p>
             )}
 
-            {ficha && ficha.vinetas.length > 0 && (
-              <>
-                <hr className="my-4 border-[#D5D9D9]" />
-                <h2 className="text-base font-bold">Acerca de este producto</h2>
-                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-5">
-                  {ficha.vinetas.map((b, i) => (
-                    <li key={i}>{b}</li>
-                  ))}
-                </ul>
-              </>
-            )}
           </div>
         </div>
 

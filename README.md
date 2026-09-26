@@ -68,8 +68,7 @@ pero no se muestra. Los componentes que lo enseñan (`Tarjetas`, `GraficoDiario`
 ## Sección Productos
 
 Todos los listings conocidos (vendidos, con stock FBA o con ficha) como tarjetas, y una **ficha por producto** que imita la
-página de Amazon para un comprador: galería, marca, título, precio (con Prime y envío), ranking de ventas y "Acerca de este
-producto", en el idioma de cada país (selector de los mercados con ventas). Encima,
+página de Amazon para un comprador: galería, marca, título, precio (con Prime y envío), y ranking de ventas, en el idioma de cada país (selector de los mercados con ventas). Encima,
 una franja con los datos de vendedor: SKUs, stock por región, ventas y reembolsos de 30 días y estado de la Buy Box.
 
 Datos: Catalog Items API (una vez al día) y Product Pricing `getPricing` + `getCompetitivePricing` (cada 3 horas), en lotes
