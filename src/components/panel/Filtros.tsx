@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { RANGOS, type Rango } from "@/lib/datos/fechas";
 import type { Marketplace } from "@/lib/datos/tipos";
-import { bandera } from "@/lib/datos/paises";
+import { Bandera } from "@/components/Bandera";
 import { useNavegarPanel } from "./Transicion";
 
 type Props = { rango: Rango; desde: string; hasta: string; pais: string | null; marketplaces: Marketplace[]; base?: string };
@@ -25,6 +25,7 @@ export function Filtros({ rango, desde, hasta, pais, marketplaces, base = "/" }:
     navegar(`${base}?${p.toString()}`);
   }
 
+  const seleccionado = marketplaces.find((m) => m.id === pais);
   const presets = (Object.keys(RANGOS) as Rango[]).filter((r) => r !== "personalizado");
   const boton = (activo: boolean) =>
     `h-8 rounded-lg px-3 text-sm transition-colors ${activo ? "bg-white/[0.09] font-medium text-ink-100" : "text-ink-400 hover:text-ink-100"}`;
@@ -76,14 +77,20 @@ export function Filtros({ rango, desde, hasta, pais, marketplaces, base = "/" }:
       <label className="sr-only" htmlFor="pais">
         País
       </label>
-      <select id="pais" value={pais ?? ""} onChange={(e) => ir({ pais: e.target.value || null })} className={campo}>
-        <option value="">🌍 Todos los países</option>
-        {marketplaces.map((m) => (
-          <option key={m.id} value={m.id}>
-            {bandera(m.codigoPais)} {m.pais}
-          </option>
-        ))}
-      </select>
+      <div className="relative flex items-center">
+        {/* <option> can't hold images and Windows has no flag emoji: the selected country's flag sits inside the field. */}
+        <span className="pointer-events-none absolute left-2.5 flex text-sm">
+          {seleccionado ? <Bandera codigo={seleccionado.codigoPais} /> : <span aria-hidden>🌍</span>}
+        </span>
+        <select id="pais" value={pais ?? ""} onChange={(e) => ir({ pais: e.target.value || null })} className={`${campo} pl-8`}>
+          <option value="">Todos los países</option>
+          {marketplaces.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.pais}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }

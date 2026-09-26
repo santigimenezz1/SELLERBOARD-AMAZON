@@ -39,6 +39,8 @@ export type FilaProducto = {
   beneficio: number | null;
   margen: number | null;
   faltaCoste: boolean;
+  /** Units per marketplace id. */
+  unidadesPorMarketplace: Record<string, number>;
 };
 
 export type DatosPanel = { metricas: Metricas; serie: PuntoDia[]; productos: FilaProducto[] };
@@ -107,8 +109,9 @@ export async function cargarPanel(desde: string, hasta: string, marketplaceId: s
       dia.beneficio += l.beneficioNeto ?? 0;
     }
 
-    const p = porSku.get(l.sku) ?? { sku: l.sku, titulo: l.titulo, asin: l.asin, unidades: 0, ventas: 0, comisiones: 0, reembolsos: 0, iva: 0, coste: 0, beneficio: 0, margen: null, faltaCoste: false };
+    const p = porSku.get(l.sku) ?? { sku: l.sku, titulo: l.titulo, asin: l.asin, unidades: 0, ventas: 0, comisiones: 0, reembolsos: 0, iva: 0, coste: 0, beneficio: 0, margen: null, faltaCoste: false, unidadesPorMarketplace: {} };
     p.unidades += l.unidades;
+    p.unidadesPorMarketplace[l.marketplaceId] = (p.unidadesPorMarketplace[l.marketplaceId] ?? 0) + l.unidades;
     p.ventas += l.ventaTotal;
     p.comisiones += l.comisionesAmazon;
     p.reembolsos += l.reembolso;
@@ -151,15 +154,26 @@ export async function cargarUltimaSync(): Promise<UltimaSync> {
   return { fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
 }
 
-export type ProductoVendido = { sku: string; asin: string; titulo: string; unidades: number; imagen: string | null };
+export type UnidadesPais = { marketplaceId: string; pais: string; codigoPais: string; unidades: number };
+export type ProductoVendido = { sku: string; asin: string; titulo: string; unidades: number; imagen: string | null; porPais: UnidadesPais[] };
 
 /** Simplified phase-1 table: units per SKU plus the listing photo stored by the sync (`productos/{asin}`). */
-export async function productosVendidos(productos: FilaProducto[]): Promise<ProductoVendido[]> {
+export async function productosVendidos(productos: FilaProducto[], marketplaces: Marketplace[]): Promise<ProductoVendido[]> {
+  const mk = new Map(marketplaces.map((m) => [m.id, m]));
   const asins = [...new Set(productos.map((p) => p.asin).filter(Boolean))];
   const db = adminDb();
   const docs = asins.length ? await db.getAll(...asins.map((a) => db.collection("productos").doc(a))) : [];
   const imagenes = new Map(docs.filter((d) => d.exists).map((d) => [d.id, (d.get("imagen") as string | null) ?? null]));
   return productos
-    .map((p) => ({ sku: p.sku, asin: p.asin, titulo: p.titulo, unidades: p.unidades, imagen: imagenes.get(p.asin) ?? null }))
+    .map((p) => ({
+      sku: p.sku,
+      asin: p.asin,
+      titulo: p.titulo,
+      unidades: p.unidades,
+      imagen: imagenes.get(p.asin) ?? null,
+      porPais: Object.entries(p.unidadesPorMarketplace)
+        .map(([id, unidades]) => ({ marketplaceId: id, pais: mk.get(id)?.pais ?? id, codigoPais: mk.get(id)?.codigoPais ?? "", unidades }))
+        .sort((a, b) => b.unidades - a.unidades),
+    }))
     .sort((a, b) => b.unidades - a.unidades);
 }

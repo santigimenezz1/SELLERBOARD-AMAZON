@@ -9,8 +9,3 @@ export function nombrePais(codigo: string): string {
   }
 }
 
-/** "ES" → 🇪🇸 (regional indicator symbols). */
-export function bandera(codigo: string): string {
-  if (!/^[A-Za-z]{2}$/.test(codigo)) return "";
-  return String.fromCodePoint(...[...codigo.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
-}

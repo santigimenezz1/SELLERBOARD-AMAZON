@@ -18,7 +18,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
   const paisPedido = texto(sp.pais) ?? null;
   const pais = marketplaces.some((m) => m.id === paisPedido) ? paisPedido : null;
   const datos = await cargarPanel(desde, hasta, pais);
-  const vendidos = await productosVendidos(datos.productos);
+  const vendidos = await productosVendidos(datos.productos, marketplaces);
   const mercado = marketplaces.find((m) => m.id === pais);
 
   const subtitulo = desde === hasta ? formatDiaLargo(desde) : `${formatDiaLargo(desde)} – ${formatDiaLargo(hasta)}`;
@@ -54,7 +54,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
             {/* Simplified phase 1: sales and units only. The profit maths (fees, VAT, cost, net profit) still runs in
                 cargarPanel and the sync; <Tarjetas>, <GraficoDiario> and <TablaProductos> show it once re-enabled. */}
             <TarjetasVentas m={datos.metricas} />
-            <TablaVendidos productos={vendidos} dominio={mercado?.dominio.replace(/^https?:\/\//, "") || "www.amazon.es"} />
+            <TablaVendidos productos={vendidos} desglosePorPais={!pais} dominio={mercado?.dominio.replace(/^https?:\/\//, "") || "www.amazon.es"} />
           </div>
         </Atenuable>
       </div>
