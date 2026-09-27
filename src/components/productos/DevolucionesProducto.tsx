@@ -138,7 +138,7 @@ function Columna({ titulo, bandera, color, r }: { titulo: string; bandera: strin
 
 /** Refunds and physical returns of one product: the selected country next to all marketplaces. */
 export function DevolucionesProducto({ datos, mercado, mercados }: Props) {
-  const [dias, setDias] = useState(90);
+  const [dias, setDias] = useState(30);
   const [abierta, setAbierta] = useState(false);
   const porId = new Map(mercados.map((m) => [m.id, m]));
   // Never before the first synced order: returns alone, without their sales, would inflate the rate.
