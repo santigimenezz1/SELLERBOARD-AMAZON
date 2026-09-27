@@ -75,6 +75,25 @@ export type SaludProducto = {
   comprobadoEn: string | null;
 };
 
+// Compliance issues (extended producer responsibility / RER, regulatory information): Seller Central counts
+// them under «Cumplimiento normativo», which the performance report doesn't carry.
+const NORMATIVO = /\bRER\b|\bEPR\b|responsabilidad ampliada|normativ|regulator|cumplimiento/i;
+
+/** Per marketplace: open compliance issues of any SKU (deduplicated by message). */
+export async function problemasNormativos(): Promise<Record<string, ProblemaProducto[]>> {
+  const doc = await leer();
+  const res: Record<string, ProblemaProducto[]> = {};
+  for (const [k, e] of Object.entries(doc.items)) {
+    const [sku, mk] = k.split("|");
+    for (const p of e.problemas) {
+      if (IGNORADOS.has(p.codigo) || !NORMATIVO.test(p.mensaje)) continue;
+      const lista = (res[mk] ??= []);
+      if (!lista.some((x) => x.mensaje === p.mensaje)) lista.push({ sku, codigo: p.codigo, severidad: p.severidad, mensaje: p.mensaje, suprimido: p.acciones.some((a) => a.includes("SUPPRESS")) });
+    }
+  }
+  return res;
+}
+
 /** Health of one product (all its SKUs) in each marketplace where it is listed. */
 export async function saludDeProducto(skus: string[]): Promise<SaludProducto> {
   const doc = await leer();

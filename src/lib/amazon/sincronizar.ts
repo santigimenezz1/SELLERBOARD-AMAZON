@@ -14,6 +14,8 @@ import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
 import { actualizarSaludListings } from "@/lib/datos/saludListings";
 import { actualizarEnvios } from "@/lib/datos/envios";
 import { actualizarInventarioPaises } from "@/lib/datos/inventarioPaises";
+import { actualizarEstadoCuenta } from "@/lib/datos/estadoCuenta";
+import { sincronizarGmail } from "@/lib/gmail";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -293,6 +295,23 @@ export async function sincronizar(): Promise<ResultadoSync> {
       escrituras += await actualizarSaludListings(marketplaces.filter((m) => conVentas.has(m.id)).map((m) => m.id));
     } catch (e) {
       errores.push(`Listings API (estado del listing): ${mensaje(e)}`);
+    }
+
+    // 10. Account health per country (performance reports, at most every 12 h; never blocks the sales data)
+    try {
+      const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
+      const r = await actualizarEstadoCuenta(marketplaces.filter((m) => conVentas.has(m.id)).map((m) => m.id));
+      escrituras += r.escrituras;
+      errores.push(...r.errores.map((e) => `Estado de la cuenta: ${e}`));
+    } catch (e) {
+      errores.push(`Estado de la cuenta: ${mensaje(e)}`);
+    }
+
+    // 11. Performance notifications from Gmail, when connected (never blocks the sales data)
+    try {
+      await sincronizarGmail();
+    } catch (e) {
+      errores.push(`Gmail (notificaciones): ${mensaje(e)}`);
     }
 
     const duracionMs = Date.now() - inicio;

@@ -213,3 +213,17 @@ La cuota se reinicia a medianoche de California (9:00 en España).
 
 Gastos fijos, Amazon Ads (PPC), alertas de stock, motivos de devolución, sincronización programada, exportar a Excel/CSV
 e historial de costes por SKU.
+
+## Estado de la cuenta (sección «Cuenta»)
+
+Selector de países (punto rojo en los que tienen algo que revisar, y aviso si es otro país) y dos pestañas:
+
+- **Estado de la cuenta**: «Cumplimiento de políticas» como en Seller Central (nivel del estado de la cuenta con su
+  banda y todas las incidencias). Sale de `GET_V2_SELLER_PERFORMANCE_REPORT`, un informe por país pedido en paralelo por
+  la sincronización como mucho cada 12 h, en `config/estadoCuenta`. «Cumplimiento normativo» no viene en ese informe:
+  se cuenta con los avisos normativos (RER/RAP) de los listings.
+- **Notificaciones de performance**: Amazon no las da por API, así que se leen de Gmail (permiso de solo lectura,
+  solo remitentes de Seller Central) tras «Conectar Gmail». Necesita `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` (cliente
+  OAuth «Aplicación web» con las URI de redirección `<origen>/api/gmail/callback`). El token y las notificaciones van en
+  `config/gmail`; el país sale del texto («Amazon.fr») o del dominio del remitente. Las que ya estaban al conectar se
+  marcan como leídas.

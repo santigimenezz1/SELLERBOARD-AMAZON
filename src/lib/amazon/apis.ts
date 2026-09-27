@@ -254,39 +254,47 @@ export async function preciosCompetitivos(asins: string[], marketplaceId: string
 
 // ---------- Reports 2021-06-30 ----------
 
-async function descargarInforme(reportType: string, reportDocumentId: string): Promise<Record<string, string>[]> {
+async function descargarInforme(reportType: string, reportDocumentId: string): Promise<string> {
   const doc = await spGet<{ url: string; compressionAlgorithm?: string }>(`/reports/2021-06-30/documents/${reportDocumentId}`);
   const res = await fetch(doc.url, { cache: "no-store" });
   if (!res.ok) throw new Error(`${reportType}: descarga HTTP ${res.status}`);
   let buf = Buffer.from(await res.arrayBuffer());
   if (doc.compressionAlgorithm === "GZIP") buf = gunzipSync(buf);
-  const [cabecera, ...filas] = buf.toString("utf8").split(/\r?\n/).filter(Boolean).map((l) => l.split("\t"));
+  return buf.toString("utf8");
+}
+
+/** Tab-separated flat file → rows of column → value. */
+function filasPlanas(texto: string): Record<string, string>[] {
+  const [cabecera, ...filas] = texto.split(/\r?\n/).filter(Boolean).map((l) => l.split("\t"));
   return filas.map((f) => Object.fromEntries((cabecera ?? []).map((c, i) => [c, f[i] ?? ""])));
 }
 
-/** Document id of the newest finished report of this type from the last 24 h, if any. */
-async function ultimoInformeHecho(reportType: string): Promise<string | null> {
-  const r = await spGet<{ reports?: { reportDocumentId?: string; createdTime: string }[] }>("/reports/2021-06-30/reports", {
+/** Document id of the newest finished report of this type (and marketplaces) from the last 24 h, if any. */
+async function ultimoInformeHecho(reportType: string, marketplaceIds: string[]): Promise<string | null> {
+  const r = await spGet<{ reports?: { reportDocumentId?: string; createdTime: string; marketplaceIds?: string[] }[] }>("/reports/2021-06-30/reports", {
     reportTypes: reportType,
     processingStatuses: "DONE",
+    marketplaceIds,
     createdSince: new Date(Date.now() - 24 * 3600_000).toISOString(),
     pageSize: 10,
   });
-  const hechos = (r.reports ?? []).filter((x) => x.reportDocumentId).sort((a, b) => b.createdTime.localeCompare(a.createdTime));
+  const hechos = (r.reports ?? [])
+    .filter((x) => x.reportDocumentId && (!x.marketplaceIds || marketplaceIds.every((m) => x.marketplaceIds!.includes(m))))
+    .sort((a, b) => b.createdTime.localeCompare(a.createdTime));
   return hechos[0]?.reportDocumentId ?? null;
 }
 
 /**
- * Requests a report, waits until Amazon has built it (usually ~20 s) and returns it as rows of
- * column → value (tab-separated flat file). Throws if it isn't ready within `esperaMaximaMs`.
+ * Requests a report, waits until Amazon has built it (usually ~20 s) and returns its raw text; null when there
+ * is no data for the period. Throws if it isn't ready within `esperaMaximaMs`. When Amazon refuses a new one
+ * (asked again too soon), the latest one it already built for the same marketplaces is used instead.
  */
-async function informePlano(reportType: string, marketplaceIds: string[], desde: Date | null, esperaMaximaMs = 120_000): Promise<Record<string, string>[]> {
+async function informe(reportType: string, marketplaceIds: string[], desde: Date | null, esperaMaximaMs = 120_000): Promise<string | null> {
   let reportId: string;
   try {
     ({ reportId } = await spPost<{ reportId: string }>("/reports/2021-06-30/reports", { reportType, marketplaceIds, ...(desde ? { dataStartTime: desde.toISOString() } : {}) }));
   } catch (e) {
-    // Too many report requests lately: fall back to the latest one Amazon already built.
-    const previo = e instanceof ErrorAmazon && e.status === 429 ? await ultimoInformeHecho(reportType) : null;
+    const previo = e instanceof ErrorAmazon && e.status === 429 ? await ultimoInformeHecho(reportType, marketplaceIds) : null;
     if (previo) return descargarInforme(reportType, previo);
     throw e;
   }
@@ -296,15 +304,19 @@ async function informePlano(reportType: string, marketplaceIds: string[], desde:
     const r = await spGet<{ processingStatus: string; reportDocumentId?: string }>(`/reports/2021-06-30/reports/${reportId}`);
     if (r.processingStatus === "DONE" && r.reportDocumentId) return descargarInforme(reportType, r.reportDocumentId);
     // No data in the period comes back as DONE_NO_DATA (or CANCELLED for some report types).
-    if (r.processingStatus === "DONE_NO_DATA" || r.processingStatus === "CANCELLED") return [];
+    if (r.processingStatus === "DONE_NO_DATA" || r.processingStatus === "CANCELLED") return null;
     if (r.processingStatus === "FATAL") {
-      // Amazon refuses a report asked again too soon: the latest one it already built is still good.
-      const previo = await ultimoInformeHecho(reportType);
+      const previo = await ultimoInformeHecho(reportType, marketplaceIds);
       if (previo) return descargarInforme(reportType, previo);
       throw new Error(`${reportType}: Amazon no pudo generar el informe`);
     }
     if (Date.now() > limite) throw new Error(`${reportType}: el informe tarda demasiado, se reintentará en la próxima sincronización`);
   }
+}
+
+async function informePlano(reportType: string, marketplaceIds: string[], desde: Date | null): Promise<Record<string, string>[]> {
+  const texto = await informe(reportType, marketplaceIds, desde);
+  return texto ? filasPlanas(texto) : [];
 }
 
 export type DevolucionAmazon = {
@@ -440,4 +452,22 @@ export async function inventarioPorPais(marketplaceId: string): Promise<Inventar
   return filas
     .filter((f) => (f["condition-type"] ?? "NewItem") === "NewItem")
     .map((f) => ({ sku: f["seller-sku"] ?? "", asin: f["asin"] ?? "", pais: (f["country"] ?? "").toUpperCase(), unidades: Number(f["quantity-for-local-fulfillment"]) || 0 }));
+}
+
+// ---------- Seller performance (account health) ----------
+
+type MetricaPolitica = { status?: string; defectsCount?: number; reportingDateRange?: { reportingDateFrom?: string; reportingDateTo?: string } };
+export type RendimientoVendedor = {
+  accountStatuses?: { marketplaceId: string; status: string }[];
+  performanceMetrics?: ({
+    marketplaceId?: string;
+    accountHealthRating?: { ahrStatus?: string; ahrScore?: number; reportingDateRange?: { reportingDateFrom?: string; reportingDateTo?: string } };
+    policyViolationWarnings?: { warningsCount?: number };
+  } & Record<string, unknown> & Partial<Record<string, MetricaPolitica>>)[];
+};
+
+/** Account health of one marketplace: status, Account Health Rating and policy compliance counts (JSON report). */
+export async function rendimientoVendedor(marketplaceId: string): Promise<RendimientoVendedor | null> {
+  const texto = await informe("GET_V2_SELLER_PERFORMANCE_REPORT", [marketplaceId], null);
+  return texto ? (JSON.parse(texto) as RendimientoVendedor) : null;
 }
