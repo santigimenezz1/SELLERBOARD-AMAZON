@@ -79,6 +79,12 @@ Debajo, el recuadro **Coste del producto**: piezas agrupadas por proveedor, más
 **envío AGL** del último envío: coste total ÷ unidades), con subtotales y coste total por unidad (sin IVA), todo editable.
 El coste va **por región**: uno para Europa (ES, DE, FR, IT, NL…, doc `escandallos/{asin}`) y otro aparte para Reino
 Unido (`escandallos/{asin}_UK`); cambiar uno no toca el otro. El envío AGL se rellena a mano por ahora; más adelante se tomará de Amazon Global Logistics. Se guarda en `escandallos/{asin}` al pulsar Guardar. Debajo, **Proveedores del producto**: una tarjeta
+
+Debajo, **Lo que te paga Amazon**: el desglose por unidad (IVA retenido, comisión, FBA, servicios digitales → lo que
+ingresa Amazon) en el país elegido, sacado de la última venta real «limpia» (sin promociones ni Vine, con el IVA del
+propio país) guardada por la sincronización en `config/tarifasVenta`. El precio se puede editar: comisión e IVA escalan
+con el precio y la tarifa FBA queda fija. Al lado, beneficio por unidad con el coste de su región, margen sobre el precio
+y rentabilidad sobre el coste.
 desplegable por proveedor con sus datos de contacto, guardados en `proveedores/{nombre}` y compartidos entre productos. Amazon no da por API las estrellas y reseñas.
 
 ## Sección Stock

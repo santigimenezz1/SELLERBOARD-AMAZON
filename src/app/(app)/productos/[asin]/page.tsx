@@ -7,7 +7,9 @@ import { Bandera } from "@/components/Bandera";
 import { Galeria } from "@/components/productos/Galeria";
 import { ActualizarFicha } from "@/components/productos/ActualizarFicha";
 import { CosteRegiones } from "@/components/productos/CosteRegiones";
-import { MARKETPLACE_UK, obtenerEscandallo, regionDeMarketplace } from "@/lib/datos/escandallos";
+import { costeTotal, MARKETPLACE_UK, obtenerEscandallo, regionDeMarketplace } from "@/lib/datos/escandallos";
+import { tarifasDeSkus } from "@/lib/datos/tarifasVenta";
+import { PagoAmazon } from "@/components/productos/PagoAmazon";
 import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
 import { contactosDe } from "@/lib/datos/proveedores";
 import { ProveedoresProducto } from "@/components/productos/ProveedoresProducto";
@@ -42,6 +44,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   // The UK cost is compared with the amazon.co.uk price converted to euros (ECB rate); no rate → no share shown.
   const precioUK = f?.precios[MARKETPLACE_UK];
   const eurPorGBP = precioUK?.precio != null ? await eurPorUnidad(precioUK.moneda, new Date()).catch(() => null) : null;
+  const tarifas = await tarifasDeSkus(d.skus);
   const mks = new Map(d.marketplaces.map((m) => [m.id, m]));
 
   // Marketplaces with something to show for this ASIN; amazon.es first.
@@ -60,6 +63,10 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   const v = d.ventas[mkId];
   const vTodos = d.ventas["*"];
   const etiqueta = ETIQUETAS_POR_ASIN[asin];
+  // Payout box: real fees of the latest sale in the selected country, against that region's unit cost.
+  const muestra = tarifas[mkId] ?? null;
+  const region = regionDeMarketplace(mkId);
+  const eurMuestra = !muestra || muestra.moneda === "EUR" ? 1 : await eurPorUnidad(muestra.moneda, new Date()).catch(() => null);
 
   return (
     <div className="flex flex-col gap-5">
@@ -218,6 +225,16 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
             precioOriginal: precioUK?.precio != null ? formatMoneda(precioUK.precio, precioUK.moneda) : undefined,
           },
         }}
+      />
+
+      <PagoAmazon
+        key={`pago-${asin}-${mkId}`}
+        muestra={muestra}
+        pais={mk?.pais ?? "este país"}
+        precioActual={precio?.precio ?? null}
+        coste={costeTotal(region === "uk" ? costeUK : costeEU)}
+        nombreCoste={region === "uk" ? "Reino Unido" : "Europa"}
+        eurPorUnidad={eurMuestra}
       />
 
       {/* One contact card per supplier of the cost breakdown (keyed so a rename/refresh starts fresh). */}

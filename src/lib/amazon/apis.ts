@@ -82,6 +82,8 @@ export type ItemEvento = {
   ItemFeeAdjustmentList?: Componente[];
   PromotionList?: Componente[];
   PromotionAdjustmentList?: Componente[];
+  /** Marketplace-facilitator VAT Amazon collects and pays itself. */
+  ItemTaxWithheldList?: { TaxesWithheld?: Componente[] }[];
 };
 
 /** Shape shared by shipment, refund, guarantee-claim and chargeback events. */

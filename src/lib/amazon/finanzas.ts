@@ -84,3 +84,67 @@ export function resumirEventos(ev: EventosFinancieros, marketplaceId: (nombre: s
   ];
   return res.filter((t): t is TransaccionResumida => t !== null);
 }
+
+/**
+ * What Amazon charged and paid for ONE unit of a real sale, per SKU and marketplace, in the sale's currency.
+ * Costs are positive. `precio` is what the customer paid (VAT included); `ivaRetenido` the part Amazon kept
+ * as marketplace-facilitator VAT (0 when the seller declares it).
+ */
+export type TarifaVenta = {
+  sku: string;
+  marketplaceId: string;
+  moneda: string;
+  fecha: string;
+  precio: number;
+  iva: number;
+  ivaRetenido: number;
+  comision: number;
+  fba: number;
+  serviciosDigitales: number;
+  otras: number;
+};
+
+const r4 = (v: number) => Math.round(v * 10000) / 10000;
+
+/**
+ * One fee sample per clean sale line: plain price + tax, no promotion (Vine units come as a 100 % promotion),
+ * no shipping or gift-wrap charges, a normal referral fee. These are the lines whose fees can be scaled to another price.
+ */
+export function muestrasTarifas(ev: EventosFinancieros, marketplaceId: (nombre: string | undefined) => string | null): TarifaVenta[] {
+  const res: TarifaVenta[] = [];
+  for (const e of ev.ShipmentEventList) {
+    const mk = marketplaceId(e.MarketplaceName);
+    if (!mk || !e.PostedDate) continue;
+    for (const i of e.ShipmentItemList ?? []) {
+      const uds = i.QuantityShipped ?? 0;
+      if (!i.SellerSKU || uds < 1) continue;
+      const cargos = i.ItemChargeList ?? [];
+      if (cargos.some((c) => !["Principal", "Tax"].includes(c.ChargeType ?? "") && Number(importe(c)?.CurrencyAmount))) continue;
+      if (suma(i.PromotionList) !== 0) continue;
+      const principal = suma(cargos, (c) => c.ChargeType === "Principal");
+      if (principal <= 0) continue;
+      const fee = (tipo: string) => -suma(i.ItemFeeList, (c) => c.FeeType === tipo);
+      const comision = fee("Commission");
+      const fba = fee("FBAPerUnitFulfillmentFee");
+      const serviciosDigitales = fee("DigitalServicesFee");
+      const retenido = -(i.ItemTaxWithheldList ?? []).reduce((s, w) => s + suma(w.TaxesWithheld), 0);
+      const iva = suma(cargos, esIva);
+      // Odd lines (no referral fee, or more VAT withheld than charged) would make a misleading base.
+      if (comision <= 0 || retenido > iva + 0.01) continue;
+      res.push({
+        sku: i.SellerSKU,
+        marketplaceId: mk,
+        moneda: importe(cargos[0])?.CurrencyCode ?? "EUR",
+        fecha: e.PostedDate,
+        precio: r4((principal + iva) / uds),
+        iva: r4(iva / uds),
+        ivaRetenido: r4(retenido / uds),
+        comision: r4(comision / uds),
+        fba: r4(fba / uds),
+        serviciosDigitales: r4(serviciosDigitales / uds),
+        otras: r4((-suma(i.ItemFeeList) - comision - fba - serviciosDigitales) / uds),
+      });
+    }
+  }
+  return res;
+}

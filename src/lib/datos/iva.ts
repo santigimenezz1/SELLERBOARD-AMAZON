@@ -21,6 +21,11 @@ const TIPO_GENERAL: Record<string, number> = {
   TR: 0.2,
 };
 
+/** Standard rate of a country ("ES" → 0.21), or undefined if unknown. */
+export function tipoIvaGeneral(codigoPais: string | undefined): number | undefined {
+  return codigoPais ? TIPO_GENERAL[codigoPais.toUpperCase()] : undefined;
+}
+
 /** VAT contained in a VAT-inclusive amount: 121 € in Spain → 21 €. Null if the country's rate is unknown. */
 export function ivaIncluido(importe: number, codigoPais: string | undefined): number | null {
   const tipo = codigoPais ? TIPO_GENERAL[codigoPais.toUpperCase()] : undefined;

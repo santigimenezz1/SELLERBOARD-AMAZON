@@ -11,7 +11,8 @@ import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/con
 import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
-import { resumirEventos, type TransaccionResumida } from "./finanzas";
+import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
+import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
 import { ahoraMenos3Min } from "./cliente";
 import { eurPorUnidad } from "./tiposCambio";
 
@@ -48,6 +49,8 @@ import { eurPorUnidad } from "./tiposCambio";
 const SOLAPE_FINANZAS_MS = 10 * 24 * 3600_000;
 const SOLAPE_PEDIDOS_MS = 5 * 60_000;
 const MAX_VENTANA_FINANZAS_MS = 179 * 24 * 3600_000;
+/** How far back the first fee-sample build looks (then each sync only adds newer sales). */
+const DIAS_HISTORICO_TARIFAS = 90;
 /** A lock older than this is considered abandoned (e.g. the server restarted mid-sync). */
 export const BLOQUEO_MS = 15 * 60_000;
 
@@ -176,7 +179,8 @@ export async function sincronizar(): Promise<ResultadoSync> {
       const hasta = ahoraMenos3Min();
       let desde = cursorFinanzas ? new Date(cursorFinanzas.getTime() - SOLAPE_FINANZAS_MS) : primeraVez;
       if (hasta.getTime() - desde.getTime() > MAX_VENTANA_FINANZAS_MS) desde = new Date(hasta.getTime() - MAX_VENTANA_FINANZAS_MS);
-      const resumidas: TransaccionResumida[] = resumirEventos(await eventosFinancieros(desde, hasta), marketplacePorNombre);
+      const eventos = await eventosFinancieros(desde, hasta);
+      const resumidas: TransaccionResumida[] = resumirEventos(eventos, marketplacePorNombre);
       const esc = new Escritor();
       for (const t of resumidas) {
         // The 10-day overlap brings back mostly unchanged transactions: only new or changed ones are written.
@@ -186,6 +190,19 @@ export async function sincronizar(): Promise<ResultadoSync> {
       await esc.confirmar();
       transaccionesN = resumidas.length;
       cursorFinanzas = hasta;
+
+      // Real per-unit fees of the latest clean sale per SKU and country (product page payout box).
+      try {
+        const muestras = muestrasTarifas(eventos, marketplacePorNombre);
+        if (!(await tarifasCreadas())) {
+          // First time: look further back once, so countries with few sales also get a sample.
+          const inicio = new Date(Math.max(hasta.getTime() - MAX_VENTANA_FINANZAS_MS, desde.getTime() - DIAS_HISTORICO_TARIFAS * 24 * 3600_000));
+          if (inicio < desde) muestras.push(...muestrasTarifas(await eventosFinancieros(inicio, desde), marketplacePorNombre));
+        }
+        escrituras += await guardarTarifas(muestras);
+      } catch (e) {
+        errores.push(`Tarifas por venta: ${mensaje(e)}`);
+      }
     } catch (e) {
       errores.push(`Finances API: ${mensaje(e)}`);
     }
