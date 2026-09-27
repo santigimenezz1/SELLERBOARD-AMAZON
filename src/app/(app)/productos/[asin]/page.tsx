@@ -116,6 +116,21 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
       {/* Seller strip: our own numbers, which a buyer doesn't see */}
       <section className="grid gap-3 rounded-2xl border border-white/[0.06] bg-ink-900/70 p-4 sm:grid-cols-2 lg:grid-cols-5">
         <div>
+          {/* Sale status in the selected country, from the listing check of the last sync (BUYABLE = activo). */}
+          {salud.comprobadoEn &&
+            (!salud.porMercado[mkId] ? (
+              <p className="mb-1 text-xs font-semibold text-ink-400">No listado en {mk?.pais ?? "este país"}</p>
+            ) : salud.porMercado[mkId].comprable ? (
+              <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold tracking-wide text-success uppercase">
+                <span aria-hidden className="size-2 rounded-full bg-success" />
+                Activo
+              </p>
+            ) : (
+              <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold tracking-wide text-danger uppercase">
+                <span aria-hidden className="size-2 rounded-full bg-danger" />
+                Inactivo
+              </p>
+            ))}
           <p className="text-xs text-ink-400">SKU{d.skus.length > 1 ? "s" : ""}</p>
           <p className="mt-0.5 font-mono text-sm text-ink-100">{d.skus.join(", ") || "—"}</p>
           {etiqueta && <span className="mt-1 inline-block rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-success">{etiqueta}</span>}
