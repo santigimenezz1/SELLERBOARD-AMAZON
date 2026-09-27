@@ -118,48 +118,50 @@ export function EnviosFBA({ envios, actualizadoEn, asinDe }: { envios: EnvioGuar
   const visibles = abierta ? cerrados : cerrados.slice(0, FILAS_PLEGADA);
 
   return (
-    <section className="rounded-2xl border border-white/[0.06] bg-ink-900/70">
-      <div className="flex flex-wrap items-end justify-between gap-3 px-5 pt-4">
-        <div>
-          <h2 className="text-sm font-medium text-ink-300">Envíos a Amazon</h2>
-          <p className="text-xs text-ink-400">
-            Tus envíos FBA de los últimos 12 meses (Europa y Reino Unido), con las unidades enviadas y las que Amazon ha recibido.
-            {!actualizadoEn && " Se traen en la próxima sincronización o con «Actualizar stock»."}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span className="rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-ink-300">
-            En curso: <strong className="text-ink-100">{enCurso.length}</strong>
-            {porRecibir > 0 && ` · ${formatNumero(porRecibir)} uds por recibir`}
-          </span>
-          <span className={`rounded-lg border px-2.5 py-1.5 ${faltan > 0 ? "border-danger/40 text-danger" : "border-white/[0.08] text-ink-300"}`}>
-            Faltan en envíos cerrados: <strong>{formatNumero(faltan)}</strong>
-            {conFaltas > 0 && ` uds en ${conFaltas} ${conFaltas === 1 ? "envío" : "envíos"}`}
-          </span>
-        </div>
+    <section>
+      <div className="mb-3">
+        <h2 className="text-lg font-semibold tracking-tight text-ink-100">Envíos a Amazon</h2>
+        <p className="text-xs text-ink-400">
+          Tus envíos FBA de los últimos 12 meses (Europa y Reino Unido), con las unidades enviadas y las que Amazon ha recibido.
+          {!actualizadoEn && " Se traen en la próxima sincronización o con «Actualizar stock»."}
+        </p>
       </div>
+      <div className="rounded-2xl border border-white/[0.06] bg-ink-900/70">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-5 pt-4">
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-ink-300">
+              En curso: <strong className="text-ink-100">{enCurso.length}</strong>
+              {porRecibir > 0 && ` · ${formatNumero(porRecibir)} uds por recibir`}
+            </span>
+            <span className={`rounded-lg border px-2.5 py-1.5 ${faltan > 0 ? "border-danger/40 text-danger" : "border-white/[0.08] text-ink-300"}`}>
+              Faltan en envíos cerrados: <strong>{formatNumero(faltan)}</strong>
+              {conFaltas > 0 && ` uds en ${conFaltas} ${conFaltas === 1 ? "envío" : "envíos"}`}
+            </span>
+          </div>
+        </div>
 
-      <h3 className="px-5 pt-4 text-xs font-medium text-ink-300">En curso</h3>
-      {enCurso.length === 0 ? <p className="px-5 py-3 text-sm text-ink-400">No hay envíos en camino ahora mismo.</p> : <Tabla envios={enCurso} asinDe={asinDe} resaltar />}
+        <h3 className="px-5 pt-4 text-xs font-medium text-ink-300">En curso</h3>
+        {enCurso.length === 0 ? <p className="px-5 py-3 text-sm text-ink-400">No hay envíos en camino ahora mismo.</p> : <Tabla envios={enCurso} asinDe={asinDe} resaltar />}
 
-      {cerrados.length > 0 && (
-        <>
-          <h3 className="border-t border-white/[0.06] px-5 pt-4 text-xs font-medium text-ink-300">Cerrados y cancelados</h3>
-          <Tabla envios={visibles} asinDe={asinDe} />
-          {cerrados.length > FILAS_PLEGADA && (
-            <button
-              onClick={() => setAbierta((v) => !v)}
-              aria-expanded={abierta}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-white/[0.06] py-2.5 text-xs text-ink-400 hover:bg-white/[0.03] hover:text-ink-100"
-            >
-              {abierta ? "Ver menos" : `Ver todos (${cerrados.length})`}
-              <svg viewBox="0 0 16 16" className={`size-3.5 transition-transform ${abierta ? "rotate-180" : ""}`} aria-hidden>
-                <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
-        </>
-      )}
+        {cerrados.length > 0 && (
+          <>
+            <h3 className="border-t border-white/[0.06] px-5 pt-4 text-xs font-medium text-ink-300">Cerrados y cancelados</h3>
+            <Tabla envios={visibles} asinDe={asinDe} />
+            {cerrados.length > FILAS_PLEGADA && (
+              <button
+                onClick={() => setAbierta((v) => !v)}
+                aria-expanded={abierta}
+                className="flex w-full items-center justify-center gap-1.5 border-t border-white/[0.06] py-2.5 text-xs text-ink-400 hover:bg-white/[0.03] hover:text-ink-100"
+              >
+                {abierta ? "Ver menos" : `Ver todos (${cerrados.length})`}
+                <svg viewBox="0 0 16 16" className={`size-3.5 transition-transform ${abierta ? "rotate-180" : ""}`} aria-hidden>
+                  <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+          </>
+        )}
+      </div>
     </section>
   );
 }
