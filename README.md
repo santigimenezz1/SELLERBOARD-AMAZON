@@ -249,3 +249,11 @@ listing, mercado (sin precios), su número de venta del día y las unidades de h
 para que suene cada uno (a partir de 20 a la vez, el resto en un último mensaje). La primera
 sincronización (que trae meses de historial) no avisa. `POST /api/telegram/prueba` manda un aviso de prueba con el
 último pedido. En el iPhone, el chat del bot puede tener su propio tono.
+
+## Tendencias
+
+Sección «Tendencias»: a qué hora y qué día compra la gente, en la hora local del comprador (Reino Unido en hora
+británica, el resto en hora de España). Filtros de periodo (30 días, 90 días, todo), listing y país, y cuatro vistas:
+los 5 mejores momentos de la semana, % de unidades por franja del día, unidades por día de la semana y la semana por
+bloques de 4 horas con la cifra en cada casilla. Sale de los pedidos en memoria (`lib/datos/tendencias.ts`): no lee
+nada más de Firestore ni de Amazon; cuenta unidades y excluye los cancelados.
