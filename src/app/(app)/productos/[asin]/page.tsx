@@ -11,7 +11,7 @@ import { costeTotal, MARKETPLACE_UK, obtenerEscandallo, regionDeMarketplace } fr
 import { tarifasDeSkus } from "@/lib/datos/tarifasVenta";
 import { PagoAmazon } from "@/components/productos/PagoAmazon";
 import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
-import { contactosDe } from "@/lib/datos/proveedores";
+import { contactosDe, EMPRESA_INSPECCION } from "@/lib/datos/proveedores";
 import { ProveedoresProducto } from "@/components/productos/ProveedoresProducto";
 
 const ES = "A1RKKUPIHCS9HS";
@@ -38,8 +38,8 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   const sp = await searchParams;
   if (!/^[A-Z0-9]{10}$/.test(asin)) notFound();
   const [d, costeEU, costeUK] = await Promise.all([detalleProducto(asin), obtenerEscandallo(asin, "eu"), obtenerEscandallo(asin, "uk")]);
-  // Suppliers of both regions, once each.
-  const contactos = await contactosDe([...new Set([...costeEU.proveedores, ...costeUK.proveedores].map((p) => p.nombre).filter(Boolean))]);
+  // Suppliers of both regions, once each, plus the inspection company.
+  const contactos = await contactosDe([...new Set([...[...costeEU.proveedores, ...costeUK.proveedores].map((p) => p.nombre).filter(Boolean), EMPRESA_INSPECCION])]);
   const f = d.ficha;
   // The UK cost is compared with the amazon.co.uk price converted to euros (ECB rate); no rate → no share shown.
   const precioUK = f?.precios[MARKETPLACE_UK];

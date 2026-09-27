@@ -6,7 +6,7 @@ import { formatEuros, formatFechaHora, formatNumero } from "@/lib/format";
 import { fechaCorta } from "@/lib/datos/periodos";
 import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
-import { CABECERAS_PROVEEDOR as CABECERAS } from "./colores";
+import { CABECERAS_PROVEEDOR as CABECERAS, COLOR_INSPECCION } from "./colores";
 
 const nuevoId = () => Math.random().toString(36).slice(2, 10);
 const redondear = (v: number) => Math.round(v * 100) / 100;
@@ -20,7 +20,7 @@ const eurosUnidad = (v: number) => formatEuros(v, v > 0 && v < 0.1 ? 3 : 2);
 
 // Batch costs: their own colours, apart from the suppliers' blue → green ramp.
 const LOTES: Record<TipoLote, { titulo: string; color: string; referencia: string; unidades: string; coste: string; nota?: string }> = {
-  inspeccion: { titulo: "Inspección de producto", color: "#7a5fd0", referencia: "Inspección", unidades: "Unidades", coste: "Coste total" },
+  inspeccion: { titulo: "Inspección de producto", color: COLOR_INSPECCION, referencia: "Inspección", unidades: "Unidades", coste: "Coste total" },
   agl: {
     titulo: "Envío AGL",
     color: "#4d6690",

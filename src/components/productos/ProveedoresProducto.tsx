@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { ContactoProveedor } from "@/lib/datos/proveedores";
 import { formatFechaHora } from "@/lib/format";
 import { Spinner } from "@/components/Spinner";
-import { CABECERAS_PROVEEDOR } from "./colores";
+import { CABECERAS_PROVEEDOR, COLOR_INSPECCION } from "./colores";
 
 type Campo = "empresa" | "telefono" | "email" | "alibaba";
 const CAMPOS: { clave: Campo; etiqueta: string; placeholder: string; tipo: string }[] = [
@@ -21,11 +21,11 @@ export function ProveedoresProducto({ contactos }: { contactos: ContactoProveedo
     <section>
       <div className="mb-3">
         <h2 className="text-lg font-semibold tracking-tight text-ink-100">Proveedores del producto</h2>
-        <p className="text-xs text-ink-400">Datos de contacto de cada proveedor del coste. Un mismo proveedor se comparte entre productos.</p>
+        <p className="text-xs text-ink-400">Datos de contacto de cada proveedor del coste y de la empresa de inspección. Un mismo proveedor se comparte entre productos.</p>
       </div>
       <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-[repeat(auto-fill,minmax(340px,1fr))]">
         {contactos.map((c, i) => (
-          <TarjetaProveedor key={c.id} inicial={c} color={CABECERAS_PROVEEDOR[i % CABECERAS_PROVEEDOR.length]} />
+          <TarjetaProveedor key={c.id} inicial={c} color={c.id === "empresa-de-inspeccion" ? COLOR_INSPECCION : CABECERAS_PROVEEDOR[i % CABECERAS_PROVEEDOR.length]} />
         ))}
       </div>
     </section>

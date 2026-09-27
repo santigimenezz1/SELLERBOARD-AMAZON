@@ -34,6 +34,9 @@ export function idProveedor(nombre: string): string {
   );
 }
 
+/** Always listed after the cost suppliers: the quality inspection is a batch cost, not a supplier piece. */
+export const EMPRESA_INSPECCION = "Empresa de inspección";
+
 // Made-up placeholders so the layout can be judged; replaced when real data is saved.
 const EJEMPLOS: Record<string, Omit<ContactoProveedor, "id" | "nombre" | "actualizadoEn">> = {
   "proveedor-alfombras": {
@@ -41,6 +44,12 @@ const EJEMPLOS: Record<string, Omit<ContactoProveedor, "id" | "nombre" | "actual
     telefono: "+86 574 8765 4321",
     email: "ventas@ejemplo-sporting.example",
     alibaba: "https://ejemplo-sporting.en.alibaba.com",
+  },
+  "empresa-de-inspeccion": {
+    empresa: "Ejemplo Quality Inspection Services Ltd.",
+    telefono: "+86 21 5555 0123",
+    email: "booking@ejemplo-qc.example",
+    alibaba: "https://ejemplo-qc.en.alibaba.com",
   },
   "proveedor-cajas": {
     empresa: "Ejemplo Packaging Co., Ltd.",
