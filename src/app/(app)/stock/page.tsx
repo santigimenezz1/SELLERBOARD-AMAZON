@@ -7,10 +7,12 @@ import { obtenerEnvios } from "@/lib/datos/envios";
 import { EnviosFBA } from "@/components/stock/EnviosFBA";
 import { obtenerInventarioPaises, paisesConVentas as paisesVendidos } from "@/lib/datos/inventarioPaises";
 import { InventarioPaises } from "@/components/stock/InventarioPaises";
+import { conEuros, costesPorEnvio, obtenerCostesEnvios } from "@/lib/datos/costesEnvios";
 
 /** FBA stock per region and inbound shipments. Everything comes from memory after the first load. */
 export default async function StockPage() {
-  const [stock, ultima, envios, inventario] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises()]);
+  const [stock, ultima, envios, inventario, costesDoc] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises(), obtenerCostesEnvios()]);
+  const costes = await conEuros(costesPorEnvio(costesDoc), Object.fromEntries(envios.envios.map((e) => [e.id, e.creado])));
   const { imagenes, lineas } = await datosVentas(ultima?.id ?? null);
 
   // Titles from the orders when Amazon's inventory report has none (skipping its "-" placeholders).
@@ -35,7 +37,7 @@ export default async function StockPage() {
         <>
           <VistaStock stock={stock} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
           <InventarioPaises filas={inventario.filas} actualizadoEn={inventario.actualizadoEn} paisesConVentas={paisesConVentas} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
-          <EnviosFBA envios={envios.envios} actualizadoEn={envios.actualizadoEn} asinDe={asinDe} />
+          <EnviosFBA envios={envios.envios} actualizadoEn={envios.actualizadoEn} asinDe={asinDe} costes={costes} />
         </>
       )}
     </div>

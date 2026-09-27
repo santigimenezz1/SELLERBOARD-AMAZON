@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { EnvioGuardado } from "@/lib/datos/envios";
-import { formatNumero } from "@/lib/format";
+import type { CosteEnvioConEuros } from "@/lib/datos/costesEnvios";
+import { formatEuros, formatMoneda, formatNumero } from "@/lib/format";
+import { Spinner } from "@/components/Spinner";
 import { Bandera } from "@/components/Bandera";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
 
@@ -27,11 +30,137 @@ const RESALTADO =
 const suma = (e: EnvioGuardado, k: "enviado" | "recibido") => e.articulos.reduce((s, a) => s + a[k], 0);
 const fecha = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : "—");
 
+/** "4,20" or "4.20" → 4.2; "" → null (clears the cost); NaN if not a number. */
+const aNumero = (t: string) => (t.trim() === "" ? null : Number(t.replace(",", ".")));
+
+/**
+ * Cost of one shipment: Amazon's AGL charges (freight + duties/taxes; pounds shown with their euro value) or a
+ * hand-typed total in euros, editable in place for shipments Amazon doesn't bill.
+ */
+function CeldaCoste({ envio, coste, unidades }: { envio: EnvioGuardado; coste: CosteEnvioConEuros | undefined; unidades: number }) {
+  const router = useRouter();
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [estado, setEstado] = useState<{ tipo: "idle" | "guardando" } | { tipo: "error"; msg: string }>({ tipo: "idle" });
+  const valor = aNumero(texto);
+  const invalido = valor !== null && (!Number.isFinite(valor) || valor < 0);
+
+  function abrir(inicial: string) {
+    setTexto(inicial);
+    setEstado({ tipo: "idle" });
+    setEditando(true);
+  }
+
+  async function guardar() {
+    setEstado({ tipo: "guardando" });
+    try {
+      const res = await fetch(`/api/envios/${envio.id}/coste`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ coste: valor }) });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
+      setEditando(false);
+      setEstado({ tipo: "idle" });
+      router.refresh();
+    } catch (e) {
+      setEstado({ tipo: "error", msg: e instanceof Error ? e.message : "Error" });
+    }
+  }
+
+  if (editando) {
+    return (
+      <form
+        className="flex flex-col items-end gap-1"
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          if (!invalido) guardar();
+        }}
+      >
+        <div className="relative">
+          <input
+            autoFocus
+            inputMode="decimal"
+            value={texto}
+            onChange={(ev) => setTexto(ev.target.value)}
+            placeholder="0,00"
+            aria-label={`Coste total del envío ${envio.id} en euros`}
+            aria-invalid={invalido}
+            className="tabular h-8 w-28 rounded-md border border-white/[0.08] bg-ink-950/60 pr-6 pl-2 text-right text-sm text-ink-100 outline-none focus:border-accent-500/70 aria-[invalid=true]:border-danger/60"
+          />
+          <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-400">€</span>
+        </div>
+        <div className="flex gap-1.5">
+          <button type="button" onClick={() => setEditando(false)} className="h-7 rounded-md border border-white/[0.1] px-2 text-xs text-ink-300 hover:text-ink-100">
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={invalido || estado.tipo === "guardando"}
+            className="inline-flex h-7 items-center gap-1 rounded-md bg-accent-500 px-2 text-xs font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-40"
+          >
+            {estado.tipo === "guardando" && <Spinner tamano="sm" />}
+            Guardar
+          </button>
+        </div>
+        {estado.tipo === "error" && <p className="text-xs text-danger">{estado.msg}</p>}
+      </form>
+    );
+  }
+
+  if (!coste) {
+    if (envio.estado === "CANCELLED") return <span className="text-ink-500">—</span>;
+    return (
+      <button onClick={() => abrir("")} className="text-xs text-ink-400 underline-offset-4 hover:text-ink-100 hover:underline">
+        + Añadir coste
+      </button>
+    );
+  }
+
+  const enEuros = coste.moneda === "EUR";
+  const porUnidad = coste.euros !== null && unidades > 0 ? coste.euros / unidades : null;
+  const desglose =
+    coste.fuente === "amazon"
+      ? [
+          coste.flete && `Flete ${formatMoneda(coste.flete, coste.moneda)}`,
+          coste.impuestos && `Aranceles e impuestos ${formatMoneda(coste.impuestos, coste.moneda)}`,
+          coste.transporte && `Transporte ${formatMoneda(coste.transporte, coste.moneda)}`,
+        ]
+          .filter(Boolean)
+          .join(" + ")
+      : "Coste introducido a mano";
+  return (
+    <div className="text-right" title={desglose}>
+      <p className="font-medium whitespace-nowrap text-ink-100">
+        {formatMoneda(coste.total, coste.moneda)}
+        {!enEuros && <span className="ml-1 text-xs font-normal text-ink-400">≈ {coste.euros !== null ? formatEuros(coste.euros) : "—"}</span>}
+      </p>
+      <p className="text-xs whitespace-nowrap text-ink-400">
+        {porUnidad !== null && `${formatEuros(porUnidad, porUnidad < 0.1 ? 3 : 2)}/ud · `}
+        {coste.fuente === "amazon" ? (
+          coste.flete || coste.impuestos ? "Amazon AGL" : "Transporte Amazon"
+        ) : (
+          <button onClick={() => abrir(coste.total.toFixed(2).replace(".", ","))} className="underline-offset-4 hover:text-ink-100 hover:underline">
+            Manual ✎
+          </button>
+        )}
+      </p>
+    </div>
+  );
+}
+
 /** `asinDe` maps SKU → ASIN; `resaltar` outlines every row in green (shipments on their way). */
-function Tabla({ envios, asinDe, resaltar = false }: { envios: EnvioGuardado[]; asinDe: Record<string, string>; resaltar?: boolean }) {
+function Tabla({
+  envios,
+  asinDe,
+  costes,
+  resaltar = false,
+}: {
+  envios: EnvioGuardado[];
+  asinDe: Record<string, string>;
+  costes: Record<string, CosteEnvioConEuros>;
+  resaltar?: boolean;
+}) {
   return (
     <div className="overflow-x-auto">
-      <table className="tabular w-full min-w-[820px] text-sm">
+      <table className="tabular w-full min-w-[960px] text-sm">
         <thead>
           <tr className="border-b border-white/[0.06] text-xs text-ink-400">
             <th className="py-2.5 pr-3 pl-5 text-left font-medium">Envío</th>
@@ -40,7 +169,8 @@ function Tabla({ envios, asinDe, resaltar = false }: { envios: EnvioGuardado[]; 
             <th className="px-3 py-2.5 text-left font-medium">ASIN</th>
             <th className="px-3 py-2.5 text-right font-medium">Enviadas</th>
             <th className="px-3 py-2.5 text-right font-medium">Recibidas</th>
-            <th className="py-2.5 pr-5 pl-3 text-right font-medium">Diferencia</th>
+            <th className="px-3 py-2.5 text-right font-medium">Diferencia</th>
+            <th className="py-2.5 pr-5 pl-3 text-right font-medium">Coste</th>
           </tr>
         </thead>
         <tbody className={resaltar ? "" : "divide-y divide-white/[0.05]"}>
@@ -84,7 +214,7 @@ function Tabla({ envios, asinDe, resaltar = false }: { envios: EnvioGuardado[]; 
                 </td>
                 <td className="px-3 py-2.5 text-right align-top text-ink-100">{formatNumero(enviado)}</td>
                 <td className="px-3 py-2.5 text-right align-top text-ink-100">{formatNumero(recibido)}</td>
-                <td className="py-2.5 pr-5 pl-3 text-right align-top">
+                <td className="px-3 py-2.5 text-right align-top">
                   {cancelado ? (
                     <span className="text-ink-500">—</span>
                   ) : !cerrado ? (
@@ -98,6 +228,9 @@ function Tabla({ envios, asinDe, resaltar = false }: { envios: EnvioGuardado[]; 
                     </span>
                   )}
                 </td>
+                <td className="py-2.5 pr-5 pl-3 text-right align-top">
+                  <CeldaCoste envio={e} coste={costes[e.id]} unidades={enviado} />
+                </td>
               </tr>
             );
           })}
@@ -108,7 +241,17 @@ function Tabla({ envios, asinDe, resaltar = false }: { envios: EnvioGuardado[]; 
 }
 
 /** Inbound shipments: the open ones always visible, closed ones collapsed to the latest few. */
-export function EnviosFBA({ envios, actualizadoEn, asinDe }: { envios: EnvioGuardado[]; actualizadoEn: string | null; asinDe: Record<string, string> }) {
+export function EnviosFBA({
+  envios,
+  actualizadoEn,
+  asinDe,
+  costes,
+}: {
+  envios: EnvioGuardado[];
+  actualizadoEn: string | null;
+  asinDe: Record<string, string>;
+  costes: Record<string, CosteEnvioConEuros>;
+}) {
   const [abierta, setAbierta] = useState(false);
   const enCurso = envios.filter((e) => !FINALES.has(e.estado));
   const cerrados = envios.filter((e) => FINALES.has(e.estado) && e.estado !== "DELETED");
@@ -122,7 +265,8 @@ export function EnviosFBA({ envios, actualizadoEn, asinDe }: { envios: EnvioGuar
       <div className="mb-3">
         <h2 className="text-lg font-semibold tracking-tight text-ink-100">Envíos a Amazon</h2>
         <p className="text-xs text-ink-400">
-          Tus envíos FBA de los últimos 12 meses (Europa y Reino Unido), con las unidades enviadas y las que Amazon ha recibido.
+          Tus envíos FBA de los últimos 12 meses (Europa y Reino Unido): unidades enviadas, las que Amazon ha recibido y lo que costó
+          cada envío (los de AGL, desde tus cargos de Amazon; el resto, a mano).
           {!actualizadoEn && " Se traen en la próxima sincronización o con «Actualizar stock»."}
         </p>
       </div>
@@ -141,12 +285,12 @@ export function EnviosFBA({ envios, actualizadoEn, asinDe }: { envios: EnvioGuar
         </div>
 
         <h3 className="px-5 pt-4 text-xs font-medium text-ink-300">En curso</h3>
-        {enCurso.length === 0 ? <p className="px-5 py-3 text-sm text-ink-400">No hay envíos en camino ahora mismo.</p> : <Tabla envios={enCurso} asinDe={asinDe} resaltar />}
+        {enCurso.length === 0 ? <p className="px-5 py-3 text-sm text-ink-400">No hay envíos en camino ahora mismo.</p> : <Tabla envios={enCurso} asinDe={asinDe} costes={costes} resaltar />}
 
         {cerrados.length > 0 && (
           <>
             <h3 className="border-t border-white/[0.06] px-5 pt-4 text-xs font-medium text-ink-300">Cerrados y cancelados</h3>
-            <Tabla envios={visibles} asinDe={asinDe} />
+            <Tabla envios={visibles} asinDe={asinDe} costes={costes} />
             {cerrados.length > FILAS_PLEGADA && (
               <button
                 onClick={() => setAbierta((v) => !v)}

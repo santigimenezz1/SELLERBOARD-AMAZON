@@ -96,16 +96,20 @@ export type EventoPedido = {
   ShipmentItemAdjustmentList?: ItemEvento[];
 };
 
+/** Account-level fee (storage, subscription…). Inbound freight charges carry the shipment id (FBA15…) as AmazonOrderId. */
+export type EventoServicio = { AmazonOrderId?: string; FeeReason?: string; FeeDescription?: string; FeeList?: Componente[] };
+
 export type EventosFinancieros = {
   ShipmentEventList: EventoPedido[];
   RefundEventList: EventoPedido[];
   GuaranteeClaimEventList: EventoPedido[];
   ChargebackEventList: EventoPedido[];
+  ServiceFeeEventList: EventoServicio[];
 };
 
 /** Order-linked financial events posted in [desde, hasta). Empty if the window exceeds 180 days. */
 export async function eventosFinancieros(desde: Date, hasta: Date): Promise<EventosFinancieros> {
-  const res: EventosFinancieros = { ShipmentEventList: [], RefundEventList: [], GuaranteeClaimEventList: [], ChargebackEventList: [] };
+  const res: EventosFinancieros = { ShipmentEventList: [], RefundEventList: [], GuaranteeClaimEventList: [], ChargebackEventList: [], ServiceFeeEventList: [] };
   let NextToken: string | undefined;
   do {
     const r = await spGet<{ payload?: { FinancialEvents?: Partial<EventosFinancieros>; NextToken?: string } }>("/finances/v0/financialEvents", {

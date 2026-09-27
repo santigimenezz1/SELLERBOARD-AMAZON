@@ -116,6 +116,10 @@ que ya generó ese día.
 cerrados/cancelados plegados, con ruta (origen → centro), estado y unidades enviadas frente a recibidas; en rojo lo que
 falta en envíos cerrados. Fulfillment Inbound API v0 en cada sincronización y con «Actualizar stock»; en
 `config/enviosFBA`. Solo se releen los artículos de los envíos nuevos o abiertos (la primera carga, ~1 min).
+Columna **Coste**: los envíos de Amazon Global Logistics salen solos de los cargos de Amazon con el id del envío
+(flete + aranceles e impuestos; en libras con su valor en euros al cambio BCE del día del envío) y el coste por unidad;
+el resto se escribe a mano (en euros). En `config/costesEnvios`: los cargos se recogen en la etapa de finanzas de la
+sincronización (la primera vez, un año atrás).
 
 ## Cómo funciona la sincronización
 

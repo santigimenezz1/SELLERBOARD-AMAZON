@@ -17,6 +17,7 @@ import { actualizarInventarioPaises } from "@/lib/datos/inventarioPaises";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
+import { cargosDeEnvios, guardarCargosEnvios, obtenerCostesEnvios } from "@/lib/datos/costesEnvios";
 import { ahoraMenos3Min } from "./cliente";
 import { eurPorUnidad } from "./tiposCambio";
 
@@ -206,6 +207,24 @@ export async function sincronizar(): Promise<ResultadoSync> {
         escrituras += await guardarTarifas(muestras);
       } catch (e) {
         errores.push(`Tarifas por venta: ${mensaje(e)}`);
+      }
+
+      // Amazon Global Logistics freight and import duties, billed per inbound shipment.
+      try {
+        const servicios = [...eventos.ServiceFeeEventList];
+        const historico = !(await obtenerCostesEnvios()).historico;
+        if (historico) {
+          // First time: a year back, in windows of under 180 days (the API's limit), to cover older shipments.
+          const DIA = 24 * 3600_000;
+          const tramos: [Date, Date][] = [
+            [new Date(hasta.getTime() - 365 * DIA), new Date(hasta.getTime() - 186 * DIA)],
+            [new Date(hasta.getTime() - 186 * DIA), desde],
+          ];
+          for (const [a, b] of tramos) if (a < b) servicios.push(...(await eventosFinancieros(a, b)).ServiceFeeEventList);
+        }
+        escrituras += await guardarCargosEnvios(cargosDeEnvios(servicios), historico);
+      } catch (e) {
+        errores.push(`Costes de envíos: ${mensaje(e)}`);
       }
     } catch (e) {
       errores.push(`Finances API: ${mensaje(e)}`);
