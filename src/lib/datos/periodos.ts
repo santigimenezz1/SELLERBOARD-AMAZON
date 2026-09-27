@@ -36,8 +36,9 @@ export function periodosFijos(hoy: string): Periodo[] {
   return [
     { id: "hoy", nombre: "Hoy", desde: hoy, hasta: hoy },
     { id: "ayer", nombre: "Ayer", desde: ayer, hasta: ayer },
-    { id: "anteayer", nombre: "Anteayer", desde: anteayer, hasta: anteayer },
+    // The week sits right next to "Ayer", as the user asked; the day before yesterday comes after it.
     { id: "semana", nombre: "Esta semana", desde: lunesDe(hoy), hasta: hoy },
+    { id: "anteayer", nombre: "Anteayer", desde: anteayer, hasta: anteayer },
     { id: "mes", nombre: "Este mes", desde: primeroDeMes(hoy), hasta: hoy },
     { id: "pronostico", nombre: "Este mes (pronóstico)", desde: primeroDeMes(hoy), hasta: ultimoDeMes(hoy), esPronostico: true },
     { id: "mespasado", nombre: "El mes pasado", desde: primeroDeMes(finMesPasado), hasta: finMesPasado },

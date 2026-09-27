@@ -13,8 +13,8 @@ export type TarjetaPeriodo = { periodo: Periodo; resumen: ResumenVentas };
 const CABECERAS: Record<string, string> = {
   hoy: "#3987e5",
   ayer: "#348bd2",
-  anteayer: "#2e8fbe",
-  semana: "#2993ab",
+  semana: "#2e8fbe",
+  anteayer: "#2993ab",
   mes: "#249697",
   pronostico: "#1e9a84",
   mespasado: "#199e70",
