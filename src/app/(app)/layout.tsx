@@ -4,6 +4,7 @@ import { LogoutButton } from "@/components/LogoutButton";
 import { Nav } from "@/components/Nav";
 import { ContadorConsumo } from "@/components/ContadorConsumo";
 import { resumenEstadoCuenta } from "@/lib/datos/estadoCuenta";
+import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
@@ -26,6 +27,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           </div>
         </div>
       </header>
+      <RefrescoAutomatico />
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
     </div>
   );

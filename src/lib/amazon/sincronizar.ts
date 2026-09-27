@@ -8,6 +8,7 @@ import { ivaIncluido } from "@/lib/datos/iva";
 import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketplacesConocidos";
 import { asegurarAlmacen, Escritor, fijarVersion, invalidarAlmacen, pedidosEnAlmacen, productosEnAlmacen, transaccionesEnAlmacen } from "@/lib/datos/almacen";
 import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/consumo";
+import { recordarUltimaSync } from "@/lib/datos/panel";
 import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
 import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
@@ -58,10 +59,20 @@ const SOLAPE_PEDIDOS_MS = 5 * 60_000;
 const MAX_VENTANA_FINANZAS_MS = 179 * 24 * 3600_000;
 /** How far back the first fee-sample build looks (then each sync only adds newer sales). */
 const DIAS_HISTORICO_TARIFAS = 90;
+/**
+ * Automatic syncs run every few minutes: orders every time, everything else (finances, stock, listings,
+ * reports, Gmail…) at most this often. A sync started by hand is always complete.
+ */
+export const INTERVALO_COMPLETA_MS = 60 * 60_000;
+/** Sync history kept (each sync leaves a doc; automatic ones would pile up). */
+const HISTORIAL_DIAS = 14;
+
 /** A lock older than this is considered abandoned (e.g. the server restarted mid-sync). */
 export const BLOQUEO_MS = 15 * 60_000;
 
 export type ResultadoSync = {
+  /** false = quick sync (orders only); true = everything. */
+  completa: boolean;
   pedidosNuevos: number;
   pedidosActualizados: number;
   transacciones: number;
@@ -103,7 +114,11 @@ async function tomarBloqueo(db: Firestore) {
   };
 }
 
-export async function sincronizar(): Promise<ResultadoSync> {
+/**
+ * `modo`: "completa" (the button) runs every stage; "auto" (the scheduled call) runs only the orders, plus
+ * everything else when the last complete sync is older than INTERVALO_COMPLETA_MS.
+ */
+export async function sincronizar(modo: "completa" | "auto" = "completa"): Promise<ResultadoSync> {
   const db = adminDb();
   const inicio = Date.now();
   const liberar = await tomarBloqueo(db);
@@ -118,6 +133,9 @@ export async function sincronizar(): Promise<ResultadoSync> {
     contarLecturas(1);
     // Existing orders/transactions come from the in-memory mirror (reads only what changed since it was loaded).
     await asegurarAlmacen(ultima?.id ?? null);
+    // Syncs saved before the quick/complete split count as complete.
+    const ultimaCompleta = aFecha(ultima?.get("ultimaCompleta")) ?? aFecha(ultima?.get("fecha"));
+    const completa = modo === "completa" || !ultimaCompleta || Date.now() - ultimaCompleta.getTime() >= INTERVALO_COMPLETA_MS;
     let cursorPedidos = aFecha(ultima?.get("cursorPedidos"));
     let cursorFinanzas = aFecha(ultima?.get("cursorFinanzas"));
     const primeraVez = new Date(Date.now() - diasIniciales() * 24 * 3600_000);
@@ -130,7 +148,9 @@ export async function sincronizar(): Promise<ResultadoSync> {
     contarLecturas(1);
     let marketplaces = guardados;
     let sellersOk = false;
-    try {
+    // Quick syncs trust the saved list (the markets hardly ever change).
+    if (!completa && guardados.length > 0) sellersOk = true;
+    else try {
       const vistos = new Set<string>();
       marketplaces = (await marketplacesActivos())
         // Amazon lists some marketplaces more than once (one entry per store): keep one per id.
@@ -181,55 +201,57 @@ export async function sincronizar(): Promise<ResultadoSync> {
       escrituras++;
     }
 
-    // 3. Finances
-    try {
-      const hasta = ahoraMenos3Min();
-      let desde = cursorFinanzas ? new Date(cursorFinanzas.getTime() - SOLAPE_FINANZAS_MS) : primeraVez;
-      if (hasta.getTime() - desde.getTime() > MAX_VENTANA_FINANZAS_MS) desde = new Date(hasta.getTime() - MAX_VENTANA_FINANZAS_MS);
-      const eventos = await eventosFinancieros(desde, hasta);
-      const resumidas: TransaccionResumida[] = resumirEventos(eventos, marketplacePorNombre);
-      const esc = new Escritor();
-      for (const t of resumidas) {
-        // The 10-day overlap brings back mostly unchanged transactions: only new or changed ones are written.
-        if (esc.set("transaccionesAmazon", t.transactionId, { ...t, sincronizadoEn: new Date() })) tocados.add(t.orderId);
-      }
-      escrituras += esc.cantidad;
-      await esc.confirmar();
-      transaccionesN = resumidas.length;
-      cursorFinanzas = hasta;
-
-      // Real per-unit fees of the latest clean sale per SKU and country (product page payout box).
+    // 3. Finances (complete syncs only: fees and refunds settle over days)
+    if (completa) {
       try {
-        const muestras = muestrasTarifas(eventos, marketplacePorNombre);
-        if (!(await tarifasCreadas())) {
-          // First time: look further back once, so countries with few sales also get a sample.
-          const inicio = new Date(Math.max(hasta.getTime() - MAX_VENTANA_FINANZAS_MS, desde.getTime() - DIAS_HISTORICO_TARIFAS * 24 * 3600_000));
-          if (inicio < desde) muestras.push(...muestrasTarifas(await eventosFinancieros(inicio, desde), marketplacePorNombre));
+        const hasta = ahoraMenos3Min();
+        let desde = cursorFinanzas ? new Date(cursorFinanzas.getTime() - SOLAPE_FINANZAS_MS) : primeraVez;
+        if (hasta.getTime() - desde.getTime() > MAX_VENTANA_FINANZAS_MS) desde = new Date(hasta.getTime() - MAX_VENTANA_FINANZAS_MS);
+        const eventos = await eventosFinancieros(desde, hasta);
+        const resumidas: TransaccionResumida[] = resumirEventos(eventos, marketplacePorNombre);
+        const esc = new Escritor();
+        for (const t of resumidas) {
+          // The 10-day overlap brings back mostly unchanged transactions: only new or changed ones are written.
+          if (esc.set("transaccionesAmazon", t.transactionId, { ...t, sincronizadoEn: new Date() })) tocados.add(t.orderId);
         }
-        escrituras += await guardarTarifas(muestras);
-      } catch (e) {
-        errores.push(`Tarifas por venta: ${mensaje(e)}`);
-      }
+        escrituras += esc.cantidad;
+        await esc.confirmar();
+        transaccionesN = resumidas.length;
+        cursorFinanzas = hasta;
 
-      // Amazon Global Logistics freight and import duties, billed per inbound shipment.
-      try {
-        const servicios = [...eventos.ServiceFeeEventList];
-        const historico = !(await obtenerCostesEnvios()).historico;
-        if (historico) {
-          // First time: a year back, in windows of under 180 days (the API's limit), to cover older shipments.
-          const DIA = 24 * 3600_000;
-          const tramos: [Date, Date][] = [
-            [new Date(hasta.getTime() - 365 * DIA), new Date(hasta.getTime() - 186 * DIA)],
-            [new Date(hasta.getTime() - 186 * DIA), desde],
-          ];
-          for (const [a, b] of tramos) if (a < b) servicios.push(...(await eventosFinancieros(a, b)).ServiceFeeEventList);
+        // Real per-unit fees of the latest clean sale per SKU and country (product page payout box).
+        try {
+          const muestras = muestrasTarifas(eventos, marketplacePorNombre);
+          if (!(await tarifasCreadas())) {
+            // First time: look further back once, so countries with few sales also get a sample.
+            const inicio = new Date(Math.max(hasta.getTime() - MAX_VENTANA_FINANZAS_MS, desde.getTime() - DIAS_HISTORICO_TARIFAS * 24 * 3600_000));
+            if (inicio < desde) muestras.push(...muestrasTarifas(await eventosFinancieros(inicio, desde), marketplacePorNombre));
+          }
+          escrituras += await guardarTarifas(muestras);
+        } catch (e) {
+          errores.push(`Tarifas por venta: ${mensaje(e)}`);
         }
-        escrituras += await guardarCargosEnvios(cargosDeEnvios(servicios), historico);
+
+        // Amazon Global Logistics freight and import duties, billed per inbound shipment.
+        try {
+          const servicios = [...eventos.ServiceFeeEventList];
+          const historico = !(await obtenerCostesEnvios()).historico;
+          if (historico) {
+            // First time: a year back, in windows of under 180 days (the API's limit), to cover older shipments.
+            const DIA = 24 * 3600_000;
+            const tramos: [Date, Date][] = [
+              [new Date(hasta.getTime() - 365 * DIA), new Date(hasta.getTime() - 186 * DIA)],
+              [new Date(hasta.getTime() - 186 * DIA), desde],
+            ];
+            for (const [a, b] of tramos) if (a < b) servicios.push(...(await eventosFinancieros(a, b)).ServiceFeeEventList);
+          }
+          escrituras += await guardarCargosEnvios(cargosDeEnvios(servicios), historico);
+        } catch (e) {
+          errores.push(`Costes de envíos: ${mensaje(e)}`);
+        }
       } catch (e) {
-        errores.push(`Costes de envíos: ${mensaje(e)}`);
+        errores.push(`Finances API: ${mensaje(e)}`);
       }
-    } catch (e) {
-      errores.push(`Finances API: ${mensaje(e)}`);
     }
 
     // 4. Recompute fees, refunds and profit of every touched order
@@ -241,77 +263,80 @@ export async function sincronizar(): Promise<ResultadoSync> {
       errores.push(`Recalcular beneficio: ${mensaje(e)}`);
     }
 
-    // 5. Listing photos (a failure here never blocks the sales data)
-    try {
-      const r = await descargarImagenes(pedidosTraidos);
-      errores.push(...r.errores);
-      escrituras += r.escrituras;
-    } catch (e) {
-      errores.push(`Catalog Items API (fotos): ${mensaje(e)}`);
-    }
+    // 5–11. Photos, stock, listings, reports, shipments, account health and Gmail (complete syncs only)
+    if (completa) {
+      // 5. Listing photos (a failure here never blocks the sales data)
+      try {
+        const r = await descargarImagenes(pedidosTraidos);
+        errores.push(...r.errores);
+        escrituras += r.escrituras;
+      } catch (e) {
+        errores.push(`Catalog Items API (fotos): ${mensaje(e)}`);
+      }
 
-    // 6. FBA stock (a failure here never blocks the sales data)
-    try {
-      await actualizarStock(marketplaces);
-    } catch (e) {
-      errores.push(`FBA Inventory API (stock): ${mensaje(e)}`);
-    }
+      // 6. FBA stock (a failure here never blocks the sales data)
+      try {
+        await actualizarStock(marketplaces);
+      } catch (e) {
+        errores.push(`FBA Inventory API (stock): ${mensaje(e)}`);
+      }
 
-    // 7. Listing cards and prices (never blocks the sales data)
-    try {
-      const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
-      escrituras += await actualizarFichas(marketplaces.filter((m) => conVentas.has(m.id)));
-    } catch (e) {
-      errores.push(`Catalog/Pricing API (fichas): ${mensaje(e)}`);
-    }
+      // 7. Listing cards and prices (never blocks the sales data)
+      try {
+        const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
+        escrituras += await actualizarFichas(marketplaces.filter((m) => conVentas.has(m.id)));
+      } catch (e) {
+        errores.push(`Catalog/Pricing API (fichas): ${mensaje(e)}`);
+      }
 
-    // Account-wide reports and lists are asked through one marketplace (amazon.es when there).
-    const mkCuenta = marketplaces.find((m) => m.id === "A1RKKUPIHCS9HS")?.id ?? marketplaces[0]?.id;
+      // Account-wide reports and lists are asked through one marketplace (amazon.es when there).
+      const mkCuenta = marketplaces.find((m) => m.id === "A1RKKUPIHCS9HS")?.id ?? marketplaces[0]?.id;
 
-    // 8. FBA customer returns report, at most every few hours (never blocks the sales data)
-    try {
-      if (mkCuenta) escrituras += await actualizarDevoluciones(mkCuenta);
-    } catch (e) {
-      errores.push(`Reports API (devoluciones): ${mensaje(e)}`);
-    }
+      // 8. FBA customer returns report, at most every few hours (never blocks the sales data)
+      try {
+        if (mkCuenta) escrituras += await actualizarDevoluciones(mkCuenta);
+      } catch (e) {
+        errores.push(`Reports API (devoluciones): ${mensaje(e)}`);
+      }
 
-    // 8a. Stock per country (report, at most every few hours; never blocks the sales data)
-    try {
-      if (mkCuenta) escrituras += await actualizarInventarioPaises(mkCuenta);
-    } catch (e) {
-      errores.push(`Reports API (inventario por país): ${mensaje(e)}`);
-    }
+      // 8a. Stock per country (report, at most every few hours; never blocks the sales data)
+      try {
+        if (mkCuenta) escrituras += await actualizarInventarioPaises(mkCuenta);
+      } catch (e) {
+        errores.push(`Reports API (inventario por país): ${mensaje(e)}`);
+      }
 
-    // 8b. Inbound shipments to Amazon (never blocks the sales data)
-    try {
-      if (mkCuenta) escrituras += await actualizarEnvios(mkCuenta);
-    } catch (e) {
-      errores.push(`Fulfillment Inbound API (envíos): ${mensaje(e)}`);
-    }
+      // 8b. Inbound shipments to Amazon (never blocks the sales data)
+      try {
+        if (mkCuenta) escrituras += await actualizarEnvios(mkCuenta);
+      } catch (e) {
+        errores.push(`Fulfillment Inbound API (envíos): ${mensaje(e)}`);
+      }
 
-    // 9. Listing health: status and issues per SKU and country (never blocks the sales data)
-    try {
-      const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
-      escrituras += await actualizarSaludListings(marketplaces.filter((m) => conVentas.has(m.id)).map((m) => m.id));
-    } catch (e) {
-      errores.push(`Listings API (estado del listing): ${mensaje(e)}`);
-    }
+      // 9. Listing health: status and issues per SKU and country (never blocks the sales data)
+      try {
+        const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
+        escrituras += await actualizarSaludListings(marketplaces.filter((m) => conVentas.has(m.id)).map((m) => m.id));
+      } catch (e) {
+        errores.push(`Listings API (estado del listing): ${mensaje(e)}`);
+      }
 
-    // 10. Account health per country (performance reports, at most every 12 h; never blocks the sales data)
-    try {
-      const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
-      const r = await actualizarEstadoCuenta(marketplaces.filter((m) => conVentas.has(m.id)).map((m) => m.id));
-      escrituras += r.escrituras;
-      errores.push(...r.errores.map((e) => `Estado de la cuenta: ${e}`));
-    } catch (e) {
-      errores.push(`Estado de la cuenta: ${mensaje(e)}`);
-    }
+      // 10. Account health per country (performance reports, at most every 12 h; never blocks the sales data)
+      try {
+        const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
+        const r = await actualizarEstadoCuenta(marketplaces.filter((m) => conVentas.has(m.id)).map((m) => m.id));
+        escrituras += r.escrituras;
+        errores.push(...r.errores.map((e) => `Estado de la cuenta: ${e}`));
+      } catch (e) {
+        errores.push(`Estado de la cuenta: ${mensaje(e)}`);
+      }
 
-    // 11. Performance notifications from Gmail, when connected (never blocks the sales data)
-    try {
-      await sincronizarGmail();
-    } catch (e) {
-      errores.push(`Gmail (notificaciones): ${mensaje(e)}`);
+      // 11. Performance notifications from Gmail, when connected (never blocks the sales data)
+      try {
+        await sincronizarGmail();
+      } catch (e) {
+        errores.push(`Gmail (notificaciones): ${mensaje(e)}`);
+      }
     }
 
     const duracionMs = Date.now() - inicio;
@@ -325,12 +350,35 @@ export async function sincronizar(): Promise<ResultadoSync> {
       transacciones: transaccionesN,
       escrituras,
       duracionMs,
+      completa,
+      ultimaCompleta: completa ? Timestamp.now() : ultimaCompleta ? Timestamp.fromDate(ultimaCompleta) : null,
     });
     contarEscrituras(1);
     // Every write above is already in the mirror: the new version needs no re-read.
     fijarVersion(doc.id);
+    recordarUltimaSync(doc.id);
 
-    return { pedidosNuevos, pedidosActualizados: pedidosActualizadosN, transacciones: transaccionesN, escrituras, errores: errores.length ? errores : null, duracionMs };
+    // Old sync records go (complete syncs only, in small batches).
+    if (completa) {
+      try {
+        const viejos = await db
+          .collection("sincronizaciones")
+          .where("fecha", "<", Timestamp.fromMillis(Date.now() - HISTORIAL_DIAS * 24 * 3600_000))
+          .limit(300)
+          .get();
+        contarLecturas(viejos.size);
+        if (!viejos.empty) {
+          const lote = db.batch();
+          for (const d of viejos.docs) lote.delete(d.ref);
+          await lote.commit();
+          contarEscrituras(viejos.size);
+        }
+      } catch (e) {
+        console.error("[sync] limpiar historial", e);
+      }
+    }
+
+    return { completa, pedidosNuevos, pedidosActualizados: pedidosActualizadosN, transacciones: transaccionesN, escrituras, errores: errores.length ? errores : null, duracionMs };
   } catch (e) {
     // Unknown state between Firestore and the mirror: reload it next time rather than trust it.
     invalidarAlmacen();

@@ -231,3 +231,12 @@ Selector de países (punto rojo en los que tienen algo que revisar, y aviso si e
   facturas, pagos ni respuestas a casos; el país es el del idioma del asunto (más la tienda que nombra, en los de
   español; los de inglés desde el dominio de una tienda, a esa tienda). Dos años atrás, como Seller Central. Al cambiar
   las reglas se sube `VERSION_NOTIFICACIONES` y se vuelven a leer; lo que ya estaba se marca como leído.
+
+## Sincronización automática
+
+`/api/cron/sync` (GET o POST, cabecera `Authorization: Bearer <CRON_SECRET>`, sin sesión) se llama cada 5 minutos desde
+un programador externo (cron-job.org o un cron de Railway). Cada llamada es **rápida** (solo pedidos, 1–2 s) y, si la
+última sincronización completa tiene más de una hora, **completa** (finanzas, stock, fichas, informes, envíos, estado de la
+cuenta y Gmail). El botón «Sincronizar» siempre hace una completa. Si coincide con otra en curso, la llamada se omite.
+Las completas borran el historial de `sincronizaciones` de más de 14 días. Las páginas abiertas miran cada minuto
+(`/api/sync/ultima`, desde memoria) y recargan sus datos cuando hay una sincronización nueva.

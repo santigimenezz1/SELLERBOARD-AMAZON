@@ -164,6 +164,22 @@ export async function cargarUltimaSync(): Promise<UltimaSync> {
   return { id: d.id, fecha: (d.get("fecha") as Timestamp).toDate(), pedidosNuevos: d.get("pedidosNuevos") as number, errores: (d.get("errores") as string[] | null) ?? null };
 }
 
+const gs = globalThis as unknown as { __ultimaSyncId?: string | null };
+
+/** Set by the sync when it finishes. */
+export function recordarUltimaSync(id: string) {
+  gs.__ultimaSyncId = id;
+}
+
+/**
+ * Id of the latest sync, for open pages to notice new data. From memory (set by the sync in this process);
+ * only a freshly started server reads it once from Firestore.
+ */
+export async function idUltimaSync(): Promise<string | null> {
+  if (gs.__ultimaSyncId === undefined) gs.__ultimaSyncId = (await cargarUltimaSync())?.id ?? null;
+  return gs.__ultimaSyncId;
+}
+
 /** True while a sync holds the lock, so the dashboard can wait for it and refresh itself. */
 export async function syncEnCurso(): Promise<boolean> {
   const desde = (await adminDb().collection("config").doc("sync").get()).get("enCursoDesde") as Timestamp | undefined;
