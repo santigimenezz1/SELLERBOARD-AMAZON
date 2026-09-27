@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import type { Pedido } from "@/lib/datos/tipos";
 import { pedidosEnAlmacen } from "@/lib/datos/almacen";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
+import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
 import { diaMadrid } from "@/lib/datos/fechas";
 import { contarEscrituras, contarLecturas } from "@/lib/datos/consumo";
 import { formatNumero } from "@/lib/format";
@@ -67,6 +68,13 @@ export async function enviarTelegram(texto: string): Promise<boolean> {
 }
 
 const escapar = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** "ES" → 🇪🇸 */
+const bandera = (codigo: string) => (/^[A-Z]{2}$/i.test(codigo) ? String.fromCodePoint(...[...codigo.toUpperCase()].map((c) => 0x1f1a5 + c.charCodeAt(0))) : "");
+/** Marketplace of the sale, e.g. "🇪🇸 España". */
+function mercado(l: Pedido): string {
+  const mk = marketplaceConocido(l.marketplaceId);
+  return mk ? `${bandera(mk.codigoPais)} ${escapar(mk.pais)}` : escapar(l.pais);
+}
 const nombreProducto = (l: Pedido) => ETIQUETAS_POR_ASIN[l.asin] ?? (l.titulo.trim().length > 1 ? l.titulo.slice(0, 40) : l.sku || l.asin);
 
 const uds = (n: number) => `${formatNumero(n)} ${n === 1 ? "unidad" : "unidades"}`;
@@ -98,7 +106,7 @@ function ventasDeHoy(): Map<string, { numero: number; acumuladas: number }> {
 
 /**
  * Notice of the orders the sync has just seen for the first time: one message per order, a moment apart, so
- * the phone rings for each. Each says which sale of the day it is, its units and listing, and the units sold
+ * the phone rings for each. Each says which sale of the day it is, its units, listing and marketplace, and the units sold
  * today up to it. No prices, by choice. Beyond MAX_MENSAJES at once the rest come in one last message.
  */
 export async function avisarVentas(lineas: Pedido[]): Promise<void> {
@@ -117,7 +125,7 @@ export async function avisarVentas(lineas: Pedido[]): Promise<void> {
     // A late order from a previous day gets its date instead of a number of the day.
     const titulo = d ? `¡Nueva venta! Nº ${d.numero} de hoy` : `¡Nueva venta! (del ${ls[0].fecha.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", timeZone: "Europe/Madrid" })})`;
     const pie = d ? `\nHoy llevas ${uds(d.acumuladas)}` : "";
-    await enviarTelegram(`🛒 <b>${titulo}</b>\n${uds(unidadesDe(ls))} · ${listings(ls)}${pie}`);
+    await enviarTelegram(`🛒 <b>${titulo}</b>\n${uds(unidadesDe(ls))} · ${listings(ls)} · ${mercado(ls[0])}${pie}`);
   }
 
   const resto = pedidos.slice(MAX_MENSAJES);

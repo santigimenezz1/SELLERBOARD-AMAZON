@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { getSessionUser } from "@/lib/auth/session";
 import { pedidosEnAlmacen } from "@/lib/datos/almacen";
-import { avisarVentas, enviarTelegram } from "@/lib/telegram";
+import { avisarVentas } from "@/lib/telegram";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
 /** Sends test sales notices (built from the 3 latest real orders) to check the bot and the ringtone. */
@@ -13,7 +13,6 @@ export async function POST(req: NextRequest) {
     const lineas = [...pedidosEnAlmacen().values()].filter((p) => p.estado !== "CANCELLED").sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
     const ultimos = new Set(lineas.map((l) => l.amazonOrderId).filter((id, i, xs) => xs.indexOf(id) === i).slice(0, 3));
     if (ultimos.size === 0) return NextResponse.json({ error: "No hay pedidos todavía" }, { status: 400 });
-    await enviarTelegram("🔔 <b>Prueba</b>: así te llegará cada venta nueva (tus 3 últimas ventas) 👇");
     await avisarVentas(lineas.filter((l) => ultimos.has(l.amazonOrderId)));
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true });
