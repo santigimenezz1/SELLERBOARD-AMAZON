@@ -19,18 +19,18 @@ export function EstadoListing({ salud, mercado, mercados }: { salud: SaludProduc
     <div>
       <p className="text-xs text-ink-400">Estado del listing {mercado ? `· ${mercado.pais}` : ""}</p>
       {!salud.comprobadoEn ? (
-        <p className="mt-0.5 text-sm text-ink-400">Se comprueba en la próxima sincronización</p>
+        <p className="mt-1 flex h-6 items-center text-sm text-ink-400">Se comprueba en la próxima sincronización</p>
       ) : !aqui ? (
-        <p className="mt-0.5 text-sm text-ink-400">No está listado en este país</p>
+        <p className="mt-1 flex h-6 items-center text-sm text-ink-400">No está listado en este país</p>
       ) : aqui.problemas.length === 0 ? (
         aqui.comprable ? (
-          <p className="mt-0.5 text-base font-semibold text-success">✓ Listing óptimo</p>
+          <p className="mt-1 flex h-6 items-center text-base font-semibold text-success">✓ Listing óptimo</p>
         ) : (
-          <p className="mt-0.5 text-base font-semibold text-danger">✗ No se puede comprar ahora</p>
+          <p className="mt-1 flex h-6 items-center text-base font-semibold text-danger">✗ No se puede comprar ahora</p>
         )
       ) : (
         <>
-          <button onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} className="mt-0.5 inline-flex items-center gap-1.5 text-base font-semibold text-danger hover:underline">
+          <button onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} className="mt-1 flex h-6 items-center gap-1.5 text-base font-semibold text-danger hover:underline">
             ✗ {aqui.problemas.length === 1 ? "1 problema" : `${aqui.problemas.length} problemas`}
             <svg viewBox="0 0 16 16" className={`size-3.5 transition-transform ${abierto ? "rotate-180" : ""}`} aria-hidden>
               <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
@@ -51,7 +51,7 @@ export function EstadoListing({ salud, mercado, mercados }: { salud: SaludProduc
         </>
       )}
       {otros.length > 0 && (
-        <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-danger">
+        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-danger">
           Problemas también en:
           {otros.map((m) => (
             <a key={m.id} href={`?mk=${m.id}`} title={m.pais} className="inline-flex hover:opacity-80">

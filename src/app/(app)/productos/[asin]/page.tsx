@@ -115,29 +115,33 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
 
       {/* Seller strip: our own numbers, which a buyer doesn't see */}
       <section className="grid gap-3 rounded-2xl border border-white/[0.06] bg-ink-900/70 p-4 sm:grid-cols-2 lg:grid-cols-5">
+        {/* Every cell: a label line (text-xs), a value line (h-6) and an optional detail line, so all columns align. */}
         <div>
           {/* Sale status in the selected country, from the listing check of the last sync (BUYABLE = activo). */}
-          {salud.comprobadoEn &&
-            (!salud.porMercado[mkId] ? (
-              <p className="mb-1 text-xs font-semibold text-ink-400">No listado en {mk?.pais ?? "este país"}</p>
-            ) : salud.porMercado[mkId].comprable ? (
-              <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold tracking-wide text-success uppercase">
-                <span aria-hidden className="size-2 rounded-full bg-success" />
-                Activo
-              </p>
-            ) : (
-              <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold tracking-wide text-danger uppercase">
-                <span aria-hidden className="size-2 rounded-full bg-danger" />
-                Inactivo
-              </p>
-            ))}
-          <p className="text-xs text-ink-400">SKU{d.skus.length > 1 ? "s" : ""}</p>
-          <p className="mt-0.5 font-mono text-sm text-ink-100">{d.skus.join(", ") || "—"}</p>
-          {etiqueta && <span className="mt-1 inline-block rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-semibold tracking-wide text-success">{etiqueta}</span>}
+          {!salud.comprobadoEn ? (
+            <p className="text-xs text-ink-400">Estado sin comprobar</p>
+          ) : !salud.porMercado[mkId] ? (
+            <p className="text-xs font-semibold text-ink-400">No listado en {mk?.pais ?? "este país"}</p>
+          ) : salud.porMercado[mkId].comprable ? (
+            <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-success uppercase">
+              <span aria-hidden className="size-2 rounded-full bg-success" />
+              Activo
+            </p>
+          ) : (
+            <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-danger uppercase">
+              <span aria-hidden className="size-2 rounded-full bg-danger" />
+              Inactivo
+            </p>
+          )}
+          <p className="mt-1 flex h-6 items-center gap-1.5">
+            <span className="text-xs text-ink-400">SKU{d.skus.length > 1 ? "s" : ""}</span>
+            <span className="truncate font-mono text-sm text-ink-100">{d.skus.join(", ") || "—"}</span>
+          </p>
+          {etiqueta && <span className="mt-0.5 block w-fit rounded bg-success/10 px-1.5 py-0.5 text-[11px] leading-4 font-semibold tracking-wide text-success">{etiqueta}</span>}
         </div>
         <div>
           <p className="text-xs text-ink-400">Stock FBA vendible</p>
-          <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-1">
+          <div className="mt-1 flex min-h-6 flex-wrap items-center gap-x-4 gap-y-1">
             {d.regiones.length === 0 && <span className="text-sm text-ink-400">—</span>}
             {d.regiones.map((r) => (
               <span key={r.id} className="tabular inline-flex items-center gap-1.5 text-base font-semibold text-ink-100" title={r.paises.join(", ")}>
@@ -149,23 +153,23 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
         </div>
         <div>
           <p className="text-xs text-ink-400">Últimos 30 días {mk ? `· ${mk.pais}` : ""}</p>
-          <p className="tabular mt-0.5 text-base font-semibold text-ink-100">
+          <p className="tabular mt-1 flex h-6 items-center text-base font-semibold text-ink-100">
             {formatNumero(v?.unidades ?? 0)} uds · {formatEuros(v?.ventas ?? 0)}
           </p>
-          <p className="tabular text-xs text-ink-400">
+          <p className="tabular mt-0.5 text-xs text-ink-400">
             Todos los países: {formatNumero(vTodos?.unidades ?? 0)} uds · {formatEuros(vTodos?.ventas ?? 0)} · {formatNumero(d.reembolsos30["*"] ?? 0)} reembolsos
           </p>
         </div>
         <div>
           <p className="text-xs text-ink-400">Buy Box {mk ? `· ${mk.pais}` : ""}</p>
           {precio?.buyBox ? (
-            <p className={`mt-0.5 text-base font-semibold ${precio.buyBox.nuestra ? "text-success" : "text-danger"}`}>
+            <p className={`mt-1 flex h-6 items-center text-base font-semibold ${precio.buyBox.nuestra ? "text-success" : "text-danger"}`}>
               {precio.buyBox.nuestra ? "✓ Es tuya" : `✗ La tiene otro vendedor (${formatMoneda(precio.buyBox.precio, precio.moneda)})`}
             </p>
           ) : (
-            <p className="mt-0.5 text-sm text-ink-400">{precio ? "Sin Buy Box ahora mismo" : "Sin oferta en este país"}</p>
+            <p className="mt-1 flex h-6 items-center text-sm text-ink-400">{precio ? "Sin Buy Box ahora mismo" : "Sin oferta en este país"}</p>
           )}
-          {precio?.ofertas != null && <p className="text-xs text-ink-400">{precio.ofertas === 1 ? "1 oferta (solo la tuya)" : `${precio.ofertas} ofertas`}</p>}
+          {precio?.ofertas != null && <p className="mt-0.5 text-xs text-ink-400">{precio.ofertas === 1 ? "1 oferta (solo la tuya)" : `${precio.ofertas} ofertas`}</p>}
         </div>
         <EstadoListing key={mkId} salud={salud} mercado={mercado} mercados={mercados} />
       </section>
