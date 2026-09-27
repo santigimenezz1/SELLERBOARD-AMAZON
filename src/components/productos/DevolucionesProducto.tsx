@@ -53,6 +53,8 @@ const ESTADOS: Record<string, string> = {
 const legible = (tabla: Record<string, string>, c: string) => tabla[c] ?? (c ? c.charAt(0) + c.slice(1).toLowerCase().replace(/_/g, " ") : "—");
 
 // 0 = everything since the first synced order.
+const FILAS_PLEGADA = 4;
+
 const PERIODOS = [
   { dias: 30, nombre: "30 días" },
   { dias: 90, nombre: "90 días" },
@@ -137,6 +139,7 @@ function Columna({ titulo, bandera, color, r }: { titulo: string; bandera: strin
 /** Refunds and physical returns of one product: the selected country next to all marketplaces. */
 export function DevolucionesProducto({ datos, mercado, mercados }: Props) {
   const [dias, setDias] = useState(90);
+  const [abierta, setAbierta] = useState(false);
   const porId = new Map(mercados.map((m) => [m.id, m]));
   // Never before the first synced order: returns alone, without their sales, would inflate the rate.
   const inicio = datos.inicioDatos ?? new Date(datos.generadoEn - 365 * 86_400_000).toISOString();
@@ -144,7 +147,9 @@ export function DevolucionesProducto({ datos, mercado, mercados }: Props) {
   const desde = porPeriodo > inicio ? porPeriodo : inicio;
   const pais = mercado ? resumen(datos, mercado.id, desde) : null;
   const todos = resumen(datos, null, desde);
-  const lista: FilaDevolucion[] = datos.devoluciones.filter((d) => d.fecha >= desde).slice(0, 15);
+  const enPeriodo: FilaDevolucion[] = datos.devoluciones.filter((d) => d.fecha >= desde);
+  // Collapsed to the latest few so the box stays compact.
+  const lista = abierta ? enPeriodo : enPeriodo.slice(0, FILAS_PLEGADA);
 
   return (
     <section>
@@ -221,6 +226,18 @@ export function DevolucionesProducto({ datos, mercado, mercados }: Props) {
               })}
             </tbody>
           </table>
+          {enPeriodo.length > FILAS_PLEGADA && (
+            <button
+              onClick={() => setAbierta((v) => !v)}
+              aria-expanded={abierta}
+              className="flex w-full items-center justify-center gap-1.5 border-t border-white/[0.06] py-2.5 text-xs text-ink-400 hover:bg-white/[0.03] hover:text-ink-100"
+            >
+              {abierta ? "Ver menos" : `Ver todas (${enPeriodo.length})`}
+              <svg viewBox="0 0 16 16" className={`size-3.5 transition-transform ${abierta ? "rotate-180" : ""}`} aria-hidden>
+                <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
     </section>
