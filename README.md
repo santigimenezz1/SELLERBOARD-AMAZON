@@ -75,8 +75,9 @@ Datos: Catalog Items API (una vez al día) y Product Pricing `getPricing` + `get
 de 20 ASIN por llamada y país, guardados en `fichas/{asin}` solo si cambian y leídos desde el almacén en memoria.
 **Actualizar ficha** fuerza la descarga de un producto.
 
-Debajo, el recuadro **Coste del producto**: piezas agrupadas por proveedor, con subtotales y coste total por unidad (sin
-IVA), todo editable. Se guarda en `escandallos/{asin}` al pulsar Guardar. Debajo, **Proveedores del producto**: una tarjeta
+Debajo, el recuadro **Coste del producto**: piezas agrupadas por proveedor, más dos costes por lote (**inspección** y
+**envío AGL** del último envío: coste total ÷ unidades), con subtotales y coste total por unidad (sin IVA), todo editable.
+El envío AGL se rellena a mano por ahora; más adelante se tomará de Amazon Global Logistics. Se guarda en `escandallos/{asin}` al pulsar Guardar. Debajo, **Proveedores del producto**: una tarjeta
 desplegable por proveedor con sus datos de contacto, guardados en `proveedores/{nombre}` y compartidos entre productos. Amazon no da por API las estrellas y reseñas.
 
 ## Sección Stock

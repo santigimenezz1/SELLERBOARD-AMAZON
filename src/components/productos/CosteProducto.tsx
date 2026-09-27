@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { Escandallo, Pieza, Proveedor } from "@/lib/datos/escandallos";
-import { formatEuros, formatFechaHora } from "@/lib/format";
+import type { Escandallo, Lote, Pieza, Proveedor, TipoLote } from "@/lib/datos/escandallos";
+import { formatEuros, formatFechaHora, formatNumero } from "@/lib/format";
+import { fechaCorta } from "@/lib/datos/periodos";
 import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 import { CABECERAS_PROVEEDOR as CABECERAS } from "./colores";
@@ -13,6 +14,22 @@ const subtotal = (p: Proveedor) => redondear(p.piezas.reduce((s, x) => s + (Numb
 /** "4,20" or "4.20" → 4.2 (NaN if not a number). */
 const aNumero = (t: string) => (t.trim() === "" ? NaN : Number(t.replace(",", ".")));
 const aTexto = (n: number) => (Number.isFinite(n) ? (Number(n.toFixed(2)) === n ? n.toFixed(2) : String(n)).replace(".", ",") : "");
+const porUnidad = (l: Lote) => (l.unidades > 0 && Number.isFinite(l.costeTotal) ? l.costeTotal / l.unidades : 0);
+/** Small per-unit costs (e.g. 0,06 €) keep a third decimal so they don't read as 0,10 or 0,00. */
+const eurosUnidad = (v: number) => formatEuros(v, v > 0 && v < 0.1 ? 3 : 2);
+
+// Batch costs: their own colours, apart from the suppliers' blue → green ramp.
+const LOTES: Record<TipoLote, { titulo: string; color: string; referencia: string; unidades: string; coste: string; nota?: string }> = {
+  inspeccion: { titulo: "Inspección de producto", color: "#7a5fd0", referencia: "Inspección", unidades: "Unidades", coste: "Coste total" },
+  agl: {
+    titulo: "Envío AGL",
+    color: "#4d6690",
+    referencia: "Último envío",
+    unidades: "Unidades",
+    coste: "Coste total",
+    nota: "Datos a mano por ahora; más adelante se tomarán del envío de Amazon Global Logistics.",
+  },
+};
 
 
 type Estado = { tipo: "idle" | "guardando" } | { tipo: "ok" } | { tipo: "error"; msg: string };
@@ -32,15 +49,26 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
   const [editando, setEditando] = useState(false);
   const [actualizadoEn, setActualizadoEn] = useState(inicial.actualizadoEn);
   const [estado, setEstado] = useState<Estado>({ tipo: "idle" });
+  const [lotesGuardados, setLotesGuardados] = useState<Lote[]>(inicial.lotes);
+  const [lotes, setLotes] = useState<Lote[]>(inicial.lotes);
+  const [lotesEjemplo, setLotesEjemplo] = useState(inicial.lotesEjemplo);
 
   const lista = editando ? proveedores : guardados;
-  const total = redondear(lista.reduce((s, p) => s + subtotal(p), 0));
-  const invalido = proveedores.some((p) => p.piezas.some((x) => !Number.isFinite(x.coste) || x.coste < 0));
-  const cambiado = JSON.stringify(proveedores) !== JSON.stringify(guardados);
+  const listaLotes = editando ? lotes : lotesGuardados;
+  const total = redondear(lista.reduce((s, p) => s + subtotal(p), 0) + listaLotes.reduce((s, l) => s + porUnidad(l), 0));
+  const invalido =
+    proveedores.some((p) => p.piezas.some((x) => !Number.isFinite(x.coste) || x.coste < 0)) ||
+    lotes.some((l) => !Number.isFinite(l.costeTotal) || l.costeTotal < 0 || !Number.isFinite(l.unidades) || l.unidades < 0);
+  const cambiado = JSON.stringify(proveedores) !== JSON.stringify(guardados) || JSON.stringify(lotes) !== JSON.stringify(lotesGuardados);
+  const editarLote = (id: TipoLote, cambio: Partial<Lote>) => setLotes((ls) => ls.map((l) => (l.id === id ? { ...l, ...cambio } : l)));
 
   function empezar() {
     setProveedores(guardados);
-    setTextos(Object.fromEntries(guardados.flatMap((p) => p.piezas.map((x) => [x.id, aTexto(x.coste)]))));
+    setLotes(lotesGuardados);
+    setTextos({
+      ...Object.fromEntries(guardados.flatMap((p) => p.piezas.map((x) => [x.id, aTexto(x.coste)]))),
+      ...Object.fromEntries(lotesGuardados.map((l) => [`lote-${l.id}`, aTexto(l.costeTotal)])),
+    });
     setEstado({ tipo: "idle" });
     setEditando(true);
   }
@@ -65,11 +93,13 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
       const res = await fetch(`/api/productos/${inicial.asin}/costes`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proveedores }),
+        body: JSON.stringify({ proveedores, lotes }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; actualizadoEn?: string };
       if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
       setGuardados(proveedores);
+      setLotesGuardados(lotes);
+      setLotesEjemplo(false);
       setActualizadoEn(body.actualizadoEn ?? new Date().toISOString());
       setEditando(false);
       setEstado({ tipo: "ok" });
@@ -192,6 +222,86 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
           </button>
         )}
 
+        {listaLotes.map((l) => {
+          const def = LOTES[l.id];
+          return (
+            <article key={l.id} className="flex flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-ink-900/80 shadow-soft">
+              <header className="px-4 py-2.5 text-white" style={{ background: def.color }}>
+                <p className="text-[15px] leading-tight font-semibold">{def.titulo}</p>
+              </header>
+              <div className="flex flex-1 flex-col px-4 pt-3 pb-4">
+                <p className="text-xs text-ink-400">Coste por unidad</p>
+                <p className="tabular mt-0.5 text-2xl font-semibold tracking-tight text-ink-100">{eurosUnidad(porUnidad(l))}</p>
+                {editando ? (
+                  <div className="mt-3 space-y-2 border-t border-white/[0.06] pt-3">
+                    <label className="block">
+                      <span className="text-[11px] text-ink-400">{def.referencia}</span>
+                      <input value={l.referencia} onChange={(e) => editarLote(l.id, { referencia: e.target.value })} placeholder={l.id === "agl" ? "FBA15…" : "Inspección QC…"} className={`${campo} mt-0.5`} />
+                    </label>
+                    <label className="block">
+                      <span className="text-[11px] text-ink-400">Fecha</span>
+                      <input type="date" value={l.fecha} onChange={(e) => editarLote(l.id, { fecha: e.target.value })} className={`${campo} mt-0.5 [color-scheme:dark]`} />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="text-[11px] text-ink-400">{def.unidades}</span>
+                        <input
+                          inputMode="numeric"
+                          value={Number.isFinite(l.unidades) ? String(l.unidades) : ""}
+                          onChange={(e) => editarLote(l.id, { unidades: e.target.value.trim() === "" ? NaN : Math.round(Number(e.target.value.replace(/\./g, ""))) })}
+                          aria-invalid={!Number.isFinite(l.unidades)}
+                          className={`${campo} tabular mt-0.5 text-right aria-[invalid=true]:border-danger/60`}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[11px] text-ink-400">{def.coste}</span>
+                        <div className="relative mt-0.5">
+                          <input
+                            inputMode="decimal"
+                            value={textos[`lote-${l.id}`] ?? aTexto(l.costeTotal)}
+                            onChange={(e) => {
+                              setTextos((t) => ({ ...t, [`lote-${l.id}`]: e.target.value }));
+                              editarLote(l.id, { costeTotal: aNumero(e.target.value) });
+                            }}
+                            aria-invalid={!Number.isFinite(l.costeTotal)}
+                            className={`${campo} tabular pr-5 text-right aria-[invalid=true]:border-danger/60`}
+                          />
+                          <span className="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 text-xs text-ink-400">€</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <dl className="mt-3 space-y-1.5 border-t border-white/[0.06] pt-3 text-sm">
+                    {l.referencia && (
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-ink-400">{def.referencia}</dt>
+                        <dd className="truncate text-right text-ink-300">{l.referencia}</dd>
+                      </div>
+                    )}
+                    {l.fecha && (
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-ink-400">Fecha</dt>
+                        <dd className="tabular text-ink-300">{fechaCorta(l.fecha)}</dd>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-ink-400">{def.coste}</dt>
+                      <dd className="tabular text-ink-100">{formatEuros(l.costeTotal)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-ink-400">{def.unidades}</dt>
+                      <dd className="tabular text-ink-100">{formatNumero(l.unidades)}</dd>
+                    </div>
+                    {lotesEjemplo && <p className="pt-1 text-[11px] text-warning">Datos de ejemplo</p>}
+                    {def.nota && <p className="pt-1 text-[11px] leading-snug text-ink-600">{def.nota}</p>}
+                  </dl>
+                )}
+              </div>
+            </article>
+          );
+        })}
+
         {/* The number that matters: highlighted like the selected tile on the dashboard. */}
         <article className="flex flex-col overflow-hidden rounded-xl border border-accent-500/50 bg-ink-900/80 shadow-soft">
           <header className="bg-accent-500 px-4 py-2.5 text-ink-950">
@@ -205,6 +315,12 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
                 <p key={p.id} className="flex justify-between gap-3">
                   <span className="truncate text-ink-400">{p.nombre || "Proveedor"}</span>
                   <span className="tabular text-ink-300">{formatEuros(subtotal(p))}</span>
+                </p>
+              ))}
+              {listaLotes.map((l) => (
+                <p key={l.id} className="flex justify-between gap-3">
+                  <span className="truncate text-ink-400">{LOTES[l.id].titulo}</span>
+                  <span className="tabular text-ink-300">{eurosUnidad(porUnidad(l))}</span>
                 </p>
               ))}
               {cuota !== null && (
