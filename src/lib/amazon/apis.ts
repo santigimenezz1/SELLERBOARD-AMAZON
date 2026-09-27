@@ -47,24 +47,35 @@ export type PedidoAmazon = {
   }[];
 };
 
-/** Orders updated in [desde, hasta] across the given marketplaces, following every page. */
-export async function pedidosActualizados(desde: Date, hasta: Date, marketplaceIds: string[]): Promise<PedidoAmazon[]> {
+/**
+ * Orders updated in [desde, hasta] across the given marketplaces, following every page. With `porCompra`,
+ * orders bought in that range instead (for importing older history): Amazon then allows a short burst of
+ * pages and about one a minute after it, so a throttled page is waited for and retried rather than failing.
+ */
+export async function pedidosActualizados(desde: Date, hasta: Date, marketplaceIds: string[], porCompra = false): Promise<PedidoAmazon[]> {
   const pedidos: PedidoAmazon[] = [];
   let paginationToken: string | undefined;
-  do {
-    const res = await spGet<{ orders?: PedidoAmazon[]; pagination?: { nextToken?: string } }>("/orders/2026-01-01/orders", {
-      lastUpdatedAfter: desde.toISOString(),
-      lastUpdatedBefore: hasta.toISOString(),
-      // Empty list = every marketplace the account sells in.
-      marketplaceIds: marketplaceIds.length ? marketplaceIds.slice(0, 50) : undefined,
-      includedData: ["PROCEEDS", "FULFILLMENT"],
-      maxResultsPerPage: 100,
-      paginationToken,
-    });
+  let esperas = 0;
+  for (;;) {
+    let res: { orders?: PedidoAmazon[]; pagination?: { nextToken?: string } };
+    try {
+      res = await spGet("/orders/2026-01-01/orders", {
+        ...(porCompra ? { createdAfter: desde.toISOString(), createdBefore: hasta.toISOString() } : { lastUpdatedAfter: desde.toISOString(), lastUpdatedBefore: hasta.toISOString() }),
+        // Empty list = every marketplace the account sells in.
+        marketplaceIds: marketplaceIds.length ? marketplaceIds.slice(0, 50) : undefined,
+        includedData: ["PROCEEDS", "FULFILLMENT"],
+        maxResultsPerPage: 100,
+        paginationToken,
+      });
+    } catch (e) {
+      if (!porCompra || !(e instanceof ErrorAmazon) || e.status !== 429 || ++esperas > 60) throw e;
+      await new Promise((r) => setTimeout(r, 65_000));
+      continue;
+    }
     pedidos.push(...(res.orders ?? []));
     paginationToken = res.pagination?.nextToken || undefined;
-  } while (paginationToken);
-  return pedidos;
+    if (!paginationToken) return pedidos;
+  }
 }
 
 // ---------- Finances v0 ----------

@@ -402,6 +402,40 @@ async function costesVigentes(): Promise<Map<string, number>> {
   return new Map(snap.docs.map((d) => [d.get("sku") as string, d.get("costeUnitario") as number]));
 }
 
+/**
+ * One-off import of older orders (by purchase date), month by month, saved like any sync but without sales
+ * notices. Orders already stored are just refreshed. Takes the sync lock, so it never overlaps a sync.
+ */
+export async function importarHistorialPedidos(desde: Date, hasta: Date): Promise<{ pedidos: number; nuevos: number; escrituras: number; errores: string[] }> {
+  const db = adminDb();
+  const liberar = await tomarBloqueo(db);
+  try {
+    const ultima = (await db.collection("sincronizaciones").orderBy("fecha", "desc").limit(1).get()).docs[0];
+    contarLecturas(1);
+    await asegurarAlmacen(ultima?.id ?? null);
+    const marketplaces = ((await db.collection("config").doc("marketplaces").get()).get("lista") as Marketplace[] | undefined) ?? [];
+    contarLecturas(1);
+    let pedidos = 0;
+    let nuevos = 0;
+    let escrituras = 0;
+    const errores: string[] = [];
+    for (let a = new Date(desde); a < hasta; ) {
+      const b = new Date(Math.min(hasta.getTime(), a.getTime() + 31 * 24 * 3600_000));
+      const lote = await pedidosActualizados(a, b, marketplaces.map((m) => m.id), true);
+      const r = await guardarPedidos(lote, marketplaces);
+      pedidos += lote.length;
+      nuevos += r.nuevos;
+      escrituras += r.escrituras;
+      errores.push(...r.errores);
+      a = b;
+    }
+    await volcarConsumo().catch(() => {});
+    return { pedidos, nuevos, escrituras, errores };
+  } finally {
+    await liberar();
+  }
+}
+
 async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace[]) {
   const costes = await costesVigentes();
   const porId = new Map(marketplaces.map((m) => [m.id, m]));

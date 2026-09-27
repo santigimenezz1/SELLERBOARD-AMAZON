@@ -1,6 +1,6 @@
 export function Logo({ className = "" }: { className?: string }) {
   return (
-    <span className={`inline-flex items-center gap-2.5 ${className}`}>
+    <span className={`inline-flex shrink-0 items-center gap-2.5 whitespace-nowrap ${className}`}>
       {/* Rising bars: sales turning into profit. */}
       <svg viewBox="0 0 28 28" className="size-7" aria-hidden>
         <rect x="4" y="15" width="5" height="9" rx="2" className="fill-accent-600" />

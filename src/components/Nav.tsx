@@ -25,7 +25,7 @@ export function Nav({ estadoCuenta }: { estadoCuenta: "ok" | "mal" | null }) {
             href={e.href}
             aria-current={activo ? "page" : undefined}
             title={color ? (estadoCuenta === "ok" ? "Todos los países en «Adecuado» (200 puntos o más)" : "Algún país por debajo de 200 puntos") : undefined}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors ${activo ? "bg-white/[0.07]" : "hover:bg-white/[0.04]"} ${color ?? (activo ? "text-ink-100" : "text-ink-400 hover:text-ink-100")}`}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors ${activo ? "bg-white/[0.07]" : "hover:bg-white/[0.04]"} ${color ?? (activo ? "text-ink-100" : "text-ink-400 hover:text-ink-100")}`}
           >
             {color && <span aria-hidden className={`size-1.5 rounded-full ${estadoCuenta === "ok" ? "bg-success" : "bg-danger"}`} />}
             {e.texto}

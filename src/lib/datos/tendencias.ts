@@ -19,17 +19,23 @@ export type OpcionPais = { id: string; pais: string; codigoPais: string; zona: s
 // Buyers' time zone per country: the UK is an hour behind; the other EU stores sell to Central European time.
 const ZONA_POR_PAIS: Record<string, string> = { GB: "Europe/London", IE: "Europe/Dublin", PT: "Europe/Lisbon" };
 
+/**
+ * Start of the analysed history: 1 January 2026 (Madrid). Christmas sells differently and will get its own
+ * analysis, so the season before it stays out of these trends.
+ */
+export const INICIO_TENDENCIAS = Date.UTC(2025, 11, 31, 23);
+
 export async function datosTendencias() {
   const [ultima, marketplaces] = await Promise.all([cargarUltimaSync(), cargarMarketplaces()]);
   const { lineas } = await datosVentas(ultima?.id ?? null);
   const ventas: VentaHora[] = lineas
-    .filter((l) => l.estado !== "CANCELLED" && l.unidades > 0)
+    .filter((l) => l.estado !== "CANCELLED" && l.unidades > 0 && l.fecha.getTime() >= INICIO_TENDENCIAS)
     .map((l) => ({ t: l.fecha.getTime(), mk: l.marketplaceId, asin: l.asin, u: l.unidades }));
 
   // Listings with sales, the labelled ones first (LISTING VIEJO / NUEVO), then by units sold.
   const porAsin = new Map<string, { nombre: string; u: number }>();
   for (const l of lineas) {
-    if (l.estado === "CANCELLED" || !l.asin) continue;
+    if (l.estado === "CANCELLED" || !l.asin || l.fecha.getTime() < INICIO_TENDENCIAS) continue;
     const v = porAsin.get(l.asin) ?? { nombre: ETIQUETAS_POR_ASIN[l.asin] ?? (l.titulo.trim().length > 1 ? l.titulo.slice(0, 40) : l.asin), u: 0 };
     v.u += l.unidades;
     porAsin.set(l.asin, v);

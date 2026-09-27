@@ -18,7 +18,9 @@ const BLOQUES = [0, 4, 8, 12, 16, 20];
 const PERIODOS = [
   { dias: 30, nombre: "30 días" },
   { dias: 90, nombre: "90 días" },
-  { dias: 0, nombre: "Todo" },
+  { dias: 182, nombre: "6 meses" },
+  // Everything stored from 1 January (Christmas is analysed apart).
+  { dias: 0, nombre: "Desde enero" },
 ];
 const DIA_MS = 86_400_000;
 
@@ -50,11 +52,21 @@ function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => v
   );
 }
 
-function Tarjeta({ titulo, subtitulo, className = "", children }: { titulo: string; subtitulo: string; className?: string; children: React.ReactNode }) {
+function Tarjeta({ titulo, subtitulo, total, className = "", children }: { titulo: string; subtitulo: string; total?: number; className?: string; children: React.ReactNode }) {
   return (
     <section className={`rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft ${className}`}>
-      <h2 className="text-sm font-semibold text-ink-100">{titulo}</h2>
-      <p className="mb-3 text-xs text-ink-400">{subtitulo}</p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink-100">{titulo}</h2>
+          <p className="text-xs text-ink-400">{subtitulo}</p>
+        </div>
+        {total !== undefined && (
+          <div className="shrink-0 text-right">
+            <p className="text-[11px] text-ink-400">Total vendido</p>
+            <p className="tabular text-lg leading-tight font-semibold text-ink-100">{uds(total)}</p>
+          </div>
+        )}
+      </div>
       {children}
     </section>
   );
@@ -62,7 +74,7 @@ function Tarjeta({ titulo, subtitulo, className = "", children }: { titulo: stri
 
 /** «Tendencias»: when buyers purchase, by time of day and weekday, in their local time. */
 export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
-  const [dias, setDias] = useState(90);
+  const [dias, setDias] = useState(182);
   const [asin, setAsin] = useState<string | null>(null);
   const [mk, setMk] = useState<string | null>(null);
   const zonas = useMemo(() => new Map(datos.paises.map((p) => [p.id, p.zona])), [datos.paises]);
@@ -151,24 +163,27 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
           </Tarjeta>
 
           {/* 2. Time of day */}
-          <Tarjeta titulo="¿En qué momento del día se vende?" subtitulo="% de las unidades por franja horaria">
+          <Tarjeta titulo="¿En qué momento del día se vende?" subtitulo="% y unidades por franja horaria" total={r.total}>
             <div className="flex flex-col gap-2.5">
               {r.franjas.map((f) => (
-                <div key={f.nombre} className="grid grid-cols-[130px_1fr_48px] items-center gap-3 text-sm">
+                <div key={f.nombre} className="grid grid-cols-[130px_1fr_112px] items-center gap-3 text-sm">
                   <span className="text-ink-300">
                     {f.nombre} <span className="text-xs text-ink-500">({f.desde}–{f.hasta} h)</span>
                   </span>
                   <div className="h-5 overflow-hidden rounded bg-white/[0.05]">
                     <div className={`h-full rounded ${f.n === maxFranja ? "bg-accent-500" : "bg-accent-500/45"}`} style={{ width: `${(f.n / maxFranja) * 100}%` }} />
                   </div>
-                  <span className="tabular text-right font-semibold text-ink-100">{pct(f.n, r.total)} %</span>
+                  <span className="tabular text-right">
+                    <span className="font-semibold text-ink-100">{pct(f.n, r.total)} %</span>
+                    <span className="ml-1.5 text-xs text-ink-400">· {uds(f.n)}</span>
+                  </span>
                 </div>
               ))}
             </div>
           </Tarjeta>
 
           {/* 3. Weekday */}
-          <Tarjeta titulo="¿Qué día se vende más?" subtitulo="Unidades por día de la semana">
+          <Tarjeta titulo="¿Qué día se vende más?" subtitulo="Unidades por día de la semana" total={r.total}>
             <div className="flex h-40 items-end gap-2">
               {r.porDia.map((n, d) => (
                 <div key={d} className="flex h-full flex-1 flex-col items-center justify-end gap-1">

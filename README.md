@@ -253,7 +253,11 @@ sincronización (que trae meses de historial) no avisa. `POST /api/telegram/prue
 ## Tendencias
 
 Sección «Tendencias»: a qué hora y qué día compra la gente, en la hora local del comprador (Reino Unido en hora
-británica, el resto en hora de España). Filtros de periodo (30 días, 90 días, todo), listing y país, y cuatro vistas:
+británica, el resto en hora de España). Filtros de periodo (30 días, 90 días, 6 meses, desde enero), listing y país, y cuatro vistas:
 los 5 mejores momentos de la semana, % de unidades por franja del día, unidades por día de la semana y la semana por
 bloques de 4 horas con la cifra en cada casilla. Sale de los pedidos en memoria (`lib/datos/tendencias.ts`): no lee
 nada más de Firestore ni de Amazon; cuenta unidades y excluye los cancelados.
+
+Historial: los pedidos desde el 27/12/2025 se importaron una vez con `POST /api/cron/historial?meses=N&hasta=ISO`
+(misma clave que el cron; en segundo plano, `GET` da el estado; por fecha de compra, esperando el límite de Amazon).
+Tendencias solo usa desde el 1/1/2026: la Navidad se analizará aparte.
