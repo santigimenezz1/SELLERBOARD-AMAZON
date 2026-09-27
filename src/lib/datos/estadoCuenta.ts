@@ -54,6 +54,18 @@ export async function obtenerEstadoCuenta(): Promise<Doc> {
   return g.__estadoCuenta;
 }
 
+/** Minimum score Seller Central shows as «Adecuado». */
+export const PUNTUACION_ADECUADA = 200;
+
+/** For the menu: "ok" when every country is at 200+ points, "mal" when any is below, null without data. */
+export async function resumenEstadoCuenta(): Promise<"ok" | "mal" | null> {
+  const puntuaciones = Object.values((await obtenerEstadoCuenta()).porMercado)
+    .map((e) => e.puntuacion)
+    .filter((p): p is number => p !== null);
+  if (puntuaciones.length === 0) return null;
+  return puntuaciones.every((p) => p >= PUNTUACION_ADECUADA) ? "ok" : "mal";
+}
+
 async function leerMercado(marketplaceId: string): Promise<EstadoMercado | null> {
   const r = await rendimientoVendedor(marketplaceId);
   const m = r?.performanceMetrics?.find((x) => x.marketplaceId === marketplaceId) ?? r?.performanceMetrics?.[0];
