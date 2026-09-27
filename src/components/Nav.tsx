@@ -7,7 +7,6 @@ const ENLACES = [
   { href: "/", texto: "Panel" },
   { href: "/productos", texto: "Productos" },
   { href: "/stock", texto: "Stock" },
-  { href: "/costes", texto: "Costes" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
 
