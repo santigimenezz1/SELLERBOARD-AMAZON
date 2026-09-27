@@ -12,17 +12,20 @@ export type TarjetaPeriodo = { periodo: Periodo; resumen: ResumenVentas };
 // Header colours: a blue → green ramp between the app's two series colours, one step per fixed tile.
 const CABECERAS: Record<string, string> = {
   hoy: "#3987e5",
-  ayer: "#318dc8",
-  mes: "#2993ab",
-  pronostico: "#21988d",
+  ayer: "#348bd2",
+  anteayer: "#2e8fbe",
+  semana: "#2993ab",
+  mes: "#249697",
+  pronostico: "#1e9a84",
   mespasado: "#199e70",
 };
 
 export function TarjetasPeriodo({ tarjetas, seleccionado, base, estado }: { tarjetas: TarjetaPeriodo[]; seleccionado: string; base: string; estado: EstadoUrl }) {
   const { navegar } = useNavegarPanel();
+  // Seven fixed tiles: one row on wide screens (plus an eighth when a custom period is added).
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(190px,1fr))]">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
       {tarjetas.map(({ periodo, resumen }) => {
         const activa = periodo.id === seleccionado;
         const extra = periodo.id === estado.e;
@@ -34,7 +37,7 @@ export function TarjetasPeriodo({ tarjetas, seleccionado, base, estado }: { tarj
             </div>
             <div className="@container flex flex-1 flex-col px-4 pt-3 pb-4">
               <p className="text-xs text-ink-400">Ventas</p>
-              <p className="tabular mt-0.5 text-xl font-semibold tracking-tight text-ink-100 sm:text-2xl">{formatEuros(resumen.ventas)}</p>
+              <p className="tabular mt-0.5 text-xl font-semibold tracking-tight whitespace-nowrap text-ink-100 2xl:text-2xl">{formatEuros(resumen.ventas)}</p>
               {/* Side by side when the tile is wide enough, stacked otherwise. */}
               <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-2 border-t border-white/[0.06] pt-3 @[192px]:grid-cols-[auto_auto] @[192px]:justify-between">
                 <div>

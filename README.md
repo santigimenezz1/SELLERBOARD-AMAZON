@@ -44,7 +44,7 @@ Si el antivirus inspecciona HTTPS (Avast, AVG…) y aparece `UNABLE_TO_VERIFY_LE
 
 Diseño tipo Sellerboard, con los colores de la app:
 
-- **Tarjetas de período:** Hoy, Ayer, Este mes, Este mes (pronóstico) y El mes pasado, cada una con su fecha, **ventas** y
+- **Tarjetas de período:** Hoy, Ayer, Anteayer, Esta semana (de lunes a hoy), Este mes, Este mes (pronóstico) y El mes pasado, cada una con su fecha, **ventas** y
   **pedidos / unidades** y **reembolsos** (pedidos reembolsados en ese período, contados por la fecha del reembolso, como
   Sellerboard). Al pulsar una se selecciona y la lista de abajo muestra sus productos. El pronóstico proyecta
   las ventas del mes al ritmo actual (no se puede seleccionar). El menú **Período** añade una tarjeta más (últimos 7 o 30

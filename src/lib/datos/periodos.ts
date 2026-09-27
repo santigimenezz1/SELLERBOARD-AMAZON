@@ -4,7 +4,7 @@ import { inicioDia, sumarDias } from "./fechas";
  * The period tiles of the dashboard (Sellerboard-style). The fixed ones are
  * always shown; an extra one appears when a custom period is chosen.
  */
-export type PeriodoId = "hoy" | "ayer" | "mes" | "pronostico" | "mespasado" | "7d" | "30d" | "rango";
+export type PeriodoId = "hoy" | "ayer" | "anteayer" | "semana" | "mes" | "pronostico" | "mespasado" | "7d" | "30d" | "rango";
 
 export type Periodo = {
   id: PeriodoId;
@@ -22,12 +22,22 @@ function ultimoDeMes(dia: string): string {
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 }
 
+/** Monday of the week that contains `dia` (Spanish weeks start on Monday). */
+export function lunesDe(dia: string): string {
+  const [y, m, d] = dia.split("-").map(Number);
+  const diaSemana = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = domingo
+  return sumarDias(dia, -((diaSemana + 6) % 7));
+}
+
 export function periodosFijos(hoy: string): Periodo[] {
   const ayer = sumarDias(hoy, -1);
+  const anteayer = sumarDias(hoy, -2);
   const finMesPasado = sumarDias(primeroDeMes(hoy), -1);
   return [
     { id: "hoy", nombre: "Hoy", desde: hoy, hasta: hoy },
     { id: "ayer", nombre: "Ayer", desde: ayer, hasta: ayer },
+    { id: "anteayer", nombre: "Anteayer", desde: anteayer, hasta: anteayer },
+    { id: "semana", nombre: "Esta semana", desde: lunesDe(hoy), hasta: hoy },
     { id: "mes", nombre: "Este mes", desde: primeroDeMes(hoy), hasta: hoy },
     { id: "pronostico", nombre: "Este mes (pronóstico)", desde: primeroDeMes(hoy), hasta: ultimoDeMes(hoy), esPronostico: true },
     { id: "mespasado", nombre: "El mes pasado", desde: primeroDeMes(finMesPasado), hasta: finMesPasado },
