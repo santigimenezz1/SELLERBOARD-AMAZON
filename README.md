@@ -214,7 +214,7 @@ La cuota se reinicia a medianoche de California (9:00 en España).
 Gastos fijos, Amazon Ads (PPC), alertas de stock, motivos de devolución, sincronización programada, exportar a Excel/CSV
 e historial de costes por SKU.
 
-## Estado de la cuenta (sección «Cuenta»)
+## Estado de la cuenta (sección «Estado de la cuenta»)
 
 Selector de países (punto rojo en los que tienen algo que revisar, y aviso si es otro país) y dos pestañas:
 
