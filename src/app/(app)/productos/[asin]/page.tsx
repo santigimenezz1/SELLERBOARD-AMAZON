@@ -143,6 +143,21 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
           <div className="min-w-0">
             {ficha?.marca && <p className="text-sm text-[#007185]">Marca: {ficha.marca}</p>}
             <h1 className="mt-1 text-2xl leading-8 font-normal">{titulo}</h1>
+            {/* The SP-API gives no star rating or review count: link to the listing's reviews page on that marketplace. */}
+            {mk?.dominio && (
+              <a
+                href={`https://${mk.dominio.replace(/^https?:\/\//, "")}/product-reviews/${asin}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1.5 text-sm text-[#007185] hover:text-[#C7511F] hover:underline"
+              >
+                {/* A neutral icon: filled stars would suggest a rating we don't actually have. */}
+                <span className="text-[#DE7921]" aria-hidden>
+                  ☆
+                </span>
+                Ver valoraciones de clientes ↗
+              </a>
+            )}
             <hr className="my-3 border-[#D5D9D9]" />
 
             {precio?.precio != null ? (
