@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { EnvioGuardado } from "@/lib/datos/envios";
 import { formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
+import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
 
 const ESTADOS: Record<string, { texto: string; clase: string }> = {
   WORKING: { texto: "En preparación", clase: "bg-white/[0.06] text-ink-300" },
@@ -19,11 +20,15 @@ const ESTADOS: Record<string, { texto: string; clase: string }> = {
 };
 const FINALES = new Set(["CLOSED", "CANCELLED", "DELETED"]);
 const FILAS_PLEGADA = 4;
+// Green frame around a shipment on its way. A table row can't draw its own border, so its cells do.
+const RESALTADO =
+  "bg-success/[0.05] [&>td]:border-y-2 [&>td]:border-success [&>td:first-child]:border-l-2 [&>td:last-child]:border-r-2";
 
 const suma = (e: EnvioGuardado, k: "enviado" | "recibido") => e.articulos.reduce((s, a) => s + a[k], 0);
 const fecha = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : "—");
 
-function Tabla({ envios }: { envios: EnvioGuardado[] }) {
+/** `asinDe` maps SKU → ASIN; `resaltar` outlines every row in green (shipments on their way). */
+function Tabla({ envios, asinDe, resaltar = false }: { envios: EnvioGuardado[]; asinDe: Record<string, string>; resaltar?: boolean }) {
   return (
     <div className="overflow-x-auto">
       <table className="tabular w-full min-w-[820px] text-sm">
@@ -32,13 +37,13 @@ function Tabla({ envios }: { envios: EnvioGuardado[] }) {
             <th className="py-2.5 pr-3 pl-5 text-left font-medium">Envío</th>
             <th className="px-3 py-2.5 text-left font-medium">Ruta</th>
             <th className="px-3 py-2.5 text-left font-medium">Estado</th>
-            <th className="px-3 py-2.5 text-left font-medium">SKU</th>
+            <th className="px-3 py-2.5 text-left font-medium">ASIN</th>
             <th className="px-3 py-2.5 text-right font-medium">Enviadas</th>
             <th className="px-3 py-2.5 text-right font-medium">Recibidas</th>
             <th className="py-2.5 pr-5 pl-3 text-right font-medium">Diferencia</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/[0.05]">
+        <tbody className={resaltar ? "" : "divide-y divide-white/[0.05]"}>
           {envios.map((e) => {
             const enviado = suma(e, "enviado");
             const recibido = suma(e, "recibido");
@@ -47,7 +52,7 @@ function Tabla({ envios }: { envios: EnvioGuardado[] }) {
             const dif = recibido - enviado;
             const est = ESTADOS[e.estado] ?? { texto: e.estado, clase: "bg-white/[0.06] text-ink-300" };
             return (
-              <tr key={e.id} className={cancelado ? "text-ink-500" : ""}>
+              <tr key={e.id} className={resaltar ? RESALTADO : cancelado ? "text-ink-500" : ""}>
                 <td className="py-2.5 pr-3 pl-5 align-top">
                   <p className="font-mono text-ink-100">{e.id}</p>
                   <p className="text-xs text-ink-400">Creado {fecha(e.creado)}</p>
@@ -65,12 +70,17 @@ function Tabla({ envios }: { envios: EnvioGuardado[] }) {
                   <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium whitespace-nowrap ${est.clase}`}>{est.texto}</span>
                 </td>
                 <td className="px-3 py-2.5 align-top">
-                  {e.articulos.map((a) => (
-                    <p key={a.sku} className="font-mono text-xs text-ink-300">
-                      {a.sku}
-                      {e.articulos.length > 1 && <span className="ml-1.5 text-ink-500">({formatNumero(a.enviado)})</span>}
-                    </p>
-                  ))}
+                  {e.articulos.map((a) => {
+                    const asin = asinDe[a.sku];
+                    const etiqueta = asin ? ETIQUETAS_POR_ASIN[asin] : undefined;
+                    return (
+                      <p key={a.sku} className="flex flex-wrap items-center gap-1.5 font-mono text-xs text-ink-300" title={`SKU ${a.sku}`}>
+                        {asin ?? a.sku}
+                        {etiqueta && <span className="rounded bg-success/10 px-1.5 py-0.5 font-sans text-[10px] leading-3 font-semibold tracking-wide text-success">{etiqueta}</span>}
+                        {e.articulos.length > 1 && <span className="text-ink-500">({formatNumero(a.enviado)})</span>}
+                      </p>
+                    );
+                  })}
                 </td>
                 <td className="px-3 py-2.5 text-right align-top text-ink-100">{formatNumero(enviado)}</td>
                 <td className="px-3 py-2.5 text-right align-top text-ink-100">{formatNumero(recibido)}</td>
@@ -98,7 +108,7 @@ function Tabla({ envios }: { envios: EnvioGuardado[] }) {
 }
 
 /** Inbound shipments: the open ones always visible, closed ones collapsed to the latest few. */
-export function EnviosFBA({ envios, actualizadoEn }: { envios: EnvioGuardado[]; actualizadoEn: string | null }) {
+export function EnviosFBA({ envios, actualizadoEn, asinDe }: { envios: EnvioGuardado[]; actualizadoEn: string | null; asinDe: Record<string, string> }) {
   const [abierta, setAbierta] = useState(false);
   const enCurso = envios.filter((e) => !FINALES.has(e.estado));
   const cerrados = envios.filter((e) => FINALES.has(e.estado) && e.estado !== "DELETED");
@@ -130,12 +140,12 @@ export function EnviosFBA({ envios, actualizadoEn }: { envios: EnvioGuardado[]; 
       </div>
 
       <h3 className="px-5 pt-4 text-xs font-medium text-ink-300">En curso</h3>
-      {enCurso.length === 0 ? <p className="px-5 py-3 text-sm text-ink-400">No hay envíos en camino ahora mismo.</p> : <Tabla envios={enCurso} />}
+      {enCurso.length === 0 ? <p className="px-5 py-3 text-sm text-ink-400">No hay envíos en camino ahora mismo.</p> : <Tabla envios={enCurso} asinDe={asinDe} resaltar />}
 
       {cerrados.length > 0 && (
         <>
           <h3 className="border-t border-white/[0.06] px-5 pt-4 text-xs font-medium text-ink-300">Cerrados y cancelados</h3>
-          <Tabla envios={visibles} />
+          <Tabla envios={visibles} asinDe={asinDe} />
           {cerrados.length > FILAS_PLEGADA && (
             <button
               onClick={() => setAbierta((v) => !v)}

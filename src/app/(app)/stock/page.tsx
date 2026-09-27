@@ -13,6 +13,10 @@ export default async function StockPage() {
 
   // Titles from the orders when Amazon's inventory report has none (skipping its "-" placeholders).
   const titulos: Record<string, string> = {};
+  // SKU → ASIN for the shipments table (stock first, orders for SKUs no longer in stock).
+  const asinDe: Record<string, string> = {};
+  for (const a of stock?.articulos ?? []) if (a.asin) asinDe[a.sku] = a.asin;
+  for (const l of lineas) if (l.asin) asinDe[l.sku] ??= l.asin;
   for (const l of lineas) if (!titulos[l.sku] && l.titulo && l.titulo.trim().length > 1) titulos[l.sku] = l.titulo;
 
   return (
@@ -26,7 +30,7 @@ export default async function StockPage() {
       ) : (
         <>
           <VistaStock stock={stock} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
-          <EnviosFBA envios={envios.envios} actualizadoEn={envios.actualizadoEn} />
+          <EnviosFBA envios={envios.envios} actualizadoEn={envios.actualizadoEn} asinDe={asinDe} />
         </>
       )}
     </div>
