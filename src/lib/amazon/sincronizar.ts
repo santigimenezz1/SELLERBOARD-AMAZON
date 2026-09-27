@@ -9,6 +9,7 @@ import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketpla
 import { asegurarAlmacen, Escritor, fijarVersion, invalidarAlmacen, pedidosEnAlmacen, productosEnAlmacen, transaccionesEnAlmacen } from "@/lib/datos/almacen";
 import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/consumo";
 import { recordarUltimaSync } from "@/lib/datos/panel";
+import { avisarVentas } from "@/lib/telegram";
 import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
 import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
@@ -184,6 +185,8 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
       }
       const r = await guardarPedidos(pedidos, marketplaces);
       pedidosNuevos = r.nuevos;
+      // Telegram notice of the new sales (not on the very first sync, which brings months of history).
+      if (cursorPedidos && r.lineasNuevas.length > 0) await avisarVentas(r.lineasNuevas).catch((e) => errores.push(`Telegram: ${mensaje(e)}`));
       pedidosActualizadosN = pedidos.length;
       escrituras += r.escrituras;
       r.orderIds.forEach((id) => tocados.add(id));
@@ -405,6 +408,8 @@ async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace
   const existentes = pedidosEnAlmacen();
   const errores: string[] = [];
   const orderIds: string[] = [];
+  // Lines of orders seen for the first time (for the sales notice).
+  const lineasNuevas: Pedido[] = [];
   let nuevos = 0;
   const esc = new Escritor();
 
@@ -472,7 +477,10 @@ async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace
       }
       let cambiado = false;
       for (const l of lineas) cambiado = esc.set("pedidos", l.id, l) || cambiado;
-      if (esNuevo) nuevos++;
+      if (esNuevo) {
+        nuevos++;
+        lineasNuevas.push(...lineas);
+      }
       // Unchanged orders don't need their fees recomputed either.
       if (cambiado) orderIds.push(p.orderId);
     } catch (e) {
@@ -481,7 +489,7 @@ async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace
   }
   const escrituras = esc.cantidad;
   await esc.confirmar();
-  return { nuevos, orderIds, errores, escrituras };
+  return { nuevos, orderIds, errores, escrituras, lineasNuevas };
 }
 
 /**
