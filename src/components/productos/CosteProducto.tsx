@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Escandallo, Lote, Pieza, Proveedor, TipoLote } from "@/lib/datos/escandallos";
 import { formatEuros, formatFechaHora, formatNumero } from "@/lib/format";
 import { fechaCorta } from "@/lib/datos/periodos";
@@ -36,12 +36,16 @@ type Estado = { tipo: "idle" | "guardando" } | { tipo: "ok" } | { tipo: "error";
 
 type Props = {
   inicial: Escandallo;
-  /** Current selling price on amazon.es (VAT included), to show what share of it the cost is. */
+  /** Current selling price in euros (VAT included) on amazon.es or, for the UK, amazon.co.uk converted, to show what share of it the cost is. */
   precioVenta: number | null;
+  /** How that price reads in its own currency, when it isn't euros ("25,99 £"). */
+  precioOriginal?: string;
+  /** Region switch shown next to the title. */
+  selector?: ReactNode;
 };
 
 /** A product's unit cost, dashboard-style: one tile per supplier plus the total. Read-only until "Editar". */
-export function CosteProducto({ inicial, precioVenta }: Props) {
+export function CosteProducto({ inicial, precioVenta, precioOriginal, selector }: Props) {
   const router = useRouter();
   const [guardados, setGuardados] = useState<Proveedor[]>(inicial.proveedores);
   const [proveedores, setProveedores] = useState<Proveedor[]>(inicial.proveedores);
@@ -93,7 +97,7 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
       const res = await fetch(`/api/productos/${inicial.asin}/costes`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proveedores, lotes }),
+        body: JSON.stringify({ region: inicial.region, proveedores, lotes }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; actualizadoEn?: string };
       if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
@@ -118,7 +122,10 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
     <section>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-ink-100">Coste del producto</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-lg font-semibold tracking-tight text-ink-100">Coste del producto</h2>
+            {selector}
+          </div>
           <p className="text-xs text-ink-400">
             Lo que te cuesta una unidad (sin IVA).{" "}
             {actualizadoEn ? `Guardado: ${formatFechaHora(new Date(actualizadoEn))}` : <span className="text-warning">Precios de ejemplo: cámbialos por los reales.</span>}
@@ -325,7 +332,7 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
               ))}
               {cuota !== null && (
                 <p className="pt-1 text-xs text-ink-400">
-                  = <span className="font-medium text-accent-400">{cuota.toLocaleString("es-ES", { maximumFractionDigits: 1 })} %</span> del precio de venta ({formatEuros(precioVenta)})
+                  = <span className="font-medium text-accent-400">{cuota.toLocaleString("es-ES", { maximumFractionDigits: 1 })} %</span> del precio de venta ({precioOriginal ? `${precioOriginal} ≈ ${formatEuros(precioVenta)}` : formatEuros(precioVenta)})
                 </p>
               )}
             </div>

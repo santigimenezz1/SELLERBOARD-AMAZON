@@ -77,7 +77,8 @@ de 20 ASIN por llamada y país, guardados en `fichas/{asin}` solo si cambian y l
 
 Debajo, el recuadro **Coste del producto**: piezas agrupadas por proveedor, más dos costes por lote (**inspección** y
 **envío AGL** del último envío: coste total ÷ unidades), con subtotales y coste total por unidad (sin IVA), todo editable.
-El envío AGL se rellena a mano por ahora; más adelante se tomará de Amazon Global Logistics. Se guarda en `escandallos/{asin}` al pulsar Guardar. Debajo, **Proveedores del producto**: una tarjeta
+El coste va **por región**: uno para Europa (ES, DE, FR, IT, NL…, doc `escandallos/{asin}`) y otro aparte para Reino
+Unido (`escandallos/{asin}_UK`); cambiar uno no toca el otro. El envío AGL se rellena a mano por ahora; más adelante se tomará de Amazon Global Logistics. Se guarda en `escandallos/{asin}` al pulsar Guardar. Debajo, **Proveedores del producto**: una tarjeta
 desplegable por proveedor con sus datos de contacto, guardados en `proveedores/{nombre}` y compartidos entre productos. Amazon no da por API las estrellas y reseñas.
 
 ## Sección Stock

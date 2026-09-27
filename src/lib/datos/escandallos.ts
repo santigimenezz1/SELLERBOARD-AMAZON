@@ -5,8 +5,10 @@ import { contarEscrituras, contarLecturas } from "./consumo";
 
 /*
  * Cost breakdown ("escandallo") of a product: what each piece costs, grouped
- * by supplier, and the total unit cost. One doc per ASIN in `escandallos`,
- * cached in memory (a product page reads it once per server process).
+ * by supplier, and the total unit cost. Kept per region, since the UK is
+ * stocked and shipped apart from the EU: `escandallos/{asin}` for the EU
+ * (ES, DE, FR, IT, NL…) and `escandallos/{asin}_UK` for the UK. Cached in
+ * memory (a product page reads each once per server process).
  */
 
 export type Pieza = { id: string; nombre: string; coste: number };
@@ -18,8 +20,16 @@ export type Proveedor = { id: string; nombre: string; piezas: Pieza[] };
 export type TipoLote = "inspeccion" | "agl";
 export type Lote = { id: TipoLote; referencia: string; fecha: string; unidades: number; costeTotal: number };
 
+/** Cost region: the EU marketplaces share one breakdown, the UK has its own. */
+export type RegionCoste = "eu" | "uk";
+export const REGIONES_COSTE: RegionCoste[] = ["eu", "uk"];
+export const MARKETPLACE_UK = "A1F83G8C2ARO7P";
+export const regionDeMarketplace = (marketplaceId: string): RegionCoste => (marketplaceId === MARKETPLACE_UK ? "uk" : "eu");
+const idDoc = (asin: string, region: RegionCoste) => (region === "uk" ? `${asin}_UK` : asin);
+
 export type Escandallo = {
   asin: string;
+  region: RegionCoste;
   proveedores: Proveedor[];
   lotes: Lote[];
   /** The batches still hold the made-up example values (never saved). */
@@ -37,13 +47,14 @@ const LOTES_EJEMPLO: Lote[] = [
   { id: "agl", referencia: "FBA15EJEMPLO1", fecha: "2026-08-24", unidades: 2400, costeTotal: 1560 },
 ];
 
-const g = globalThis as unknown as { __escandallosV3?: Map<string, Escandallo> };
-const cache = () => (g.__escandallosV3 ??= new Map());
+const g = globalThis as unknown as { __escandallosV4?: Map<string, Escandallo> };
+const cache = () => (g.__escandallosV4 ??= new Map());
 
 /** Placeholder costs (made up) for the two football-mat listings, until real ones are entered. */
-function ejemploAlfombra(asin: string): Escandallo {
+function ejemploAlfombra(asin: string, region: RegionCoste): Escandallo {
   return {
     asin,
+    region,
     actualizadoEn: null,
     lotes: LOTES_EJEMPLO,
     lotesEjemplo: true,
@@ -58,7 +69,7 @@ function ejemploAlfombra(asin: string): Escandallo {
     ],
   };
 }
-const EJEMPLOS: Record<string, (asin: string) => Escandallo> = {
+const EJEMPLOS: Record<string, (asin: string, region: RegionCoste) => Escandallo> = {
   B0FMPLCLQ9: ejemploAlfombra, // listing viejo
   B0GCTT9X6J: ejemploAlfombra, // listing nuevo
 };
@@ -69,17 +80,19 @@ export function costeTotal(e: Pick<Escandallo, "proveedores" | "lotes">): number
   return Math.round((piezas + lotes) * 100) / 100;
 }
 
-export async function obtenerEscandallo(asin: string): Promise<Escandallo> {
-  const enMemoria = cache().get(asin);
+export async function obtenerEscandallo(asin: string, region: RegionCoste): Promise<Escandallo> {
+  const id = idDoc(asin, region);
+  const enMemoria = cache().get(id);
   if (enMemoria) return enMemoria;
-  const snap = await adminDb().collection("escandallos").doc(asin).get();
+  const snap = await adminDb().collection("escandallos").doc(id).get();
   contarLecturas(1);
-  const ejemplo = EJEMPLOS[asin]?.(asin);
+  const ejemplo = EJEMPLOS[asin]?.(asin, region);
   let e: Escandallo;
   if (snap.exists) {
     const lotes = snap.get("lotes") as Lote[] | undefined;
     e = {
       asin,
+      region,
       proveedores: (snap.get("proveedores") as Proveedor[]) ?? [],
       // Saved before batches existed: show the example ones (if any) until saved again.
       lotes: lotes ?? ejemplo?.lotes ?? TIPOS_LOTE.map(loteVacio),
@@ -87,14 +100,14 @@ export async function obtenerEscandallo(asin: string): Promise<Escandallo> {
       actualizadoEn: (snap.get("actualizadoEn") as string | undefined) ?? null,
     };
   } else {
-    e = ejemplo ?? { asin, proveedores: [], lotes: TIPOS_LOTE.map(loteVacio), lotesEjemplo: false, actualizadoEn: null };
+    e = ejemplo ?? { asin, region, proveedores: [], lotes: TIPOS_LOTE.map(loteVacio), lotesEjemplo: false, actualizadoEn: null };
   }
-  cache().set(asin, e);
+  cache().set(id, e);
   return e;
 }
 
 /** Validates and saves (one write). Throws a Spanish message on bad input. */
-export async function guardarEscandallo(asin: string, proveedores: unknown, lotesEntrada: unknown): Promise<Escandallo> {
+export async function guardarEscandallo(asin: string, region: RegionCoste, proveedores: unknown, lotesEntrada: unknown): Promise<Escandallo> {
   if (!Array.isArray(proveedores) || proveedores.length > 20) throw new Error("Datos no válidos");
   const limpios: Proveedor[] = proveedores.map((p, i) => {
     const pr = p as Partial<Proveedor>;
@@ -122,11 +135,12 @@ export async function guardarEscandallo(asin: string, proveedores: unknown, lote
     if (!Number.isFinite(unidades) || unidades < 0 || unidades > 10_000_000) throw new Error("Las unidades deben ser un número positivo");
     if (!Number.isFinite(costeTotalLote) || costeTotalLote < 0 || costeTotalLote > 10_000_000) throw new Error("Los costes deben ser números positivos");
     const fecha = String(l.fecha ?? "");
-    return { id, referencia: String(l.referencia ?? "").trim().slice(0, 80), fecha: /^d{4}-d{2}-d{2}$/.test(fecha) ? fecha : "", unidades, costeTotal: Math.round(costeTotalLote * 100) / 100 };
+    return { id, referencia: String(l.referencia ?? "").trim().slice(0, 80), fecha: /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : "", unidades, costeTotal: Math.round(costeTotalLote * 100) / 100 };
   });
-  const e: Escandallo = { asin, proveedores: limpios, lotes, lotesEjemplo: false, actualizadoEn: new Date().toISOString() };
-  await adminDb().collection("escandallos").doc(asin).set({ proveedores: limpios, lotes, actualizadoEn: e.actualizadoEn });
+  const e: Escandallo = { asin, region, proveedores: limpios, lotes, lotesEjemplo: false, actualizadoEn: new Date().toISOString() };
+  const id = idDoc(asin, region);
+  await adminDb().collection("escandallos").doc(id).set({ asin, region, proveedores: limpios, lotes, actualizadoEn: e.actualizadoEn });
   contarEscrituras(1);
-  cache().set(asin, e);
+  cache().set(id, e);
   return e;
 }

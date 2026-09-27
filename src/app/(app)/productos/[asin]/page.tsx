@@ -6,8 +6,9 @@ import { formatEuros, formatMoneda, formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 import { Galeria } from "@/components/productos/Galeria";
 import { ActualizarFicha } from "@/components/productos/ActualizarFicha";
-import { CosteProducto } from "@/components/productos/CosteProducto";
-import { obtenerEscandallo } from "@/lib/datos/escandallos";
+import { CosteRegiones } from "@/components/productos/CosteRegiones";
+import { MARKETPLACE_UK, obtenerEscandallo, regionDeMarketplace } from "@/lib/datos/escandallos";
+import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
 import { contactosDe } from "@/lib/datos/proveedores";
 import { ProveedoresProducto } from "@/components/productos/ProveedoresProducto";
 
@@ -34,9 +35,13 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   const { asin } = await params;
   const sp = await searchParams;
   if (!/^[A-Z0-9]{10}$/.test(asin)) notFound();
-  const [d, escandallo] = await Promise.all([detalleProducto(asin), obtenerEscandallo(asin)]);
-  const contactos = await contactosDe(escandallo.proveedores.map((p) => p.nombre).filter(Boolean));
+  const [d, costeEU, costeUK] = await Promise.all([detalleProducto(asin), obtenerEscandallo(asin, "eu"), obtenerEscandallo(asin, "uk")]);
+  // Suppliers of both regions, once each.
+  const contactos = await contactosDe([...new Set([...costeEU.proveedores, ...costeUK.proveedores].map((p) => p.nombre).filter(Boolean))]);
   const f = d.ficha;
+  // The UK cost is compared with the amazon.co.uk price converted to euros (ECB rate); no rate → no share shown.
+  const precioUK = f?.precios[MARKETPLACE_UK];
+  const eurPorGBP = precioUK?.precio != null ? await eurPorUnidad(precioUK.moneda, new Date()).catch(() => null) : null;
   const mks = new Map(d.marketplaces.map((m) => [m.id, m]));
 
   // Marketplaces with something to show for this ASIN; amazon.es first.
@@ -201,8 +206,19 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
         {!ficha && <p className="mt-6 text-sm text-[#565959]">Aún no hay ficha de catálogo para este país. Pulsa «Actualizar ficha».</p>}
       </article>
 
-      {/* Our own cost of one unit, piece by piece (seller-only, so outside the buyer view). */}
-      <CosteProducto key={asin} inicial={escandallo} precioVenta={f?.precios[ES]?.precio ?? null} />
+      {/* Our own cost of one unit, piece by piece (seller-only, so outside the buyer view). EU and UK apart. */}
+      <CosteRegiones
+        key={`${asin}-${regionDeMarketplace(mkId)}`}
+        inicial={regionDeMarketplace(mkId)}
+        regiones={{
+          eu: { escandallo: costeEU, precioVenta: f?.precios[ES]?.precio ?? null },
+          uk: {
+            escandallo: costeUK,
+            precioVenta: precioUK?.precio != null && eurPorGBP ? Math.round(precioUK.precio * eurPorGBP * 100) / 100 : null,
+            precioOriginal: precioUK?.precio != null ? formatMoneda(precioUK.precio, precioUK.moneda) : undefined,
+          },
+        }}
+      />
 
       {/* One contact card per supplier of the cost breakdown (keyed so a rename/refresh starts fresh). */}
       <ProveedoresProducto key={contactos.map((c) => c.id).join("|")} contactos={contactos} />
