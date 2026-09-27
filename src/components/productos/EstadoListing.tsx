@@ -5,9 +5,7 @@ import type { SaludProducto } from "@/lib/datos/saludListings";
 import { Bandera } from "@/components/Bandera";
 
 // Amazon sometimes answers in English even with issueLocale=es_ES: plain Spanish for the ones seen on this account.
-const TRADUCCIONES: Record<string, string> = {
-  "100613": "Precio por encima del máximo de Amazon Haul: el listing está suprimido en Amazon Haul (en la tienda normal sigue a la venta).",
-};
+const TRADUCCIONES: Record<string, string> = {};
 
 type Mercado = { id: string; pais: string; codigoPais: string };
 

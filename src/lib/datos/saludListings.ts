@@ -18,6 +18,8 @@ const g = globalThis as unknown as { __saludListings?: Doc };
 const ref = () => adminDb().collection("config").doc("saludListings");
 const clave = (sku: string, mk: string) => `${sku}|${mk}`;
 const DIAS_ACTIVO = 90;
+/** Issues not worth showing: 100613 = price above the Amazon Haul (low-price store) cap, irrelevant for this catalogue. */
+const IGNORADOS = new Set(["100613"]);
 
 async function leer(): Promise<Doc> {
   if (g.__saludListings) return g.__saludListings;
@@ -83,7 +85,7 @@ export async function saludDeProducto(skus: string[]): Promise<SaludProducto> {
     const m = (porMercado[mk] ??= { comprable: false, problemas: [] });
     m.comprable ||= e.estado.includes("BUYABLE");
     for (const p of e.problemas) {
-      if (m.problemas.some((x) => x.mensaje === p.mensaje)) continue;
+      if (IGNORADOS.has(p.codigo) || m.problemas.some((x) => x.mensaje === p.mensaje)) continue;
       m.problemas.push({ sku, codigo: p.codigo, severidad: p.severidad, mensaje: p.mensaje, suprimido: p.acciones.some((a) => a.includes("SUPPRESS")) });
     }
   }
