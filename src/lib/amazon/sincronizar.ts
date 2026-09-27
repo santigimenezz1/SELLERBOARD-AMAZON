@@ -10,6 +10,7 @@ import { asegurarAlmacen, Escritor, fijarVersion, invalidarAlmacen, pedidosEnAlm
 import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/consumo";
 import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
+import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -238,6 +239,14 @@ export async function sincronizar(): Promise<ResultadoSync> {
       escrituras += await actualizarFichas(marketplaces.filter((m) => conVentas.has(m.id)));
     } catch (e) {
       errores.push(`Catalog/Pricing API (fichas): ${mensaje(e)}`);
+    }
+
+    // 8. FBA customer returns report, at most every few hours (never blocks the sales data)
+    try {
+      const mkInforme = marketplaces.find((m) => m.id === "A1RKKUPIHCS9HS")?.id ?? marketplaces[0]?.id;
+      if (mkInforme) escrituras += await actualizarDevoluciones(mkInforme);
+    } catch (e) {
+      errores.push(`Reports API (devoluciones): ${mensaje(e)}`);
     }
 
     const duracionMs = Date.now() - inicio;

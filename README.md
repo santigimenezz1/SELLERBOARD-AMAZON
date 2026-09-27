@@ -85,6 +85,12 @@ ingresa Amazon) en el país elegido, sacado de la última venta real «limpia» 
 propio país) guardada por la sincronización en `config/tarifasVenta`. El precio se puede editar: comisión e IVA escalan
 con el precio y la tarifa FBA queda fija. Al lado, beneficio por unidad con el coste de su región, margen sobre el precio
 y rentabilidad sobre el coste.
+
+**Devoluciones y reembolsos**: el país elegido junto a todos los mercados (30 días, 90 días o todo): reembolsos (de las
+liquidaciones), unidades devueltas y % sobre las vendidas, motivo del cliente y estado de la unidad, más las últimas
+devoluciones con su comentario. Las devoluciones vienen del informe `GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA` (uno para
+toda la cuenta, UE y Reino Unido), guardado en `config/devoluciones` y refrescado por la sincronización como mucho cada
+6 horas; el país sale del pedido. Los periodos nunca empiezan antes de los primeros datos financieros sincronizados.
 desplegable por proveedor con sus datos de contacto, guardados en `proveedores/{nombre}` y compartidos entre productos. Amazon no da por API las estrellas y reseñas.
 
 ## Sección Stock

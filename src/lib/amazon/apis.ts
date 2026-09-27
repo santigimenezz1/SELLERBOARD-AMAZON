@@ -1,6 +1,7 @@
 import "server-only";
 
-import { spGet } from "./cliente";
+import { gunzipSync } from "node:zlib";
+import { spGet, spPost } from "./cliente";
 
 /*
  * The SP-API operations this app uses, typed with only the fields we read.
@@ -245,4 +246,69 @@ export async function preciosPropios(asins: string[], marketplaceId: string): Pr
 export async function preciosCompetitivos(asins: string[], marketplaceId: string): Promise<PrecioCompetitivo[]> {
   const r = await spGet<{ payload?: PrecioCompetitivo[] }>("/products/pricing/v0/competitivePrice", { MarketplaceId: marketplaceId, ItemType: "Asin", Asins: asins.slice(0, 20) });
   return r.payload ?? [];
+}
+
+// ---------- Reports 2021-06-30 ----------
+
+/**
+ * Requests a report, waits until Amazon has built it (usually ~20 s) and returns it as rows of
+ * column → value (tab-separated flat file). Throws if it isn't ready within `esperaMaximaMs`.
+ */
+async function informePlano(reportType: string, marketplaceIds: string[], desde: Date, esperaMaximaMs = 120_000): Promise<Record<string, string>[]> {
+  const { reportId } = await spPost<{ reportId: string }>("/reports/2021-06-30/reports", { reportType, marketplaceIds, dataStartTime: desde.toISOString() });
+  const limite = Date.now() + esperaMaximaMs;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const r = await spGet<{ processingStatus: string; reportDocumentId?: string }>(`/reports/2021-06-30/reports/${reportId}`);
+    if (r.processingStatus === "DONE" && r.reportDocumentId) {
+      const doc = await spGet<{ url: string; compressionAlgorithm?: string }>(`/reports/2021-06-30/documents/${r.reportDocumentId}`);
+      const res = await fetch(doc.url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`${reportType}: descarga HTTP ${res.status}`);
+      let buf = Buffer.from(await res.arrayBuffer());
+      if (doc.compressionAlgorithm === "GZIP") buf = gunzipSync(buf);
+      const [cabecera, ...filas] = buf.toString("utf8").split(/\r?\n/).filter(Boolean).map((l) => l.split("\t"));
+      return filas.map((f) => Object.fromEntries((cabecera ?? []).map((c, i) => [c, f[i] ?? ""])));
+    }
+    // No data in the period comes back as DONE_NO_DATA (or CANCELLED for some report types).
+    if (r.processingStatus === "DONE_NO_DATA" || r.processingStatus === "CANCELLED") return [];
+    if (r.processingStatus === "FATAL") throw new Error(`${reportType}: Amazon no pudo generar el informe`);
+    if (Date.now() > limite) throw new Error(`${reportType}: el informe tarda demasiado, se reintentará en la próxima sincronización`);
+  }
+}
+
+export type DevolucionAmazon = {
+  fecha: string;
+  orderId: string;
+  sku: string;
+  asin: string;
+  unidades: number;
+  centro: string;
+  /** Condition of the returned unit: SELLABLE, CUSTOMER_DAMAGED, CARRIER_DAMAGED, DEFECTIVE… */
+  disposicion: string;
+  /** Customer's reason: UNWANTED_ITEM, DEFECTIVE, NOT_AS_DESCRIBED… */
+  motivo: string;
+  estado: string;
+  lpn: string;
+  comentario: string;
+};
+
+/**
+ * FBA customer returns since `desde`. One request covers every marketplace of the unified account
+ * (EU and UK alike), but the rows don't say which: the country comes from the order.
+ */
+export async function devolucionesFBA(marketplaceId: string, desde: Date): Promise<DevolucionAmazon[]> {
+  const filas = await informePlano("GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA", [marketplaceId], desde);
+  return filas.map((f) => ({
+    fecha: f["return-date"] ?? "",
+    orderId: f["order-id"] ?? "",
+    sku: f["sku"] ?? "",
+    asin: f["asin"] ?? "",
+    unidades: Number(f["quantity"]) || 1,
+    centro: f["fulfillment-center-id"] ?? "",
+    disposicion: f["detailed-disposition"] ?? "",
+    motivo: f["reason"] ?? "",
+    estado: f["status"] ?? "",
+    lpn: f["license-plate-number"] ?? "",
+    comentario: (f["customer-comments"] ?? "").slice(0, 300),
+  }));
 }

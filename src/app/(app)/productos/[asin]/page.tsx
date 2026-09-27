@@ -10,6 +10,8 @@ import { CosteRegiones } from "@/components/productos/CosteRegiones";
 import { costeTotal, MARKETPLACE_UK, obtenerEscandallo, regionDeMarketplace } from "@/lib/datos/escandallos";
 import { tarifasDeSkus } from "@/lib/datos/tarifasVenta";
 import { PagoAmazon } from "@/components/productos/PagoAmazon";
+import { devolucionesDeProducto } from "@/lib/datos/devoluciones";
+import { DevolucionesProducto } from "@/components/productos/DevolucionesProducto";
 import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
 import { contactosDe, EMPRESA_INSPECCION } from "@/lib/datos/proveedores";
 import { ProveedoresProducto } from "@/components/productos/ProveedoresProducto";
@@ -44,7 +46,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   // The UK cost is compared with the amazon.co.uk price converted to euros (ECB rate); no rate → no share shown.
   const precioUK = f?.precios[MARKETPLACE_UK];
   const eurPorGBP = precioUK?.precio != null ? await eurPorUnidad(precioUK.moneda, new Date()).catch(() => null) : null;
-  const tarifas = await tarifasDeSkus(d.skus);
+  const [tarifas, devoluciones] = await Promise.all([tarifasDeSkus(d.skus), devolucionesDeProducto(asin, d.skus)]);
   const mks = new Map(d.marketplaces.map((m) => [m.id, m]));
 
   // Marketplaces with something to show for this ASIN; amazon.es first.
@@ -235,6 +237,12 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
         coste={costeTotal(region === "uk" ? costeUK : costeEU)}
         nombreCoste={region === "uk" ? "Reino Unido" : "Europa"}
         eurPorUnidad={eurMuestra}
+      />
+
+      <DevolucionesProducto
+        datos={devoluciones}
+        mercado={mk ? { id: mk.id, pais: mk.pais, codigoPais: mk.codigoPais } : null}
+        mercados={d.marketplaces.map((m) => ({ id: m.id, pais: m.pais, codigoPais: m.codigoPais }))}
       />
 
       {/* One contact card per supplier of the cost breakdown (keyed so a rename/refresh starts fresh). */}

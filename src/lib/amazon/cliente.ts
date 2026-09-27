@@ -73,6 +73,15 @@ const REINTENTOS = 5;
  * to know how long a fresh token takes to refill.
  */
 export async function spGet<T>(ruta: string, params: Params = {}): Promise<T> {
+  return spPedir<T>("GET", ruta, params);
+}
+
+/** POST with a JSON body (e.g. creating a report), same retries as `spGet`. */
+export async function spPost<T>(ruta: string, cuerpo: unknown): Promise<T> {
+  return spPedir<T>("POST", ruta, {}, cuerpo);
+}
+
+async function spPedir<T>(metodo: "GET" | "POST", ruta: string, params: Params, cuerpoPeticion?: unknown): Promise<T> {
   const url = new URL(ruta, host);
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined) continue;
@@ -82,11 +91,14 @@ export async function spGet<T>(ruta: string, params: Params = {}): Promise<T> {
 
   for (let intento = 0; ; intento++) {
     const res = await fetch(url, {
+      method: metodo,
       headers: {
         "x-amz-access-token": await accessToken(),
         "user-agent": "ElectronicVLC-Beneficios/0.1 (Language=TypeScript)",
         accept: "application/json",
+        ...(cuerpoPeticion === undefined ? {} : { "content-type": "application/json" }),
       },
+      body: cuerpoPeticion === undefined ? undefined : JSON.stringify(cuerpoPeticion),
       cache: "no-store",
     });
 
