@@ -147,6 +147,16 @@ cargos). Claves:
 
 La cuota se reinicia a medianoche de California (9:00 en España).
 
+## Despliegue en Railway
+
+`Dockerfile` + `output: "standalone"` (igual que MakerLab). En Railway:
+
+1. *New Project* → *Deploy from GitHub repo* → este repositorio. Railway detecta el `Dockerfile`.
+2. *Variables* → *Raw Editor*: pega el contenido del `.env.local` (sin `NODE_OPTIONS`). Las `NEXT_PUBLIC_*` también se usan al
+   construir: Railway las pasa como *build args* (declarados en el `Dockerfile`).
+3. *Settings* → *Networking* → *Generate Domain*.
+4. **Una sola réplica** (es lo predeterminado): el almacén en memoria vive en un único proceso.
+
 ## Colecciones de Firestore
 
 | Colección | Contenido |
