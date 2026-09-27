@@ -6,6 +6,11 @@ import { ContadorConsumo } from "@/components/ContadorConsumo";
 import { resumenEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
 
+// Every page here depends on the signed-in user and live data: never pre-render them at build time. Without this
+// the build tries to, and each attempt loads the whole order history from Firestore (thousands of reads per build
+// or deploy) before giving up on the session cookie.
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   // Colours the «Estado de la cuenta» menu item (from memory after the first load).
