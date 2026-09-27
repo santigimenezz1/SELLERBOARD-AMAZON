@@ -6,7 +6,6 @@ import { formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
-const DIAS_CORTOS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const FRANJAS = [
   { nombre: "Madrugada", desde: 0, hasta: 7 },
   { nombre: "Mañana", desde: 7, hasta: 13 },
@@ -14,7 +13,6 @@ const FRANJAS = [
   { nombre: "Tarde", desde: 16, hasta: 20 },
   { nombre: "Noche", desde: 20, hasta: 24 },
 ];
-const BLOQUES = [0, 4, 8, 12, 16, 20];
 const PERIODOS = [
   { dias: 30, nombre: "30 días" },
   { dias: 90, nombre: "90 días" },
@@ -93,18 +91,16 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
     const porHora = Array.from({ length: 24 }, (_, h) => matriz.reduce((s, fila) => s + fila[h], 0));
     const franjas = FRANJAS.map((f) => ({ ...f, n: porHora.slice(f.desde, f.hasta).reduce((a, b) => a + b, 0) }));
     const porDia = matriz.map((fila) => fila.reduce((a, b) => a + b, 0));
-    const bloques = matriz.map((fila) => BLOQUES.map((b) => fila.slice(b, b + 4).reduce((a, x) => a + x, 0)));
     const ranking = matriz
       .flatMap((fila, d) => fila.map((n, h) => ({ d, h, n })))
       .filter((x) => x.n > 0)
       .sort((a, b) => b.n - a.n)
       .slice(0, 5);
-    return { total, franjas, porDia, bloques, ranking };
+    return { total, franjas, porDia, ranking };
   }, [datos.ventas, datos.generadoEn, dias, asin, mk, zonas]);
 
   const maxFranja = Math.max(1, ...r.franjas.map((f) => f.n));
   const maxDia = Math.max(1, ...r.porDia);
-  const maxBloque = Math.max(1, ...r.bloques.flat());
 
   return (
     <div className="flex flex-col gap-5">
@@ -183,36 +179,14 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
           </Tarjeta>
 
           {/* 3. Weekday */}
-          <Tarjeta titulo="¿Qué día se vende más?" subtitulo="Unidades por día de la semana" total={r.total}>
-            <div className="flex h-40 items-end gap-2">
+          <Tarjeta titulo="¿Qué día se vende más?" subtitulo="% y unidades por día de la semana" total={r.total} className="lg:col-span-2">
+            <div className="flex h-48 items-end gap-3">
               {r.porDia.map((n, d) => (
                 <div key={d} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-                  <span className="tabular text-xs font-semibold text-ink-100">{formatNumero(n)}</span>
-                  <div className={`w-full rounded-t ${n === maxDia ? "bg-accent-500" : "bg-accent-500/45"}`} style={{ height: `${(n / maxDia) * 78}%` }} />
-                  <span className="text-xs text-ink-400">{DIAS_CORTOS[d]}</span>
-                </div>
-              ))}
-            </div>
-          </Tarjeta>
-
-          {/* 4. Week at a glance */}
-          <Tarjeta titulo="La semana por bloques de 4 horas" subtitulo="Unidades en cada día y franja; más intenso = más ventas">
-            <div className="grid grid-cols-[40px_repeat(6,1fr)] gap-1 text-xs">
-              <div />
-              {BLOQUES.map((b) => (
-                <div key={b} className="text-center text-ink-400">
-                  {b}–{b + 4}
-                </div>
-              ))}
-              {r.bloques.map((fila, d) => (
-                <div key={d} className="contents">
-                  <div className="flex items-center text-ink-400">{DIAS_CORTOS[d]}</div>
-                  {fila.map((n, i) => (
-                    <div key={i} className="relative grid h-8 place-items-center overflow-hidden rounded">
-                      <div aria-hidden className="absolute inset-0 bg-accent-500" style={{ opacity: n ? 0.1 + (n / maxBloque) * 0.8 : 0.04 }} />
-                      <span className={`tabular relative font-semibold ${n / maxBloque > 0.6 ? "text-ink-950" : "text-ink-100"}`}>{n || ""}</span>
-                    </div>
-                  ))}
+                  <span className="tabular text-sm font-semibold text-ink-100">{pct(n, r.total)} %</span>
+                  <span className="tabular text-xs text-ink-400">{uds(n)}</span>
+                  <div className={`w-full rounded-t ${n === maxDia ? "bg-accent-500" : "bg-accent-500/45"}`} style={{ height: `${(n / maxDia) * 70}%` }} />
+                  <span className="text-xs text-ink-300">{DIAS[d]}</span>
                 </div>
               ))}
             </div>
