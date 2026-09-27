@@ -3,10 +3,12 @@ import { datosVentas } from "@/lib/datos/almacen";
 import { cargarUltimaSync } from "@/lib/datos/panel";
 import { isAmazonConfigured } from "@/lib/amazon/cliente";
 import { VistaStock } from "@/components/stock/VistaStock";
+import { obtenerEnvios } from "@/lib/datos/envios";
+import { EnviosFBA } from "@/components/stock/EnviosFBA";
 
-/** FBA stock per region. ~1 Firestore read per load: the snapshot and the photos come from memory. */
+/** FBA stock per region and inbound shipments. Everything comes from memory after the first load. */
 export default async function StockPage() {
-  const [stock, ultima] = await Promise.all([obtenerStock(), cargarUltimaSync()]);
+  const [stock, ultima, envios] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios()]);
   const { imagenes, lineas } = await datosVentas(ultima?.id ?? null);
 
   // Titles from the orders when Amazon's inventory report has none (skipping its "-" placeholders).
@@ -22,7 +24,10 @@ export default async function StockPage() {
       {!isAmazonConfigured ? (
         <p className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning">Faltan las credenciales de Amazon en .env.local.</p>
       ) : (
-        <VistaStock stock={stock} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
+        <>
+          <VistaStock stock={stock} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
+          <EnviosFBA envios={envios.envios} actualizadoEn={envios.actualizadoEn} />
+        </>
       )}
     </div>
   );

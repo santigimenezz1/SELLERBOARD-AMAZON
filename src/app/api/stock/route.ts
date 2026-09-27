@@ -5,14 +5,18 @@ import { isAmazonConfigured } from "@/lib/amazon/cliente";
 import { cargarMarketplaces } from "@/lib/datos/panel";
 import { actualizarStock } from "@/lib/datos/stock";
 import { volcarConsumo } from "@/lib/datos/consumo";
+import { actualizarEnvios } from "@/lib/datos/envios";
 
-/** "Actualizar stock": asks Amazon for the current FBA stock without a full sync. */
+/** "Actualizar stock": asks Amazon for the current FBA stock and inbound shipments without a full sync. */
 export async function POST(req: NextRequest) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
   if (!(await getSessionUser(true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
   if (!isAmazonConfigured) return NextResponse.json({ error: "Faltan las credenciales de Amazon (SPAPI_*) en .env.local" }, { status: 500 });
   try {
-    const stock = await actualizarStock(await cargarMarketplaces());
+    const marketplaces = await cargarMarketplaces();
+    const stock = await actualizarStock(marketplaces);
+    const mk = marketplaces.find((m) => m.id === "A1RKKUPIHCS9HS")?.id ?? marketplaces[0]?.id;
+    if (mk) await actualizarEnvios(mk);
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true, actualizadoEn: stock.actualizadoEn });
   } catch (e) {

@@ -353,3 +353,47 @@ export async function sellerIdPropio(sku: string, marketplaceId: string): Promis
   });
   return r.payload?.Offers?.find((o) => o.MyOffer)?.SellerId ?? null;
 }
+
+// ---------- Fulfillment Inbound v0 ----------
+
+export type EnvioFBA = { id: string; nombre: string; estado: string; centro: string; paisOrigen: string };
+export type ArticuloEnvio = { sku: string; enviado: number; recibido: number };
+
+/** Inbound shipments updated since `desde` (the whole account: EU and UK alike), any status. */
+export async function enviosFBA(marketplaceId: string, desde: Date): Promise<EnvioFBA[]> {
+  const estados = ["WORKING", "READY_TO_SHIP", "SHIPPED", "IN_TRANSIT", "DELIVERED", "CHECKED_IN", "RECEIVING", "CLOSED", "CANCELLED", "DELETED", "ERROR"];
+  type Respuesta = {
+    payload?: {
+      ShipmentData?: { ShipmentId: string; ShipmentName?: string; ShipmentStatus?: string; DestinationFulfillmentCenterId?: string; ShipFromAddress?: { CountryCode?: string } }[];
+      NextToken?: string;
+    };
+  };
+  const res: EnvioFBA[] = [];
+  let NextToken: string | undefined;
+  // A year is ~60 shipments (2 pages): the cap only guards against a token that never ends.
+  let paginas = 0;
+  do {
+    const r = await spGet<Respuesta>(
+      "/fba/inbound/v0/shipments",
+      NextToken
+        ? { MarketplaceId: marketplaceId, QueryType: "NEXT_TOKEN", NextToken }
+        : { MarketplaceId: marketplaceId, QueryType: "DATE_RANGE", ShipmentStatusList: estados, LastUpdatedAfter: desde.toISOString(), LastUpdatedBefore: new Date(Date.now() - 3 * 60_000).toISOString() },
+    );
+    for (const s of r.payload?.ShipmentData ?? [])
+      res.push({ id: s.ShipmentId, nombre: s.ShipmentName ?? "", estado: s.ShipmentStatus ?? "", centro: s.DestinationFulfillmentCenterId ?? "", paisOrigen: s.ShipFromAddress?.CountryCode ?? "" });
+    NextToken = r.payload?.NextToken || undefined;
+  } while (NextToken && ++paginas < 40);
+  return res;
+}
+
+/**
+ * Units sent and received per SKU of one inbound shipment. This endpoint returns every item at once; it
+ * echoes a NextToken it doesn't honour, so following it would loop forever.
+ */
+export async function articulosEnvioFBA(marketplaceId: string, shipmentId: string): Promise<ArticuloEnvio[]> {
+  const r = await spGet<{ payload?: { ItemData?: { SellerSKU: string; QuantityShipped?: number; QuantityReceived?: number }[] } }>(
+    `/fba/inbound/v0/shipments/${encodeURIComponent(shipmentId)}/items`,
+    { MarketplaceId: marketplaceId },
+  );
+  return (r.payload?.ItemData ?? []).map((i) => ({ sku: i.SellerSKU, enviado: i.QuantityShipped ?? 0, recibido: i.QuantityReceived ?? 0 }));
+}

@@ -106,6 +106,11 @@ vendible por región, vendible total, reservado (pedidos, traslados entre almace
 vendible (incluye lo que está en investigación). Se actualiza en cada sincronización o con **Actualizar stock**; se guarda en
 un único documento (`config/stock`), solo si cambió, y se lee de memoria.
 
+**Envíos a Amazon** (sección Stock): los envíos FBA15… de los últimos 12 meses (UE y Reino Unido), en curso arriba y los
+cerrados/cancelados plegados, con ruta (origen → centro), estado y unidades enviadas frente a recibidas; en rojo lo que
+falta en envíos cerrados. Fulfillment Inbound API v0 en cada sincronización y con «Actualizar stock»; en
+`config/enviosFBA`. Solo se releen los artículos de los envíos nuevos o abiertos (la primera carga, ~1 min).
+
 ## Cómo funciona la sincronización
 
 Botón **Sincronizar ahora** → `POST /api/sync` (`src/lib/amazon/sincronizar.ts`):

@@ -12,6 +12,7 @@ import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
 import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
 import { actualizarSaludListings } from "@/lib/datos/saludListings";
+import { actualizarEnvios } from "@/lib/datos/envios";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -242,12 +243,21 @@ export async function sincronizar(): Promise<ResultadoSync> {
       errores.push(`Catalog/Pricing API (fichas): ${mensaje(e)}`);
     }
 
+    // Account-wide reports and lists are asked through one marketplace (amazon.es when there).
+    const mkCuenta = marketplaces.find((m) => m.id === "A1RKKUPIHCS9HS")?.id ?? marketplaces[0]?.id;
+
     // 8. FBA customer returns report, at most every few hours (never blocks the sales data)
     try {
-      const mkInforme = marketplaces.find((m) => m.id === "A1RKKUPIHCS9HS")?.id ?? marketplaces[0]?.id;
-      if (mkInforme) escrituras += await actualizarDevoluciones(mkInforme);
+      if (mkCuenta) escrituras += await actualizarDevoluciones(mkCuenta);
     } catch (e) {
       errores.push(`Reports API (devoluciones): ${mensaje(e)}`);
+    }
+
+    // 8b. Inbound shipments to Amazon (never blocks the sales data)
+    try {
+      if (mkCuenta) escrituras += await actualizarEnvios(mkCuenta);
+    } catch (e) {
+      errores.push(`Fulfillment Inbound API (envíos): ${mensaje(e)}`);
     }
 
     // 9. Listing health: status and issues per SKU and country (never blocks the sales data)
