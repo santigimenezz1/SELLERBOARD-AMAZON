@@ -5,16 +5,16 @@ import { pedidosEnAlmacen } from "@/lib/datos/almacen";
 import { avisarVentas, enviarTelegram } from "@/lib/telegram";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
-/** Sends a test sales notice (built from the latest real order) to check the bot and the ringtone. */
+/** Sends test sales notices (built from the 3 latest real orders) to check the bot and the ringtone. */
 export async function POST(req: NextRequest) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
   if (!(await getSessionUser(true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
   try {
     const lineas = [...pedidosEnAlmacen().values()].filter((p) => p.estado !== "CANCELLED").sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
-    const ultimo = lineas[0];
-    if (!ultimo) return NextResponse.json({ error: "No hay pedidos todavía" }, { status: 400 });
-    await enviarTelegram("🔔 <b>Prueba</b>: así te llegará cada venta nueva 👇");
-    await avisarVentas(lineas.filter((l) => l.amazonOrderId === ultimo.amazonOrderId));
+    const ultimos = new Set(lineas.map((l) => l.amazonOrderId).filter((id, i, xs) => xs.indexOf(id) === i).slice(0, 3));
+    if (ultimos.size === 0) return NextResponse.json({ error: "No hay pedidos todavía" }, { status: 400 });
+    await enviarTelegram("🔔 <b>Prueba</b>: así te llegará cada venta nueva (tus 3 últimas ventas) 👇");
+    await avisarVentas(lineas.filter((l) => ultimos.has(l.amazonOrderId)));
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (e) {
