@@ -76,7 +76,8 @@ de 20 ASIN por llamada y país, guardados en `fichas/{asin}` solo si cambian y l
 **Actualizar ficha** fuerza la descarga de un producto.
 
 Debajo, el recuadro **Coste del producto**: piezas agrupadas por proveedor, con subtotales y coste total por unidad (sin
-IVA), todo editable. Se guarda en `escandallos/{asin}` al pulsar Guardar. Amazon no da por API las estrellas y reseñas.
+IVA), todo editable. Se guarda en `escandallos/{asin}` al pulsar Guardar. Debajo, **Proveedores del producto**: una tarjeta
+desplegable por proveedor con sus datos de contacto, guardados en `proveedores/{nombre}` y compartidos entre productos. Amazon no da por API las estrellas y reseñas.
 
 ## Sección Stock
 
@@ -168,6 +169,7 @@ La cuota se reinicia a medianoche de California (9:00 en España).
 | `config/stock` | Última foto del stock FBA por región |
 | `fichas` | Ficha de cada ASIN por mercado (catálogo) y precio/Buy Box actuales |
 | `escandallos` | Coste por piezas y proveedores de cada ASIN |
+| `proveedores` | Contacto de cada proveedor (empresa, teléfono, correo, Alibaba), compartido entre productos |
 | `transaccionesAmazon` | Movimientos de la Finances API resumidos por SKU (para recalcular comisiones y reembolsos) |
 | `productos` | Foto principal y título de cada ASIN (Catalog Items API) |
 | `tiposCambio` | Tipos de cambio del BCE por día |

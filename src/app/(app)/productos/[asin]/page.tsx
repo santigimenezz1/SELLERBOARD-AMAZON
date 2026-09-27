@@ -8,6 +8,8 @@ import { Galeria } from "@/components/productos/Galeria";
 import { ActualizarFicha } from "@/components/productos/ActualizarFicha";
 import { CosteProducto } from "@/components/productos/CosteProducto";
 import { obtenerEscandallo } from "@/lib/datos/escandallos";
+import { contactosDe } from "@/lib/datos/proveedores";
+import { ProveedoresProducto } from "@/components/productos/ProveedoresProducto";
 
 const ES = "A1RKKUPIHCS9HS";
 
@@ -33,6 +35,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   const sp = await searchParams;
   if (!/^[A-Z0-9]{10}$/.test(asin)) notFound();
   const [d, escandallo] = await Promise.all([detalleProducto(asin), obtenerEscandallo(asin)]);
+  const contactos = await contactosDe(escandallo.proveedores.map((p) => p.nombre).filter(Boolean));
   const f = d.ficha;
   const mks = new Map(d.marketplaces.map((m) => [m.id, m]));
 
@@ -200,6 +203,9 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
 
       {/* Our own cost of one unit, piece by piece (seller-only, so outside the buyer view). */}
       <CosteProducto key={asin} inicial={escandallo} precioVenta={f?.precios[ES]?.precio ?? null} />
+
+      {/* One contact card per supplier of the cost breakdown (keyed so a rename/refresh starts fresh). */}
+      <ProveedoresProducto key={contactos.map((c) => c.id).join("|")} contactos={contactos} />
     </div>
   );
 }

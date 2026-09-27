@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { Escandallo, Pieza, Proveedor } from "@/lib/datos/escandallos";
 import { formatEuros, formatFechaHora } from "@/lib/format";
 import { Spinner } from "@/components/Spinner";
+import { useRouter } from "next/navigation";
+import { CABECERAS_PROVEEDOR as CABECERAS } from "./colores";
 
 const nuevoId = () => Math.random().toString(36).slice(2, 10);
 const redondear = (v: number) => Math.round(v * 100) / 100;
@@ -12,8 +14,6 @@ const subtotal = (p: Proveedor) => redondear(p.piezas.reduce((s, x) => s + (Numb
 const aNumero = (t: string) => (t.trim() === "" ? NaN : Number(t.replace(",", ".")));
 const aTexto = (n: number) => (Number.isFinite(n) ? (Number(n.toFixed(2)) === n ? n.toFixed(2) : String(n)).replace(".", ",") : "");
 
-// Same blue → green ramp as the dashboard's period tiles, one step per supplier.
-const CABECERAS = ["#3987e5", "#2993ab", "#199e70", "#318dc8", "#21988d"];
 
 type Estado = { tipo: "idle" | "guardando" } | { tipo: "ok" } | { tipo: "error"; msg: string };
 
@@ -25,6 +25,7 @@ type Props = {
 
 /** A product's unit cost, dashboard-style: one tile per supplier plus the total. Read-only until "Editar". */
 export function CosteProducto({ inicial, precioVenta }: Props) {
+  const router = useRouter();
   const [guardados, setGuardados] = useState<Proveedor[]>(inicial.proveedores);
   const [proveedores, setProveedores] = useState<Proveedor[]>(inicial.proveedores);
   const [textos, setTextos] = useState<Record<string, string>>({});
@@ -72,6 +73,8 @@ export function CosteProducto({ inicial, precioVenta }: Props) {
       setActualizadoEn(body.actualizadoEn ?? new Date().toISOString());
       setEditando(false);
       setEstado({ tipo: "ok" });
+      // Suppliers added or renamed here must show up in "Proveedores del producto".
+      router.refresh();
     } catch (e) {
       setEstado({ tipo: "error", msg: e instanceof Error ? e.message : "Error" });
     }
