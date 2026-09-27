@@ -160,9 +160,9 @@ function Fila({ texto, n, onClick, abierta }: { texto: string; n: number; onClic
 
 /** Account health page: country switch on top, «Estado de la cuenta» and «Notificaciones de performance» tabs. */
 export function VistaCuenta({ mercados, estados, categorias, normativos, actualizadoEn, notificaciones }: Props) {
-  // Unread notifications per marketplace (account-wide ones count for every country).
+  // Unread notifications per marketplace.
   const pendientes: Record<string, number> = {};
-  for (const m of mercados) pendientes[m.id] = notificaciones.notificaciones.filter((n) => !n.leida && (n.marketplaceId === m.id || n.marketplaceId === null)).length;
+  for (const m of mercados) pendientes[m.id] = notificaciones.notificaciones.filter((n) => !n.leida && n.mercados.includes(m.id)).length;
   const [mkId, setMkId] = useState(mercados[0]?.id ?? "");
   const [pestana, setPestana] = useState<"estado" | "notificaciones">("estado");
   const mercado = mercados.find((m) => m.id === mkId) ?? mercados[0];

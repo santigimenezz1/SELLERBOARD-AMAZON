@@ -2,7 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 import { guardarGmail, obtenerGmail, type Notificacion } from "@/lib/datos/notificaciones";
-import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
+import { CONSULTA_GMAIL, esNotificacion } from "@/lib/datos/clasificarNotificaciones";
 
 /*
  * Gmail access (read-only) to collect Amazon's performance notifications.
@@ -13,13 +13,6 @@ import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
 
 const ALCANCE = "https://www.googleapis.com/auth/gmail.readonly";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
-
-/**
- * Seller Central's senders. Performance, verification, tax and account emails come from these; order,
- * advertising and shopping emails don't, so they stay out.
- */
-export const CONSULTA =
-  "from:(seller-performance OR seller-notification OR seller-verification OR sellercentral OR seller-support OR notice@amazon OR tax-registration OR payments-messages) newer_than:1y";
 
 /** Public URL of this app (behind Railway's proxy the request URL is the internal one). */
 export function origenPublico(req: NextRequest): string {
@@ -61,7 +54,7 @@ export async function conectar(req: NextRequest, code: string): Promise<void> {
   const t = await token({ code, grant_type: "authorization_code", redirect_uri: redirectUri(req) });
   if (!t.refresh_token) throw new Error("Google no devolvió acceso permanente: vuelve a conectar");
   const perfil = await gmailGet<{ emailAddress?: string }>(t.access_token, "/profile");
-  await guardarGmail({ refreshToken: t.refresh_token, email: perfil.emailAddress ?? null, notificaciones: {}, actualizadoEn: null });
+  await guardarGmail({ refreshToken: t.refresh_token, email: perfil.emailAddress ?? null, notificaciones: {}, descartados: [], actualizadoEn: null });
 }
 
 /** `params` as pairs: Gmail repeats a parameter to pass several values (metadataHeaders). */
@@ -69,30 +62,6 @@ async function gmailGet<T>(accessToken: string, ruta: string, params: [string, s
   const res = await fetch(`${API}${ruta}?${new URLSearchParams(params)}`, { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
   if (!res.ok) throw new Error(`Gmail ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return (await res.json()) as T;
-}
-
-const MERCADO_POR_DOMINIO: Record<string, string> = {};
-for (const id of ["A1RKKUPIHCS9HS", "A1PA6795UKMFR9", "A13V1IB3VIYZZH", "APJ6JRA9NG5V4", "A1805IZSGTT6HS", "AMEN7PMS3EDWL", "A1C3SOZRARQ6R3", "A2NODRKZP88ZB9", "A1F83G8C2ARO7P", "A28R8C7NBKEWEA"]) {
-  const m = marketplaceConocido(id);
-  if (m) MERCADO_POR_DOMINIO[m.dominio.replace(/^www\./, "")] = id;
-}
-
-/**
- * The marketplace a notification is about: an "Amazon.fr"-style mention in the subject or text first (Seller
- * Central writes in the seller's language whatever the store), then the sender's domain. Several stores
- * mentioned, or none, means the whole account (null).
- */
-export function mercadoDe(asunto: string, texto: string, remitente: string): string | null {
-  const dominios = Object.keys(MERCADO_POR_DOMINIO);
-  const mencion = (s: string) => [...new Set(dominios.filter((d) => new RegExp(`\\b${d.replace(/\./g, "\\.")}\\b`, "i").test(s)))];
-  const enAsunto = mencion(asunto);
-  if (enAsunto.length === 1) return MERCADO_POR_DOMINIO[enAsunto[0]];
-  const enTexto = mencion(texto);
-  if (enTexto.length === 1) return MERCADO_POR_DOMINIO[enTexto[0]];
-  if (enAsunto.length + enTexto.length > 1) return null;
-  const dominio = remitente.match(/@([a-z0-9.-]+)/i)?.[1]?.toLowerCase() ?? "";
-  const porRemitente = dominios.find((d) => dominio === d || dominio.endsWith(`.${d}`));
-  return porRemitente ? MERCADO_POR_DOMINIO[porRemitente] : null;
 }
 
 type Mensaje = { id: string; snippet?: string; internalDate?: string; payload?: { headers?: { name: string; value: string }[] } };
@@ -107,7 +76,7 @@ export async function sincronizarGmail(): Promise<number> {
   let pageToken: string | undefined;
   do {
     const r = await gmailGet<{ messages?: { id: string }[]; nextPageToken?: string }>(access_token, "/messages", [
-      ["q", CONSULTA],
+      ["q", CONSULTA_GMAIL],
       ["maxResults", "500"],
       ...(pageToken ? ([["pageToken", pageToken]] as [string, string][]) : []),
     ]);
@@ -115,8 +84,10 @@ export async function sincronizarGmail(): Promise<number> {
     pageToken = r.nextPageToken;
   } while (pageToken && ids.length < 2000);
 
-  const nuevos = ids.filter((id) => !doc.notificaciones[id]);
+  const vistos = new Set(doc.descartados);
+  const nuevos = ids.filter((id) => !doc.notificaciones[id] && !vistos.has(id));
   const notificaciones = { ...doc.notificaciones };
+  let anadidas = 0;
   for (const id of nuevos) {
     const m = await gmailGet<Mensaje>(access_token, `/messages/${id}`, [
       ["format", "metadata"],
@@ -127,13 +98,18 @@ export async function sincronizarGmail(): Promise<number> {
     const cabecera = (n: string) => m.payload?.headers?.find((h) => h.name.toLowerCase() === n)?.value ?? "";
     const asunto = cabecera("subject") || "(sin asunto)";
     const remitente = cabecera("from");
+    // Other Amazon emails (refunds, invoices, payouts…) are only remembered so they aren't fetched again.
+    if (!esNotificacion(asunto, remitente)) {
+      vistos.add(id);
+      continue;
+    }
     const extracto = (m.snippet ?? "").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+    anadidas++;
     const n: Notificacion = {
       id,
       asunto,
       fecha: new Date(Number(m.internalDate) || Date.now()).toISOString(),
       remitente,
-      marketplaceId: mercadoDe(asunto, extracto, remitente),
       extracto,
       // What was already there before connecting doesn't count as new.
       leida: doc.actualizadoEn === null,
@@ -141,6 +117,6 @@ export async function sincronizarGmail(): Promise<number> {
     notificaciones[id] = n;
   }
   // Written only when something arrived (or on the first look, which also marks the start).
-  if (nuevos.length > 0 || doc.actualizadoEn === null) await guardarGmail({ notificaciones, actualizadoEn: new Date().toISOString() });
-  return nuevos.length;
+  if (nuevos.length > 0 || doc.actualizadoEn === null) await guardarGmail({ notificaciones, descartados: [...vistos], actualizadoEn: new Date().toISOString() });
+  return anadidas;
 }

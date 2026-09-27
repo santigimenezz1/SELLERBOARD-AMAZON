@@ -48,7 +48,7 @@ export function Notificaciones({ datos, marketplaceId, pais }: { datos: EstadoNo
     );
   }
 
-  const lista = datos.notificaciones.filter((n) => n.marketplaceId === marketplaceId || n.marketplaceId === null);
+  const lista = datos.notificaciones.filter((n) => n.mercados.includes(marketplaceId));
   const visibles = lista.slice(0, pagina * FILAS_PAGINA);
   const sinLeer = lista.filter((n) => !n.leida).length;
 
@@ -58,7 +58,7 @@ export function Notificaciones({ datos, marketplaceId, pais }: { datos: EstadoNo
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-ink-100">Notificaciones de performance</h2>
           <p className="max-w-3xl text-xs text-ink-400">
-            Las notificaciones que Amazon te ha enviado sobre tu rendimiento en {pais} (y las de toda la cuenta), leídas de {datos.email ?? "tu Gmail"}
+            Las notificaciones que Amazon te ha enviado sobre tu rendimiento en {pais} en los últimos 2 años, leídas de {datos.email ?? "tu Gmail"}
             {datos.actualizadoEn ? `; actualizado ${formatFechaHora(new Date(datos.actualizadoEn))}` : ""}.
           </p>
         </div>
@@ -113,7 +113,7 @@ export function Notificaciones({ datos, marketplaceId, pais }: { datos: EstadoNo
   );
 }
 
-function Fila({ n, onLeida }: { n: Notificacion; onLeida: () => void }) {
+function Fila({ n, onLeida }: { n: Notificacion & { mercados: string[] }; onLeida: () => void }) {
   const [abierta, setAbierta] = useState(false);
   return (
     <tr className={n.leida ? "" : "bg-accent-500/[0.04]"}>
@@ -121,7 +121,6 @@ function Fila({ n, onLeida }: { n: Notificacion; onLeida: () => void }) {
         <button onClick={() => setAbierta((v) => !v)} aria-expanded={abierta} className={`text-left underline-offset-4 hover:underline ${n.leida ? "text-accent-300/80" : "font-semibold text-accent-300"}`}>
           {!n.leida && <span aria-label="Sin leer" className="mr-2 inline-block size-2 rounded-full bg-danger align-middle" />}
           {n.asunto}
-          {n.marketplaceId === null && <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-normal text-ink-400 no-underline">Toda la cuenta</span>}
         </button>
         {abierta && (
           <div className="mt-2 text-xs leading-relaxed text-ink-300">

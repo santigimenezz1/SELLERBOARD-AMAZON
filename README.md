@@ -225,5 +225,9 @@ Selector de países (punto rojo en los que tienen algo que revisar, y aviso si e
 - **Notificaciones de performance**: Amazon no las da por API, así que se leen de Gmail (permiso de solo lectura,
   solo remitentes de Seller Central) tras «Conectar Gmail». Necesita `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` (cliente
   OAuth «Aplicación web» con las URI de redirección `<origen>/api/gmail/callback`). El token y las notificaciones van en
-  `config/gmail`; el país sale del texto («Amazon.fr») o del dominio del remitente. Las que ya estaban al conectar se
-  marcan como leídas.
+  `config/gmail`. Qué correo es una notificación y de qué país está en `lib/datos/clasificarNotificaciones.ts`,
+  ajustado contra la lista de Seller Central de amazon.es: solo los tipos que Seller Central muestra (registro fiscal,
+  riesgo de desactivación, KYC, cuenta de pagos, GPSR, revisión de cuenta, «Llamadme ahora»…), nunca reembolsos,
+  facturas, pagos ni respuestas a casos; el país es el del idioma del asunto (más la tienda que nombra, en los de
+  español; los de inglés desde el dominio de una tienda, a esa tienda). Dos años atrás, como Seller Central. Al cambiar
+  las reglas se sube `VERSION_NOTIFICACIONES` y se vuelven a leer; lo que ya estaba se marca como leído.
