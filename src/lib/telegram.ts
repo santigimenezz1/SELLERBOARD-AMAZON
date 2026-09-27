@@ -25,8 +25,8 @@ export const telegramConfigurado = () => /^\d+:[\w-]{30,}$/.test(token());
  * rest go in one last message.
  */
 const MAX_MENSAJES = 20;
-/** Gap between messages so the phone rings for each (Telegram also allows ~1 message/s per chat). */
-const PAUSA_MS = 1200;
+/** Gap between messages so the phone rings for each, 2 s apart (Telegram allows ~1 message/s per chat). */
+const PAUSA_MS = 2000;
 
 const g = globalThis as unknown as { __telegramChat?: string | null };
 
