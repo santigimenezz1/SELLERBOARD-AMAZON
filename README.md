@@ -245,6 +245,6 @@ Las completas borran el historial de `sincronizaciones` de más de 14 días. Las
 
 Con `TELEGRAM_BOT_TOKEN` (bot creado con @BotFather), cada sincronización que ve pedidos nuevos manda un mensaje al
 chat que escribió primero al bot (se guarda en `config/telegram`; `TELEGRAM_CHAT_ID` lo fija a mano): unidades,
-listing, país, importe y lo acumulado hoy. Más de 5 pedidos a la vez van en un solo resumen, y la primera
+listing (sin precios) y las unidades de hoy. Más de 5 pedidos a la vez van en un solo resumen, y la primera
 sincronización (que trae meses de historial) no avisa. `POST /api/telegram/prueba` manda un aviso de prueba con el
 último pedido. En el iPhone, el chat del bot puede tener su propio tono.
