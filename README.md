@@ -86,6 +86,11 @@ propio país) guardada por la sincronización en `config/tarifasVenta`. El preci
 con el precio y la tarifa FBA queda fija. Al lado, beneficio por unidad con el coste de su región, margen sobre el precio
 y rentabilidad sobre el coste.
 
+**Estado del listing** (en la franja de arriba): «✓ Listing óptimo» o, en rojo, los problemas que Amazon marca en ese
+país (suprimido, error, aviso), con banderas de otros países con problemas. Sale de la Listings Items API para cada SKU
+activo × país con ventas, en cada sincronización; guardado en `config/saludListings` (con tu id de vendedor, que se lee
+de tu propia oferta) y reescrito solo si algo cambia.
+
 **Devoluciones y reembolsos**: el país elegido junto a todos los mercados (30 días, 90 días o todo): reembolsos (de las
 liquidaciones), unidades devueltas y % sobre las vendidas, motivo del cliente y estado de la unidad, más las últimas
 devoluciones con su comentario. Las devoluciones vienen del informe `GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA` (uno para

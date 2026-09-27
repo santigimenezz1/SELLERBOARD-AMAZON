@@ -1,7 +1,7 @@
 import "server-only";
 
 import { gunzipSync } from "node:zlib";
-import { spGet, spPost } from "./cliente";
+import { ErrorAmazon, spGet, spPost } from "./cliente";
 
 /*
  * The SP-API operations this app uses, typed with only the fields we read.
@@ -311,4 +311,45 @@ export async function devolucionesFBA(marketplaceId: string, desde: Date): Promi
     lpn: f["license-plate-number"] ?? "",
     comentario: (f["customer-comments"] ?? "").slice(0, 300),
   }));
+}
+
+// ---------- Listings Items 2021-08-01 ----------
+
+export type ProblemaListing = {
+  severidad: "ERROR" | "WARNING" | string;
+  codigo: string;
+  mensaje: string;
+  /** Amazon is acting on it (e.g. LISTING_SUPPRESSED), not just advising. */
+  acciones: string[];
+};
+export type EstadoListing = { estado: string[]; problemas: ProblemaListing[] };
+
+/** Status (BUYABLE, DISCOVERABLE) and open issues of one SKU in one marketplace; null if it isn't listed there. */
+export async function estadoListing(sellerId: string, sku: string, marketplaceId: string): Promise<EstadoListing | null> {
+  try {
+    const r = await spGet<{
+      summaries?: { status?: string[] }[];
+      issues?: { severity: string; code: string; message: string; enforcements?: { actions?: { action: string }[] } }[];
+    }>(`/listings/2021-08-01/items/${encodeURIComponent(sellerId)}/${encodeURIComponent(sku)}`, {
+      marketplaceIds: marketplaceId,
+      includedData: ["summaries", "issues"],
+      issueLocale: "es_ES",
+    });
+    return {
+      estado: r.summaries?.[0]?.status ?? [],
+      problemas: (r.issues ?? []).map((i) => ({ severidad: i.severity, codigo: i.code, mensaje: i.message, acciones: i.enforcements?.actions?.map((a) => a.action) ?? [] })),
+    };
+  } catch (e) {
+    if (e instanceof ErrorAmazon && e.status === 404) return null;
+    throw e;
+  }
+}
+
+/** The seller's own id, read from their offer on a SKU (the Sellers API doesn't return it for this account). */
+export async function sellerIdPropio(sku: string, marketplaceId: string): Promise<string | null> {
+  const r = await spGet<{ payload?: { Offers?: { MyOffer?: boolean; SellerId?: string }[] } }>(`/products/pricing/v0/listings/${encodeURIComponent(sku)}/offers`, {
+    MarketplaceId: marketplaceId,
+    ItemCondition: "New",
+  });
+  return r.payload?.Offers?.find((o) => o.MyOffer)?.SellerId ?? null;
 }

@@ -11,6 +11,7 @@ import { contarEscrituras, contarLecturas, volcarConsumo } from "@/lib/datos/con
 import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
 import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
+import { actualizarSaludListings } from "@/lib/datos/saludListings";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -247,6 +248,14 @@ export async function sincronizar(): Promise<ResultadoSync> {
       if (mkInforme) escrituras += await actualizarDevoluciones(mkInforme);
     } catch (e) {
       errores.push(`Reports API (devoluciones): ${mensaje(e)}`);
+    }
+
+    // 9. Listing health: status and issues per SKU and country (never blocks the sales data)
+    try {
+      const conVentas = new Set([...pedidosEnAlmacen().values()].map((p) => p.marketplaceId));
+      escrituras += await actualizarSaludListings(marketplaces.filter((m) => conVentas.has(m.id)).map((m) => m.id));
+    } catch (e) {
+      errores.push(`Listings API (estado del listing): ${mensaje(e)}`);
     }
 
     const duracionMs = Date.now() - inicio;

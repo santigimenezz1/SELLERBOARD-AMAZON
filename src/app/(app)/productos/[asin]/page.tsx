@@ -12,6 +12,8 @@ import { tarifasDeSkus } from "@/lib/datos/tarifasVenta";
 import { PagoAmazon } from "@/components/productos/PagoAmazon";
 import { devolucionesDeProducto } from "@/lib/datos/devoluciones";
 import { DevolucionesProducto } from "@/components/productos/DevolucionesProducto";
+import { saludDeProducto } from "@/lib/datos/saludListings";
+import { EstadoListing } from "@/components/productos/EstadoListing";
 import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
 import { contactosDe, EMPRESA_INSPECCION } from "@/lib/datos/proveedores";
 import { ProveedoresProducto } from "@/components/productos/ProveedoresProducto";
@@ -46,7 +48,8 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   // The UK cost is compared with the amazon.co.uk price converted to euros (ECB rate); no rate → no share shown.
   const precioUK = f?.precios[MARKETPLACE_UK];
   const eurPorGBP = precioUK?.precio != null ? await eurPorUnidad(precioUK.moneda, new Date()).catch(() => null) : null;
-  const [tarifas, devoluciones] = await Promise.all([tarifasDeSkus(d.skus), devolucionesDeProducto(asin, d.skus)]);
+  const [tarifas, devoluciones, salud] = await Promise.all([tarifasDeSkus(d.skus), devolucionesDeProducto(asin, d.skus), saludDeProducto(d.skus)]);
+  const mercados = d.marketplaces.map((m) => ({ id: m.id, pais: m.pais, codigoPais: m.codigoPais }));
   const mks = new Map(d.marketplaces.map((m) => [m.id, m]));
 
   // Marketplaces with something to show for this ASIN; amazon.es first.
@@ -56,6 +59,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
   const pedido = typeof sp.mk === "string" ? sp.mk : undefined;
   const mkId = pedido && disponibles.includes(pedido) ? pedido : (disponibles[0] ?? ES);
   const mk = mks.get(mkId);
+  const mercado = mk ? { id: mk.id, pais: mk.pais, codigoPais: mk.codigoPais } : null;
   const ficha = f?.mercados[mkId];
   const precio = f?.precios[mkId];
   const titulo = ficha?.titulo ?? d.tituloRespaldo ?? asin;
@@ -110,7 +114,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
       )}
 
       {/* Seller strip: our own numbers, which a buyer doesn't see */}
-      <section className="grid gap-3 rounded-2xl border border-white/[0.06] bg-ink-900/70 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 rounded-2xl border border-white/[0.06] bg-ink-900/70 p-4 sm:grid-cols-2 lg:grid-cols-5">
         <div>
           <p className="text-xs text-ink-400">SKU{d.skus.length > 1 ? "s" : ""}</p>
           <p className="mt-0.5 font-mono text-sm text-ink-100">{d.skus.join(", ") || "—"}</p>
@@ -148,6 +152,7 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
           )}
           {precio?.ofertas != null && <p className="text-xs text-ink-400">{precio.ofertas === 1 ? "1 oferta (solo la tuya)" : `${precio.ofertas} ofertas`}</p>}
         </div>
+        <EstadoListing key={mkId} salud={salud} mercado={mercado} mercados={mercados} />
       </section>
 
       {/* Buyer's view: as the product page looks on Amazon */}
@@ -241,8 +246,8 @@ export default async function ProductoPage({ params, searchParams }: PageProps<"
 
       <DevolucionesProducto
         datos={devoluciones}
-        mercado={mk ? { id: mk.id, pais: mk.pais, codigoPais: mk.codigoPais } : null}
-        mercados={d.marketplaces.map((m) => ({ id: m.id, pais: m.pais, codigoPais: m.codigoPais }))}
+        mercado={mercado}
+        mercados={mercados}
       />
 
       {/* One contact card per supplier of the cost breakdown (keyed so a rename/refresh starts fresh). */}
