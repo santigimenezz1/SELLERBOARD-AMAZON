@@ -106,6 +106,12 @@ vendible por región, vendible total, reservado (pedidos, traslados entre almace
 vendible (incluye lo que está en investigación). Se actualiza en cada sincronización o con **Actualizar stock**; se guarda en
 un único documento (`config/stock`), solo si cambió, y se lee de memoria.
 
+**Inventario en cada país** (sección Stock): unidades de cada listing en los almacenes de cada país (informe
+`GET_AFN_INVENTORY_DATA_BY_COUNTRY`, incluye reservadas), con un 0 naranja donde el listing vende sin stock propio
+(ventas con tarifa FBA entre países). En `config/inventarioPaises`; la sincronización lo pide como mucho cada 3 h y
+«Actualizar stock» como mucho cada 30 min. Si Amazon rechaza un informe por pedirlo muy seguido, se usa el último
+que ya generó ese día.
+
 **Envíos a Amazon** (sección Stock): los envíos FBA15… de los últimos 12 meses (UE y Reino Unido), en curso arriba y los
 cerrados/cancelados plegados, con ruta (origen → centro), estado y unidades enviadas frente a recibidas; en rojo lo que
 falta en envíos cerrados. Fulfillment Inbound API v0 en cada sincronización y con «Actualizar stock»; en

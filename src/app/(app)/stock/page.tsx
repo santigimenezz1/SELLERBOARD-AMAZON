@@ -5,10 +5,12 @@ import { isAmazonConfigured } from "@/lib/amazon/cliente";
 import { VistaStock } from "@/components/stock/VistaStock";
 import { obtenerEnvios } from "@/lib/datos/envios";
 import { EnviosFBA } from "@/components/stock/EnviosFBA";
+import { obtenerInventarioPaises, paisesConVentas as paisesVendidos } from "@/lib/datos/inventarioPaises";
+import { InventarioPaises } from "@/components/stock/InventarioPaises";
 
 /** FBA stock per region and inbound shipments. Everything comes from memory after the first load. */
 export default async function StockPage() {
-  const [stock, ultima, envios] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios()]);
+  const [stock, ultima, envios, inventario] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises()]);
   const { imagenes, lineas } = await datosVentas(ultima?.id ?? null);
 
   // Titles from the orders when Amazon's inventory report has none (skipping its "-" placeholders).
@@ -17,6 +19,8 @@ export default async function StockPage() {
   const asinDe: Record<string, string> = {};
   for (const a of stock?.articulos ?? []) if (a.asin) asinDe[a.sku] = a.asin;
   for (const l of lineas) if (l.asin) asinDe[l.sku] ??= l.asin;
+
+  const paisesConVentas = paisesVendidos(lineas);
   for (const l of lineas) if (!titulos[l.sku] && l.titulo && l.titulo.trim().length > 1) titulos[l.sku] = l.titulo;
 
   return (
@@ -30,6 +34,7 @@ export default async function StockPage() {
       ) : (
         <>
           <VistaStock stock={stock} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
+          <InventarioPaises filas={inventario.filas} actualizadoEn={inventario.actualizadoEn} paisesConVentas={paisesConVentas} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
           <EnviosFBA envios={envios.envios} actualizadoEn={envios.actualizadoEn} asinDe={asinDe} />
         </>
       )}

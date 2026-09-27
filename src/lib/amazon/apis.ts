@@ -250,28 +250,55 @@ export async function preciosCompetitivos(asins: string[], marketplaceId: string
 
 // ---------- Reports 2021-06-30 ----------
 
+async function descargarInforme(reportType: string, reportDocumentId: string): Promise<Record<string, string>[]> {
+  const doc = await spGet<{ url: string; compressionAlgorithm?: string }>(`/reports/2021-06-30/documents/${reportDocumentId}`);
+  const res = await fetch(doc.url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`${reportType}: descarga HTTP ${res.status}`);
+  let buf = Buffer.from(await res.arrayBuffer());
+  if (doc.compressionAlgorithm === "GZIP") buf = gunzipSync(buf);
+  const [cabecera, ...filas] = buf.toString("utf8").split(/\r?\n/).filter(Boolean).map((l) => l.split("\t"));
+  return filas.map((f) => Object.fromEntries((cabecera ?? []).map((c, i) => [c, f[i] ?? ""])));
+}
+
+/** Document id of the newest finished report of this type from the last 24 h, if any. */
+async function ultimoInformeHecho(reportType: string): Promise<string | null> {
+  const r = await spGet<{ reports?: { reportDocumentId?: string; createdTime: string }[] }>("/reports/2021-06-30/reports", {
+    reportTypes: reportType,
+    processingStatuses: "DONE",
+    createdSince: new Date(Date.now() - 24 * 3600_000).toISOString(),
+    pageSize: 10,
+  });
+  const hechos = (r.reports ?? []).filter((x) => x.reportDocumentId).sort((a, b) => b.createdTime.localeCompare(a.createdTime));
+  return hechos[0]?.reportDocumentId ?? null;
+}
+
 /**
  * Requests a report, waits until Amazon has built it (usually ~20 s) and returns it as rows of
  * column → value (tab-separated flat file). Throws if it isn't ready within `esperaMaximaMs`.
  */
-async function informePlano(reportType: string, marketplaceIds: string[], desde: Date, esperaMaximaMs = 120_000): Promise<Record<string, string>[]> {
-  const { reportId } = await spPost<{ reportId: string }>("/reports/2021-06-30/reports", { reportType, marketplaceIds, dataStartTime: desde.toISOString() });
+async function informePlano(reportType: string, marketplaceIds: string[], desde: Date | null, esperaMaximaMs = 120_000): Promise<Record<string, string>[]> {
+  let reportId: string;
+  try {
+    ({ reportId } = await spPost<{ reportId: string }>("/reports/2021-06-30/reports", { reportType, marketplaceIds, ...(desde ? { dataStartTime: desde.toISOString() } : {}) }));
+  } catch (e) {
+    // Too many report requests lately: fall back to the latest one Amazon already built.
+    const previo = e instanceof ErrorAmazon && e.status === 429 ? await ultimoInformeHecho(reportType) : null;
+    if (previo) return descargarInforme(reportType, previo);
+    throw e;
+  }
   const limite = Date.now() + esperaMaximaMs;
   for (;;) {
     await new Promise((r) => setTimeout(r, 5000));
     const r = await spGet<{ processingStatus: string; reportDocumentId?: string }>(`/reports/2021-06-30/reports/${reportId}`);
-    if (r.processingStatus === "DONE" && r.reportDocumentId) {
-      const doc = await spGet<{ url: string; compressionAlgorithm?: string }>(`/reports/2021-06-30/documents/${r.reportDocumentId}`);
-      const res = await fetch(doc.url, { cache: "no-store" });
-      if (!res.ok) throw new Error(`${reportType}: descarga HTTP ${res.status}`);
-      let buf = Buffer.from(await res.arrayBuffer());
-      if (doc.compressionAlgorithm === "GZIP") buf = gunzipSync(buf);
-      const [cabecera, ...filas] = buf.toString("utf8").split(/\r?\n/).filter(Boolean).map((l) => l.split("\t"));
-      return filas.map((f) => Object.fromEntries((cabecera ?? []).map((c, i) => [c, f[i] ?? ""])));
-    }
+    if (r.processingStatus === "DONE" && r.reportDocumentId) return descargarInforme(reportType, r.reportDocumentId);
     // No data in the period comes back as DONE_NO_DATA (or CANCELLED for some report types).
     if (r.processingStatus === "DONE_NO_DATA" || r.processingStatus === "CANCELLED") return [];
-    if (r.processingStatus === "FATAL") throw new Error(`${reportType}: Amazon no pudo generar el informe`);
+    if (r.processingStatus === "FATAL") {
+      // Amazon refuses a report asked again too soon: the latest one it already built is still good.
+      const previo = await ultimoInformeHecho(reportType);
+      if (previo) return descargarInforme(reportType, previo);
+      throw new Error(`${reportType}: Amazon no pudo generar el informe`);
+    }
     if (Date.now() > limite) throw new Error(`${reportType}: el informe tarda demasiado, se reintentará en la próxima sincronización`);
   }
 }
@@ -396,4 +423,17 @@ export async function articulosEnvioFBA(marketplaceId: string, shipmentId: strin
     { MarketplaceId: marketplaceId },
   );
   return (r.payload?.ItemData ?? []).map((i) => ({ sku: i.SellerSKU, enviado: i.QuantityShipped ?? 0, recibido: i.QuantityReceived ?? 0 }));
+}
+
+export type InventarioPais = { sku: string; asin: string; pais: string; unidades: number };
+
+/**
+ * Sellable units per SKU in each country's warehouses right now (a snapshot: no date range). For
+ * Pan-European FBA it shows where the EU pool physically is; the UK appears as "GB".
+ */
+export async function inventarioPorPais(marketplaceId: string): Promise<InventarioPais[]> {
+  const filas = await informePlano("GET_AFN_INVENTORY_DATA_BY_COUNTRY", [marketplaceId], null);
+  return filas
+    .filter((f) => (f["condition-type"] ?? "NewItem") === "NewItem")
+    .map((f) => ({ sku: f["seller-sku"] ?? "", asin: f["asin"] ?? "", pais: (f["country"] ?? "").toUpperCase(), unidades: Number(f["quantity-for-local-fulfillment"]) || 0 }));
 }

@@ -13,6 +13,7 @@ import { actualizarFichas } from "@/lib/datos/fichas";
 import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
 import { actualizarSaludListings } from "@/lib/datos/saludListings";
 import { actualizarEnvios } from "@/lib/datos/envios";
+import { actualizarInventarioPaises } from "@/lib/datos/inventarioPaises";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -251,6 +252,13 @@ export async function sincronizar(): Promise<ResultadoSync> {
       if (mkCuenta) escrituras += await actualizarDevoluciones(mkCuenta);
     } catch (e) {
       errores.push(`Reports API (devoluciones): ${mensaje(e)}`);
+    }
+
+    // 8a. Stock per country (report, at most every few hours; never blocks the sales data)
+    try {
+      if (mkCuenta) escrituras += await actualizarInventarioPaises(mkCuenta);
+    } catch (e) {
+      errores.push(`Reports API (inventario por país): ${mensaje(e)}`);
     }
 
     // 8b. Inbound shipments to Amazon (never blocks the sales data)

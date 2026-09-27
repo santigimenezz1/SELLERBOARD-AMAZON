@@ -35,9 +35,10 @@ export function VistaStock({ stock, imagenes, titulos }: Props) {
     setEstado({ tipo: "cargando" });
     try {
       const res = await fetch("/api/stock", { method: "POST" });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as { error?: string; avisos?: string[] };
       if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
-      setEstado({ tipo: "idle" });
+      // Stock updated; a part that failed (shipments, per-country report) is still worth showing.
+      setEstado(body.avisos?.length ? { tipo: "error", msg: `Stock actualizado, pero falló: ${body.avisos.join(" · ")}` } : { tipo: "idle" });
       router.refresh();
     } catch (e) {
       setEstado({ tipo: "error", msg: e instanceof Error ? e.message : "Error" });
