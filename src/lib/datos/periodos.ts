@@ -4,7 +4,7 @@ import { inicioDia, sumarDias } from "./fechas";
  * The period tiles of the dashboard (Sellerboard-style). The fixed ones are
  * always shown; an extra one appears when a custom period is chosen.
  */
-export type PeriodoId = "hoy" | "ayer" | "anteayer" | "semana" | "mes" | "pronostico" | "mespasado" | "7d" | "30d" | "rango";
+export type PeriodoId = "hoy" | "ayer" | "semana" | "mes" | "pronostico" | "mespasado" | "7d" | "30d" | "rango";
 
 export type Periodo = {
   id: PeriodoId;
@@ -31,14 +31,11 @@ export function lunesDe(dia: string): string {
 
 export function periodosFijos(hoy: string): Periodo[] {
   const ayer = sumarDias(hoy, -1);
-  const anteayer = sumarDias(hoy, -2);
   const finMesPasado = sumarDias(primeroDeMes(hoy), -1);
   return [
     { id: "hoy", nombre: "Hoy", desde: hoy, hasta: hoy },
     { id: "ayer", nombre: "Ayer", desde: ayer, hasta: ayer },
-    // The week sits right next to "Ayer", as the user asked; the day before yesterday comes after it.
     { id: "semana", nombre: "Esta semana", desde: lunesDe(hoy), hasta: hoy },
-    { id: "anteayer", nombre: "Anteayer", desde: anteayer, hasta: anteayer },
     { id: "mes", nombre: "Este mes", desde: primeroDeMes(hoy), hasta: hoy },
     { id: "pronostico", nombre: "Este mes (pronóstico)", desde: primeroDeMes(hoy), hasta: ultimoDeMes(hoy), esPronostico: true },
     { id: "mespasado", nombre: "El mes pasado", desde: primeroDeMes(finMesPasado), hasta: finMesPasado },
