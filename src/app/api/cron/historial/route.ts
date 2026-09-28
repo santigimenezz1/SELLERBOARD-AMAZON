@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { importarHistorialPedidos } from "@/lib/amazon/sincronizar";
+import { importarHistorialFinanzas, importarHistorialPedidos } from "@/lib/amazon/sincronizar";
 
 function autorizado(req: NextRequest): boolean {
   const secreto = process.env.CRON_SECRET ?? "";
@@ -16,6 +16,7 @@ const g = globalThis as unknown as { __importacionHistorial?: Estado };
  * One-off import of older orders by purchase date, in the background (Amazon throttles the order list, so it
  * can take many minutes). POST `?meses=6[&hasta=ISO date]` starts it; GET tells how it's going. Same secret as
  * the scheduled sync; already stored orders are just refreshed, so running it twice is harmless.
+ * With `&finanzas=1` it imports the settlement events (real fees, refunds) of that period instead.
  */
 export async function POST(req: NextRequest) {
   if (!autorizado(req)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -27,7 +28,8 @@ export async function POST(req: NextRequest) {
   desde.setMonth(desde.getMonth() - meses);
   const estado: Estado = { en: "curso", inicio: new Date().toISOString(), desde: desde.toISOString(), hasta: hasta.toISOString() };
   g.__importacionHistorial = estado;
-  importarHistorialPedidos(desde, hasta)
+  const importar = req.nextUrl.searchParams.get("finanzas") === "1" ? importarHistorialFinanzas : importarHistorialPedidos;
+  importar(desde, hasta)
     .then((r) => Object.assign(estado, { en: "hecho", resultado: { ...r, errores: r.errores.slice(0, 10) } }))
     .catch((e) => {
       console.error("[api/cron/historial]", e);

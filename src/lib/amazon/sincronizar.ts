@@ -18,6 +18,8 @@ import { actualizarEnvios } from "@/lib/datos/envios";
 import { actualizarInventarioPaises } from "@/lib/datos/inventarioPaises";
 import { actualizarEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { sincronizarGmail } from "@/lib/gmail";
+import { actualizarGastos } from "@/lib/datos/gastos";
+import { actualizarIngresos, guardarCompensaciones } from "@/lib/datos/ingresos";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -222,6 +224,13 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         transaccionesN = resumidas.length;
         cursorFinanzas = hasta;
 
+        // Amazon's compensations (lost/damaged units, refunds never returned…) for the income side.
+        try {
+          if (await guardarCompensaciones(eventos.AdjustmentEventList)) escrituras++;
+        } catch (e) {
+          errores.push(`Compensaciones de Amazon: ${mensaje(e)}`);
+        }
+
         // Real per-unit fees of the latest clean sale per SKU and country (product page payout box).
         try {
           const muestras = muestrasTarifas(eventos, marketplacePorNombre);
@@ -334,6 +343,20 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         errores.push(`Estado de la cuenta: ${mensaje(e)}`);
       }
 
+      // 10b. Account charges from new settlement reports (a couple every two weeks; never blocks the sales data)
+      try {
+        await actualizarGastos(3);
+      } catch (e) {
+        errores.push(`Gastos (liquidaciones): ${mensaje(e)}`);
+      }
+
+      // 10c. Payouts to the bank (one light call; the doc is only rewritten when a payout changed)
+      try {
+        await actualizarIngresos();
+      } catch (e) {
+        errores.push(`Ingresos (pagos de Amazon): ${mensaje(e)}`);
+      }
+
       // 11. Performance notifications from Gmail, when connected (never blocks the sales data)
       try {
         await sincronizarGmail();
@@ -431,6 +454,42 @@ export async function importarHistorialPedidos(desde: Date, hasta: Date): Promis
     }
     await volcarConsumo().catch(() => {});
     return { pedidos, nuevos, escrituras, errores };
+  } finally {
+    await liberar();
+  }
+}
+
+/**
+ * One-off import of older settlement events (real fees, refunds, VAT), month by month, then the orders they
+ * touch are recomputed. Stored events are just overwritten, so running it twice is harmless. Takes the sync lock.
+ */
+export async function importarHistorialFinanzas(desde: Date, hasta: Date): Promise<{ transacciones: number; pedidos: number; escrituras: number; errores: string[] }> {
+  const db = adminDb();
+  const liberar = await tomarBloqueo(db);
+  try {
+    const ultima = (await db.collection("sincronizaciones").orderBy("fecha", "desc").limit(1).get()).docs[0];
+    contarLecturas(1);
+    await asegurarAlmacen(ultima?.id ?? null);
+    let transacciones = 0;
+    let escrituras = 0;
+    const tocados = new Set<string>();
+    for (let a = new Date(desde); a < hasta; ) {
+      const b = new Date(Math.min(hasta.getTime(), a.getTime() + 31 * 24 * 3600_000));
+      const esc = new Escritor();
+      for (const t of resumirEventos(await eventosFinancieros(a, b), marketplacePorNombre)) {
+        esc.set("transaccionesAmazon", t.transactionId, { ...t, sincronizadoEn: new Date() });
+        // Every order with events is recomputed, not only changed ones: orders imported after their events
+        // were stored never got their fees (only lines whose figures change are written).
+        tocados.add(t.orderId);
+        transacciones++;
+      }
+      escrituras += esc.cantidad;
+      await esc.confirmar();
+      a = b;
+    }
+    const r = await recalcularPedidos([...tocados]);
+    await volcarConsumo().catch(() => {});
+    return { transacciones, pedidos: tocados.size, escrituras: escrituras + r.escrituras, errores: r.errores };
   } finally {
     await liberar();
   }

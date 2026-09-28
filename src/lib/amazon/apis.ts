@@ -116,11 +116,15 @@ export type EventosFinancieros = {
   GuaranteeClaimEventList: EventoPedido[];
   ChargebackEventList: EventoPedido[];
   ServiceFeeEventList: EventoServicio[];
+  /** Sponsored-ads charges deducted from the account balance. */
+  ProductAdsPaymentEventList: { postedDate?: string; transactionType?: string; transactionValue?: Importe }[];
+  /** Account adjustments: reimbursements for lost/damaged units, clawbacks, reserves… */
+  AdjustmentEventList: { AdjustmentType?: string; PostedDate?: string; AdjustmentAmount?: Importe }[];
 };
 
 /** Order-linked financial events posted in [desde, hasta). Empty if the window exceeds 180 days. */
 export async function eventosFinancieros(desde: Date, hasta: Date): Promise<EventosFinancieros> {
-  const res: EventosFinancieros = { ShipmentEventList: [], RefundEventList: [], GuaranteeClaimEventList: [], ChargebackEventList: [], ServiceFeeEventList: [] };
+  const res: EventosFinancieros = { ShipmentEventList: [], RefundEventList: [], GuaranteeClaimEventList: [], ChargebackEventList: [], ServiceFeeEventList: [], ProductAdsPaymentEventList: [], AdjustmentEventList: [] };
   let NextToken: string | undefined;
   do {
     const r = await spGet<{ payload?: { FinancialEvents?: Partial<EventosFinancieros>; NextToken?: string } }>("/finances/v0/financialEvents", {
@@ -131,6 +135,31 @@ export async function eventosFinancieros(desde: Date, hasta: Date): Promise<Even
     });
     const ev = r.payload?.FinancialEvents ?? {};
     for (const k of Object.keys(res) as (keyof EventosFinancieros)[]) res[k].push(...(ev[k] ?? []));
+    NextToken = r.payload?.NextToken || undefined;
+  } while (NextToken);
+  return res;
+}
+
+export type GrupoFinanciero = {
+  FinancialEventGroupId?: string;
+  FinancialEventGroupStart?: string;
+  FundTransferStatus?: string;
+  FundTransferDate?: string;
+  OriginalTotal?: Importe;
+  ConvertedTotal?: Importe;
+};
+
+/** Settlement periods started after `desde`, each with the payout it ended in (amount, status, transfer date). */
+export async function gruposFinancieros(desde: Date): Promise<GrupoFinanciero[]> {
+  const res: GrupoFinanciero[] = [];
+  let NextToken: string | undefined;
+  do {
+    const r = await spGet<{ payload?: { FinancialEventGroupList?: GrupoFinanciero[]; NextToken?: string } }>("/finances/v0/financialEventGroups", {
+      FinancialEventGroupStartedAfter: desde.toISOString(),
+      MaxResultsPerPage: 100,
+      NextToken,
+    });
+    res.push(...(r.payload?.FinancialEventGroupList ?? []));
     NextToken = r.payload?.NextToken || undefined;
   } while (NextToken);
   return res;
@@ -481,4 +510,30 @@ export type RendimientoVendedor = {
 export async function rendimientoVendedor(marketplaceId: string): Promise<RendimientoVendedor | null> {
   const texto = await informe("GET_V2_SELLER_PERFORMANCE_REPORT", [marketplaceId], null);
   return texto ? (JSON.parse(texto) as RendimientoVendedor) : null;
+}
+
+// ---------- Settlement reports (payouts) ----------
+
+export type Liquidacion = { reportId: string; reportDocumentId: string; desde: string; hasta: string };
+
+/** Settlement reports Amazon has published in the last 90 days (it keeps them no longer), newest first. */
+export async function liquidacionesDisponibles(): Promise<Liquidacion[]> {
+  const res: Liquidacion[] = [];
+  let nextToken: string | undefined;
+  do {
+    const r = await spGet<{ reports?: { reportId: string; reportDocumentId?: string; dataStartTime?: string; dataEndTime?: string }[]; nextToken?: string }>(
+      "/reports/2021-06-30/reports",
+      nextToken
+        ? { nextToken }
+        : { reportTypes: "GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2", createdSince: new Date(Date.now() - 89 * 86_400_000).toISOString(), pageSize: 100 },
+    );
+    for (const x of r.reports ?? []) if (x.reportDocumentId) res.push({ reportId: x.reportId, reportDocumentId: x.reportDocumentId, desde: x.dataStartTime ?? "", hasta: x.dataEndTime ?? "" });
+    nextToken = r.nextToken || undefined;
+  } while (nextToken);
+  return res.sort((a, b) => b.hasta.localeCompare(a.hasta));
+}
+
+/** Rows of one settlement report (column → value, as Amazon writes them: dates dd.mm.yyyy, EUR amounts with a decimal comma). */
+export async function filasLiquidacion(reportDocumentId: string): Promise<Record<string, string>[]> {
+  return filasPlanas(await descargarInforme("GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2", reportDocumentId));
 }

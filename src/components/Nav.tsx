@@ -8,6 +8,7 @@ const ENLACES = [
   { href: "/productos", texto: "Productos" },
   { href: "/stock", texto: "Stock" },
   { href: "/tendencias", texto: "Tendencias" },
+  { href: "/gastos", texto: "Gastos" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
 
