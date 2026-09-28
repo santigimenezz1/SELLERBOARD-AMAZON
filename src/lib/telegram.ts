@@ -28,7 +28,7 @@ const MAX_MENSAJES = 20;
 /** Gap between messages so the phone rings for each, 2 s apart (Telegram allows ~1 message/s per chat). */
 const PAUSA_MS = 2000;
 
-const g = globalThis as unknown as { __telegramChat?: string | null };
+const g = globalThis as unknown as { __telegramChat?: string | null; __telegramAlertas?: string | null };
 
 async function api<T>(metodo: string, cuerpo?: object): Promise<T> {
   const res = await fetch(`https://api.telegram.org/bot${token()}/${metodo}`, {
@@ -59,11 +59,48 @@ async function chatId(): Promise<string | null> {
   return g.__telegramChat;
 }
 
-export async function enviarTelegram(texto: string): Promise<boolean> {
+type Chat = { id: number; type: string; title?: string };
+type Actualizacion = { message?: { chat?: Chat; migrate_to_chat_id?: number }; my_chat_member?: { chat?: Chat } };
+
+/**
+ * The group for account alerts (its own chat, so the phone can give it its own sound): env, then Firestore,
+ * then the latest group the bot was added to or written in. null = no group yet (alerts go to the sales chat).
+ */
+async function chatAlertas(): Promise<string | null> {
+  if (process.env.TELEGRAM_CHAT_ALERTAS) return process.env.TELEGRAM_CHAT_ALERTAS;
+  if (g.__telegramAlertas) return g.__telegramAlertas;
+  const ref = adminDb().collection("config").doc("telegram");
+  const guardado = (await ref.get()).get("chatAlertas") as string | undefined;
+  contarLecturas(1);
+  if (guardado) return (g.__telegramAlertas = guardado);
+  const updates = await api<Actualizacion[]>("getUpdates");
+  const grupo = updates
+    .flatMap((u) => [u.message?.migrate_to_chat_id ? { id: u.message.migrate_to_chat_id, type: "supergroup" } : null, u.message?.chat, u.my_chat_member?.chat])
+    .filter((c): c is Chat => !!c && (c.type === "group" || c.type === "supergroup"))
+    .at(-1);
+  if (!grupo) return null;
+  g.__telegramAlertas = String(grupo.id);
+  await ref.set({ chatAlertas: g.__telegramAlertas, alertasConectadoEn: new Date().toISOString() }, { merge: true });
+  contarEscrituras(1);
+  return g.__telegramAlertas;
+}
+
+/** `destino` "alertas": the account-alerts group when there is one, otherwise the sales chat. */
+export async function enviarTelegram(texto: string, destino: "ventas" | "alertas" = "ventas"): Promise<boolean> {
   if (!telegramConfigurado()) return false;
-  const chat = await chatId();
+  const chat = (destino === "alertas" ? await chatAlertas() : null) ?? (await chatId());
   if (!chat) throw new Error("el bot aún no tiene tu chat: escríbele «hola» en Telegram");
-  await api("sendMessage", { chat_id: chat, text: texto, parse_mode: "HTML", disable_web_page_preview: true });
+  try {
+    await api("sendMessage", { chat_id: chat, text: texto, parse_mode: "HTML", disable_web_page_preview: true });
+  } catch (e) {
+    // A group that became a supergroup gets a new id: Telegram says which one; keep it and retry.
+    const nuevo = e instanceof Error ? e.message.match(/migrated to a supergroup with id (-?\d+)/i)?.[1] : null;
+    if (!nuevo || destino !== "alertas") throw e;
+    g.__telegramAlertas = nuevo;
+    await adminDb().collection("config").doc("telegram").set({ chatAlertas: nuevo }, { merge: true });
+    contarEscrituras(1);
+    await api("sendMessage", { chat_id: nuevo, text: texto, parse_mode: "HTML", disable_web_page_preview: true });
+  }
   return true;
 }
 
@@ -102,6 +139,28 @@ function ventasDeHoy(): Map<string, { numero: number; acumuladas: number }> {
       res.set(id, { numero: i + 1, acumuladas });
     });
   return res;
+}
+
+export type CambioPuntuacion = { marketplaceId: string; antes: number | null; ahora: number };
+
+/**
+ * Account health crossing the «Adecuado» line (200 points) in a marketplace: a red notice when it drops below,
+ * a green one when it's back. One message per change, sent only when it happens, to the alerts group.
+ */
+export async function avisarEstadoCuenta(cambios: CambioPuntuacion[]): Promise<void> {
+  if (!telegramConfigurado()) return;
+  for (const [i, c] of cambios.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS));
+    const mk = marketplaceConocido(c.marketplaceId);
+    const pais = mk ? `${bandera(mk.codigoPais)} ${escapar(mk.pais)}` : escapar(c.marketplaceId);
+    const antes = c.antes !== null ? ` (antes ${formatNumero(c.antes)})` : "";
+    await enviarTelegram(
+      c.ahora < 200
+        ? `🔴 <b>¡Estado de la cuenta en riesgo!</b>\n${pais} ha bajado a <b>${formatNumero(c.ahora)} puntos</b>${antes}\nRevisa «Estado de la cuenta» en la app o en Seller Central.`
+        : `🟢 <b>Estado de la cuenta recuperado</b>\n${pais} ha vuelto a <b>${formatNumero(c.ahora)} puntos</b>${antes}`,
+      "alertas",
+    );
+  }
 }
 
 /**

@@ -20,6 +20,7 @@ import { actualizarEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { sincronizarGmail } from "@/lib/gmail";
 import { actualizarGastos } from "@/lib/datos/gastos";
 import { actualizarIngresos, guardarCompensaciones } from "@/lib/datos/ingresos";
+import { actualizarSaldos } from "@/lib/datos/saldos";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -355,6 +356,14 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         await actualizarIngresos();
       } catch (e) {
         errores.push(`Ingresos (pagos de Amazon): ${mensaje(e)}`);
+      }
+
+      // 10d. «Saldo total» per marketplace, as Seller Central shows it (open period + money held back)
+      try {
+        const hace60 = Date.now() - 60 * 24 * 3600_000;
+        await actualizarSaldos([...new Set([...pedidosEnAlmacen().values()].filter((p) => p.fecha.getTime() > hace60).map((p) => p.marketplaceId))]);
+      } catch (e) {
+        errores.push(`Saldo de Amazon: ${mensaje(e)}`);
       }
 
       // 11. Performance notifications from Gmail, when connected (never blocks the sales data)

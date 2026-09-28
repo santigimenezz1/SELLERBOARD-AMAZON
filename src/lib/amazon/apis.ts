@@ -143,6 +143,8 @@ export async function eventosFinancieros(desde: Date, hasta: Date): Promise<Even
 export type GrupoFinanciero = {
   FinancialEventGroupId?: string;
   FinancialEventGroupStart?: string;
+  /** "Open" while the settlement period is running, "Closed" once paid out. */
+  ProcessingStatus?: string;
   FundTransferStatus?: string;
   FundTransferDate?: string;
   OriginalTotal?: Importe;
@@ -163,6 +165,42 @@ export async function gruposFinancieros(desde: Date): Promise<GrupoFinanciero[]>
     NextToken = r.payload?.NextToken || undefined;
   } while (NextToken);
   return res;
+}
+
+/** Marketplace names ("Amazon.es"…) of the first page of events of a settlement period. */
+export async function mercadosDeGrupo(grupoId: string): Promise<string[]> {
+  const r = await spGet<{ payload?: { FinancialEvents?: Record<string, { MarketplaceName?: string }[] | undefined> } }>(
+    `/finances/v0/financialEventGroups/${encodeURIComponent(grupoId)}/financialEvents`,
+    { MaxResultsPerPage: 100 },
+  );
+  return Object.values(r.payload?.FinancialEvents ?? {})
+    .flatMap((v) => (Array.isArray(v) ? v : []))
+    .map((e) => e.MarketplaceName ?? "")
+    .filter(Boolean);
+}
+
+/**
+ * Money of a marketplace Amazon is still holding (sales not released yet: it waits some days after delivery),
+ * in its currency. Finances 2024-06-19, DEFERRED transactions.
+ */
+export async function importeRetenido(marketplaceId: string, desde: Date): Promise<{ importe: number; moneda: string | null }> {
+  let importe = 0;
+  let moneda: string | null = null;
+  let nextToken: string | undefined;
+  do {
+    const r = await spGet<{ payload?: { transactions?: { totalAmount?: { currencyAmount?: number; currencyCode?: string } }[]; nextToken?: string } }>("/finances/2024-06-19/transactions", {
+      postedAfter: desde.toISOString(),
+      marketplaceId,
+      transactionStatus: "DEFERRED",
+      nextToken,
+    });
+    for (const t of r.payload?.transactions ?? []) {
+      importe += Number(t.totalAmount?.currencyAmount) || 0;
+      moneda ??= t.totalAmount?.currencyCode ?? null;
+    }
+    nextToken = r.payload?.nextToken || undefined;
+  } while (nextToken);
+  return { importe, moneda };
 }
 
 // ---------- Catalog Items 2022-04-01 ----------

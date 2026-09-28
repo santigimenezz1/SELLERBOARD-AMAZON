@@ -2,7 +2,8 @@ import { cargarMarketplaces, cargarUltimaSync, syncEnCurso } from "@/lib/datos/p
 import { datosVentas } from "@/lib/datos/almacen";
 import { consumoDeHoy } from "@/lib/datos/consumo";
 import { construirPanel, resolverPanel } from "@/lib/datos/tablero";
-import { formatFechaHora } from "@/lib/format";
+import { formatFechaHora, formatMoneda } from "@/lib/format";
+import { saldoTotal } from "@/lib/datos/saldos";
 import { isAmazonConfigured } from "@/lib/amazon/cliente";
 import { BotonSync } from "@/components/panel/BotonSync";
 import { VistaPanel } from "@/components/panel/VistaPanel";
@@ -28,6 +29,8 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
   const consumo = await consumoDeHoy();
   const { tarjetas, productos, serie } = construirPanel(lineas, reembolsos, panel);
   const conVentas = new Set(lineas.map((l) => l.marketplaceId));
+  // Seller Central's «Saldo total»: the selected marketplace's, or all of them in euros.
+  const saldo = await saldoTotal(panel.estado.pais);
 
   return (
     <VistaPanel
@@ -41,7 +44,20 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
       productos={productos.map((p) => ({ ...p, imagen: imagenes.get(p.asin) ?? null }))}
       // The filter only lists markets with sales: Amazon enrols the account in many more.
       marketplaces={marketplaces.filter((m) => conVentas.has(m.id))}
-      acciones={<BotonSync ultima={ultimaSync ? formatFechaHora(ultimaSync.fecha) : null} enCurso={enCurso} />}
+      acciones={
+        <BotonSync
+          ultima={ultimaSync ? formatFechaHora(ultimaSync.fecha) : null}
+          enCurso={enCurso}
+          saldo={
+            saldo && (
+              <span className="flex items-baseline gap-2 border-l border-white/[0.08] pl-3">
+                <span className="text-xs text-ink-400">Saldo total</span>
+                <span className={`tabular text-xl font-semibold ${saldo.importe < 0 ? "text-danger" : "text-success"}`}>{formatMoneda(saldo.importe, saldo.moneda)}</span>
+              </span>
+            )
+          }
+        />
+      }
       avisos={
         <>
           {!isAmazonConfigured && (

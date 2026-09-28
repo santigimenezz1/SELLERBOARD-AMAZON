@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
 
@@ -9,7 +9,7 @@ type Resultado = { pedidosNuevos: number; pedidosActualizados: number; transacci
 type Estado = { tipo: "idle" } | { tipo: "cargando" } | { tipo: "ok"; r: Resultado } | { tipo: "error"; msg: string };
 
 /** `enCurso`: the server says a sync is already running (started here earlier, or in another tab). */
-export function BotonSync({ ultima, enCurso }: { ultima: string | null; enCurso: boolean }) {
+export function BotonSync({ ultima, enCurso, saldo }: { ultima: string | null; enCurso: boolean; saldo?: ReactNode }) {
   const router = useRouter();
   const [estado, setEstado] = useState<Estado>({ tipo: "idle" });
 
@@ -48,6 +48,7 @@ export function BotonSync({ ultima, enCurso }: { ultima: string | null; enCurso:
           {cargando ? "Sincronizando…" : "Sincronizar ahora"}
         </button>
         {ultima && !cargando && <span className="text-xs text-ink-400">Última sincronización: {ultima}</span>}
+        {saldo}
       </div>
       <div aria-live="polite" className="max-w-md text-sm">
         {cargando && (

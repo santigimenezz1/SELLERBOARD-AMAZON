@@ -7,8 +7,10 @@ const ENLACES = [
   { href: "/", texto: "Panel" },
   { href: "/productos", texto: "Productos" },
   { href: "/stock", texto: "Stock" },
-  { href: "/tendencias", texto: "Tendencias" },
   { href: "/gastos", texto: "Gastos" },
+  { href: "/tendencias", texto: "Tendencias" },
+  { href: "/palabras-clave", texto: "Palabras clave" },
+  { href: "/documentos", texto: "Documentos" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
 
@@ -26,7 +28,7 @@ export function Nav({ estadoCuenta }: { estadoCuenta: "ok" | "mal" | null }) {
             href={e.href}
             aria-current={activo ? "page" : undefined}
             title={color ? (estadoCuenta === "ok" ? "Todos los países en «Adecuado» (200 puntos o más)" : "Algún país por debajo de 200 puntos") : undefined}
-            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors ${activo ? "bg-white/[0.07]" : "hover:bg-white/[0.04]"} ${color ?? (activo ? "text-ink-100" : "text-ink-400 hover:text-ink-100")}`}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
           >
             {color && <span aria-hidden className={`size-1.5 rounded-full ${estadoCuenta === "ok" ? "bg-success" : "bg-danger"}`} />}
             {e.texto}

@@ -3,15 +3,18 @@ import "server-only";
 import { adminDb } from "@/lib/firebase/admin";
 import { rendimientoVendedor } from "@/lib/amazon/apis";
 import { contarEscrituras, contarLecturas } from "./consumo";
+import { avisarEstadoCuenta, type CambioPuntuacion } from "@/lib/telegram";
 
 /*
  * Account health per marketplace: account status, Account Health Rating and
  * policy compliance counts, from Amazon's seller performance report (one per
  * marketplace, ~20 s each, requested in parallel). One doc,
- * `config/estadoCuenta`, refreshed by the sync at most every few hours.
+ * `config/estadoCuenta`, refreshed by every complete sync, hourly (Amazon recomputes the rating about daily). A
+ * Telegram notice goes out when a marketplace drops below 200 points or gets back above.
  */
 
-const REFRESCO_MS = 12 * 3600_000;
+// Just under an hour, so every hourly complete sync refreshes it.
+const REFRESCO_MS = 55 * 60_000;
 const MINIMO_MS = 30 * 60_000;
 
 /** Policy categories in Seller Central's order; the key is the report field. */
@@ -106,5 +109,17 @@ export async function actualizarEstadoCuenta(marketplaceIds: string[], forzar = 
   await ref().set(doc);
   contarEscrituras(1);
   g.__estadoCuenta = doc;
+
+  // Telegram notice when a marketplace crosses the 200-point line (a first reading only when it's already red).
+  const cambios: CambioPuntuacion[] = [];
+  for (const [id, e] of Object.entries(porMercado)) {
+    const antes = actual.porMercado[id]?.puntuacion ?? null;
+    const ahora = e.puntuacion;
+    if (ahora === null || e === actual.porMercado[id]) continue;
+    const eraRojo = antes !== null && antes < PUNTUACION_ADECUADA;
+    const esRojo = ahora < PUNTUACION_ADECUADA;
+    if (antes === null ? esRojo : eraRojo !== esRojo) cambios.push({ marketplaceId: id, antes, ahora });
+  }
+  if (cambios.length) await avisarEstadoCuenta(cambios).catch((e) => errores.push(`Aviso de Telegram: ${e instanceof Error ? e.message : e}`));
   return { escrituras: 1, errores };
 }
