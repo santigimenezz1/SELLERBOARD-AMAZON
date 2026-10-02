@@ -48,7 +48,10 @@ function resumir(tipo: "Shipment" | "Refund" | "GuaranteeClaim" | "Chargeback", 
     const fees = esVenta ? i.ItemFeeList : i.ItemFeeAdjustmentList;
     const promos = esVenta ? i.PromotionList : i.PromotionAdjustmentList;
     const hayIva = (cargos ?? []).some(esIva);
-    const iva = hayIva ? suma(cargos, esIva) : null;
+    // When Amazon collects the VAT (marketplace facilitator), the VAT is what it withholds: that already nets the
+    // VAT of promotions (free shipping…), which the tax charges don't. Otherwise, the tax charges.
+    const retenido = suma((i.ItemTaxWithheldList ?? []).flatMap((w) => w.TaxesWithheld ?? []));
+    const iva = retenido !== 0 ? -retenido : hayIva ? suma(cargos, esIva) : null;
     return {
       sku: i.SellerSKU ?? null,
       // Fees come negative on a sale; on a refund Amazon gives part back (positive) and charges a refund fee.

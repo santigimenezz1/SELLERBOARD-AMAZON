@@ -50,20 +50,22 @@ export function ContadorConsumo() {
   const pct = Math.max(c.lecturas / c.limiteLecturas, c.escrituras / c.limiteEscrituras) * 100;
   const color = pct >= 80 ? "text-danger border-danger/30" : pct >= 50 ? "text-warning border-warning/30" : "text-ink-300 border-white/[0.08]";
 
+  // Compact (just the two figures; the detail is in the tooltip) so it fits next to the full menu, which only
+  // shows from 1280 px up; the "+N" floats under it instead of widening the header.
   return (
     <div
-      className={`tabular hidden items-center gap-2 rounded-lg border px-2.5 py-1 text-xs sm:flex ${color}`}
+      className={`tabular relative hidden items-center gap-1.5 rounded-lg border px-2 py-1 text-xs min-[1280px]:flex ${color}`}
       title={`Firestore hoy: ${fmt(c.lecturas)} de ${fmt(c.limiteLecturas)} lecturas y ${fmt(c.escrituras)} de ${fmt(c.limiteEscrituras)} escrituras gratuitas (se reinicia a las 9:00)`}
     >
       <span>
-        <span className="text-ink-400">Lecturas</span> {fmt(c.lecturas)}
+        <span className="text-ink-500">L</span> {fmt(c.lecturas)}
       </span>
       <span className="text-ink-600">·</span>
       <span>
-        <span className="text-ink-400">Escrituras</span> {fmt(c.escrituras)}
+        <span className="text-ink-500">E</span> {fmt(c.escrituras)}
       </span>
       {delta && (
-        <span className="font-semibold text-success" aria-live="polite">
+        <span className="absolute top-full right-0 mt-1 rounded bg-ink-900 px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap text-success shadow-soft" aria-live="polite">
           +{fmt(delta.l)}
           {delta.e > 0 && ` / +${fmt(delta.e)}`}
         </span>

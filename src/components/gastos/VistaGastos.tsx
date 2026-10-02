@@ -163,7 +163,8 @@ function TarjetaGastos({ gastos, estimados, mes }: { gastos: LineaGasto[]; estim
                               </span>
                             </td>
                             <td className="py-1.5 text-right text-ink-100">
-                              ≈ {formatEuros(-e.eur)} <span className="text-ink-400">(como el mes anterior)</span>
+                              ≈ {formatEuros(-e.eur)}{" "}
+                              <span className="text-ink-400">({e.dias ? `último mes cobrado, ${e.dias} de ${e.diasMes} días` : "como el último mes cobrado"})</span>
                             </td>
                           </tr>
                         ))}

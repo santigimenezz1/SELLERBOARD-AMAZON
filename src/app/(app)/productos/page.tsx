@@ -3,6 +3,8 @@ import { listarProductos } from "@/lib/datos/productos";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
+import { saludDeProducto } from "@/lib/datos/saludListings";
+import { panEuropeoDe } from "@/lib/datos/panEuropeo";
 
 /** Every listing we know of, as cards. Built from memory: ~3 Firestore reads per load. */
 export default async function ProductosPage({ searchParams }: PageProps<"/productos">) {
@@ -12,6 +14,14 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
   const mk = new Map(marketplaces.map((m) => [m.id, m]));
   const activos = productos.filter((p) => p.activo);
   const visibles = verTodos ? productos : activos;
+  // Per card: whether the listing can be bought (Amazon's listing status in any country; without it, whether it
+  // has an offer) and whether it is in Pan-European FBA.
+  const estados = await Promise.all(
+    visibles.map(async (p) => {
+      const salud = Object.values((await saludDeProducto(p.skus)).porMercado);
+      return { comprable: salud.length ? salud.some((m) => m.comprable) : p.mercadosConOferta.length > 0, panEuropeo: await panEuropeoDe(p.skus) };
+    }),
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -32,17 +42,25 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
           Aún no hay fichas de productos: aparecerán tras la próxima sincronización.
         </p>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {visibles.map((p) => {
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {visibles.map((p, i) => {
             const etiqueta = ETIQUETAS_POR_ASIN[p.asin];
+            const { comprable, panEuropeo } = estados[i];
             const mercadoPrecio = p.precio ? mk.get(p.precio.marketplaceId) : undefined;
             return (
-              <li key={p.asin}>
+              <li key={p.asin} className="min-w-0">
                 {/* Compact card: small photo left, key figures right. The full listing opens on click. */}
                 <Link
                   href={`/productos/${p.asin}`}
-                  className={`group flex h-full gap-3 rounded-xl border border-white/[0.06] bg-ink-900/70 p-3 transition-colors hover:border-white/[0.16] hover:bg-ink-900 ${p.activo ? "" : "opacity-60"}`}
+                  className={`group relative flex h-full gap-3 rounded-xl border border-white/[0.06] bg-ink-900/70 p-3 transition-colors hover:border-white/[0.16] hover:bg-ink-900 ${p.activo ? "" : "opacity-60"}`}
                 >
+                  {/* Top left: whether the listing can be bought. */}
+                  <span
+                    className={`absolute top-1.5 left-1.5 z-10 rounded px-1.5 py-px text-[9px] font-bold tracking-wide shadow-soft ${comprable ? "bg-success text-ink-950" : "bg-danger text-white"}`}
+                    title={comprable ? "Se puede comprar en Amazon" : "No se puede comprar ahora mismo en ningún país"}
+                  >
+                    {comprable ? "ACTIVO" : "NO ACTIVO"}
+                  </span>
                   <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-1">
                     {p.imagen ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -55,6 +73,14 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
                     <p className="truncate font-mono text-[11px] text-ink-400">
                       {p.skus.join(", ") || p.asin}
                       {etiqueta && <span className="ml-1.5 rounded bg-success/10 px-1 py-px font-sans text-[10px] font-semibold tracking-wide text-success">{etiqueta}</span>}
+                      {panEuropeo !== null && (
+                        <span
+                          className={`ml-1.5 rounded px-1 py-px font-sans text-[10px] font-semibold tracking-wide ${panEuropeo ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}
+                          title={panEuropeo ? "Inscrito en FBA Paneuropeo" : "No está inscrito en FBA Paneuropeo"}
+                        >
+                          PAN EUROPEO
+                        </span>
+                      )}
                     </p>
                     <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-ink-100 group-hover:text-accent-300">{p.titulo}</p>
                     <div className="mt-auto flex items-end justify-between gap-2 pt-1.5">

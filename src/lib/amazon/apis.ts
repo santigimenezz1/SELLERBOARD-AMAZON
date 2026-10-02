@@ -392,6 +392,75 @@ async function informe(reportType: string, marketplaceIds: string[], desde: Date
   }
 }
 
+// ---------- Brand Analytics reports (weekly, per marketplace) ----------
+
+/**
+ * Asks for a Brand Analytics report of one marketplace and week. Amazon allows about one new report a minute
+ * (after a small burst): when it says «too many», wait a minute and ask again.
+ */
+export async function pedirInformeMarca(reportType: string, marketplaceId: string, desde: string, hasta: string, reportOptions: Record<string, string>): Promise<string> {
+  for (let intento = 0; ; intento++) {
+    try {
+      const { reportId } = await spPost<{ reportId: string }>("/reports/2021-06-30/reports", { reportType, marketplaceIds: [marketplaceId], dataStartTime: desde, dataEndTime: hasta, reportOptions });
+      return reportId;
+    } catch (e) {
+      if (!(e instanceof ErrorAmazon && e.status === 429) || intento >= 15) throw e;
+      await new Promise((r) => setTimeout(r, 65_000));
+    }
+  }
+}
+
+/** Waits for a report: its document id when done, null when Amazon has no data for it. */
+export async function esperarInforme(reportId: string, esperaMaximaMs = 20 * 60_000): Promise<string | null> {
+  const limite = Date.now() + esperaMaximaMs;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 15_000));
+    const r = await spGet<{ processingStatus: string; reportDocumentId?: string; reportType?: string }>(`/reports/2021-06-30/reports/${reportId}`);
+    if (r.processingStatus === "DONE" && r.reportDocumentId) return r.reportDocumentId;
+    if (["DONE_NO_DATA", "CANCELLED", "FATAL"].includes(r.processingStatus)) return null;
+    if (Date.now() > limite) throw new Error(`${r.reportType ?? reportId}: el informe tarda demasiado`);
+  }
+}
+
+/** A small JSON report, parsed. */
+export async function informeJson<T>(reportType: string, reportDocumentId: string): Promise<T> {
+  return JSON.parse(await descargarInforme(reportType, reportDocumentId)) as T;
+}
+
+/**
+ * Walks a huge pretty-printed JSON report (the whole marketplace's search terms: ~150 MB a week) row by row,
+ * streaming and gunzipping it, without holding it in memory. Each row is a flat object of strings and numbers.
+ */
+export async function recorrerInformeGrande(reportDocumentId: string, alFila: (fila: Record<string, string | number>) => void): Promise<number> {
+  const { Readable } = await import("node:stream");
+  const { createGunzip } = await import("node:zlib");
+  const { createInterface } = await import("node:readline");
+  const doc = await spGet<{ url: string; compressionAlgorithm?: string }>(`/reports/2021-06-30/documents/${reportDocumentId}`);
+  const res = await fetch(doc.url, { cache: "no-store" });
+  if (!res.ok || !res.body) throw new Error(`descarga HTTP ${res.status}`);
+  let flujo: NodeJS.ReadableStream = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
+  if (doc.compressionAlgorithm === "GZIP") flujo = flujo.pipe(createGunzip());
+  const lineas = createInterface({ input: flujo, crlfDelay: Infinity });
+  let fila: Record<string, string | number> = {};
+  let n = 0;
+  for await (const linea of lineas) {
+    const t = linea.trim();
+    const m = t.match(/^"(\w+)"\s*:\s*(.+?),?$/);
+    if (m && m[2] !== "[" && m[2] !== "{") {
+      try {
+        fila[m[1]] = JSON.parse(m[2]) as string | number;
+      } catch {
+        // A value we can't read is skipped; the rest of the row still counts.
+      }
+    } else if (t.startsWith("}") && Object.keys(fila).length) {
+      alFila(fila);
+      n++;
+      fila = {};
+    }
+  }
+  return n;
+}
+
 async function informePlano(reportType: string, marketplaceIds: string[], desde: Date | null): Promise<Record<string, string>[]> {
   const texto = await informe(reportType, marketplaceIds, desde);
   return texto ? filasPlanas(texto) : [];
@@ -520,6 +589,23 @@ export async function articulosEnvioFBA(marketplaceId: string, shipmentId: strin
 }
 
 export type InventarioPais = { sku: string; asin: string; pais: string; unidades: number };
+
+/**
+ * Pan-European FBA status of every SKU (the report comes in the account's language: «Inscrito», «Válido»,
+ * «Fin de inscripción próximo», «Inscripción finalizada», «No válido»… or the English ones).
+ */
+export async function estadoPanEuropeo(marketplaceId: string): Promise<{ sku: string; asin: string; estado: string }[]> {
+  const filas = await informePlano("GET_PAN_EU_OFFER_STATUS", [marketplaceId], null);
+  const limpia = (k: string) => k.replace(/^﻿/, "").trim();
+  return filas
+    .map((f) => {
+      const c = Object.fromEntries(Object.entries(f).map(([k, v]) => [limpia(k), v]));
+      const clave = (re: RegExp) => Object.keys(c).find((k) => re.test(k));
+      const estado = clave(/^(estado de paneu|pan-?eu status)$/i) ?? clave(/estado.*paneu|pan-?eu.*status/i);
+      return { sku: c[clave(/sku/i) ?? "MerchantSKU"] ?? "", asin: c.ASIN ?? "", estado: estado ? (c[estado] ?? "") : "" };
+    })
+    .filter((x) => x.sku);
+}
 
 /**
  * Sellable units per SKU in each country's warehouses right now (a snapshot: no date range). For

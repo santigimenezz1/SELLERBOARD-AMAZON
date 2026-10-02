@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listarProductos } from "@/lib/datos/productos";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
-import { DATOS_DE_EJEMPLO, rendimientoBusqueda } from "@/lib/datos/palabrasClave";
+import { estadoCargaPalabras, rendimientoBusqueda } from "@/lib/datos/palabrasClave";
+import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
 import { formatNumero } from "@/lib/format";
 
 const porcentaje = (v: number) => `${(v * 100).toFixed(1).replace(".", ",")} %`;
@@ -10,7 +11,10 @@ const porcentaje = (v: number) => `${(v * 100).toFixed(1).replace(".", ",")} %`;
 export default async function PalabrasClavePage() {
   const { productos } = await listarProductos();
   const listings = productos.filter((p) => ETIQUETAS_POR_ASIN[p.asin]);
-  const datos = await Promise.all(listings.map((p) => rendimientoBusqueda(p.asin, ETIQUETAS_POR_ASIN[p.asin] === "LISTING NUEVO")));
+  const datos = await Promise.all(listings.map((p) => rendimientoBusqueda(p.asin)));
+  const semana = datos.flat().find((m) => m.semana)?.semana ?? null;
+  const carga = estadoCargaPalabras();
+  const fecha = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("es-ES", { day: "numeric", month: "long", timeZone: "UTC" });
 
   return (
     <div className="flex flex-col gap-6">
@@ -19,22 +23,26 @@ export default async function PalabrasClavePage() {
         <p className="mt-1 text-sm text-ink-400">Cómo te encuentran en el buscador de Amazon: por qué búsquedas llegan los clientes y qué parte se lleva tu listing.</p>
       </div>
 
-      {DATOS_DE_EJEMPLO && (
-        <p className="rounded-xl border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-warning">
-          <strong>Datos de ejemplo.</strong> Se sustituirán por los reales de Amazon (Brand Analytics) cuando Amazon apruebe el permiso de la app.
+      {carga?.en === "curso" && (
+        <p className="rounded-xl border border-accent-500/25 bg-accent-500/10 px-4 py-3 text-sm text-ink-200">
+          Trayendo de Amazon los datos de la semana{carga.mercado ? ` · ahora ${marketplaceConocido(carga.mercado)?.pais ?? ""} (${carga.paso})` : ""}. Tarda un rato: Amazon da un informe por minuto.
         </p>
       )}
+      {!semana && carga?.en !== "curso" && (
+        <p className="rounded-xl border border-white/[0.06] bg-ink-900/70 px-4 py-3 text-sm text-ink-400">Aún no hay datos de Amazon. Se traen solos en la próxima sincronización completa.</p>
+      )}
 
-      <ul className="grid gap-3 md:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {listings.map((p, i) => {
           const mercados = datos[i];
-          const imp = mercados.reduce((s, m) => s + m.catalogo.impresiones, 0);
-          const clics = mercados.reduce((s, m) => s + m.catalogo.clics, 0);
-          const compras = mercados.reduce((s, m) => s + m.catalogo.compras, 0);
+          const imp = mercados.reduce((s, m) => s + (m.catalogo?.impresiones ?? 0), 0);
+          const clics = mercados.reduce((s, m) => s + (m.catalogo?.clics ?? 0), 0);
+          const compras = mercados.reduce((s, m) => s + (m.catalogo?.compras ?? 0), 0);
           const es = mercados[0];
-          const principal = es.consultas[0];
+          // The query that brings the listing the most clicks in Spain.
+          const principal = [...es.consultas].sort((a, b) => b.tuyo.clics - a.tuyo.clics)[0];
           return (
-            <li key={p.asin}>
+            <li key={p.asin} className="min-w-0">
               <Link href={`/palabras-clave/${p.asin}`} className="group flex h-full gap-3 rounded-xl border border-white/[0.06] bg-ink-900/70 p-3 transition-colors hover:border-white/[0.16] hover:bg-ink-900">
                 <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-1">
                   {p.imagen ? (
@@ -66,7 +74,7 @@ export default async function PalabrasClavePage() {
                   </dl>
                   {principal && (
                     <p className="mt-2 truncate text-[11px] text-ink-400">
-                      🇪🇸 «{principal.busqueda}»: <span className="font-semibold text-ink-100">{porcentaje(principal.tuyo.impresiones / principal.total.impresiones)}</span> de las impresiones
+                      🇪🇸 Tu mejor búsqueda: «{principal.busqueda}» · <span className="font-semibold text-ink-100">{formatNumero(principal.tuyo.clics)} clics</span> ({porcentaje(principal.total.clics ? principal.tuyo.clics / principal.total.clics : 0)})
                     </p>
                   )}
                   <p className="mt-auto pt-2 text-right text-[11px] text-accent-400 group-hover:text-accent-300">Ver detalle por país →</p>
@@ -76,7 +84,7 @@ export default async function PalabrasClavePage() {
           );
         })}
       </ul>
-      <p className="text-xs text-ink-500">Semana del 20 al 26 de septiembre · todos los países.</p>
+      <p className="text-xs text-ink-500">{semana ? `Semana del ${fecha(semana.desde)} al ${fecha(semana.hasta)} · todos los países · datos de Amazon Brand Analytics.` : ""}</p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/auth/session";
 import { Logo } from "@/components/Logo";
 import { LogoutButton } from "@/components/LogoutButton";
-import { Nav } from "@/components/Nav";
+import { MenuMovil, Nav } from "@/components/Nav";
 import { ContadorConsumo } from "@/components/ContadorConsumo";
 import { resumenEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
@@ -19,17 +19,22 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <header className="sticky top-0 z-30 border-b border-white/[0.05] bg-ink-950/70 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-6">
-            <Logo />
-            <Nav estadoCuenta={estadoCuenta} />
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-6">
+              <Logo />
+              <Nav estadoCuenta={estadoCuenta} />
+            </div>
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              {/* TEMPORARY: Firestore usage while testing the free-plan consumption. */}
+              <ContadorConsumo />
+              <LogoutButton />
+              {/* Phones only: a hamburger opens the menu. */}
+              <MenuMovil estadoCuenta={estadoCuenta} email={user.email ?? null} />
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            {/* TEMPORARY: Firestore usage while testing the free-plan consumption. */}
-            <ContadorConsumo />
-            <span className="hidden max-w-[220px] truncate text-sm text-ink-400 md:block">{user.email}</span>
-            <LogoutButton />
-          </div>
+          {/* Tablets: the full menu on its own row, when it doesn't fit next to the logo. */}
+          <Nav estadoCuenta={estadoCuenta} fila />
         </div>
       </header>
       <RefrescoAutomatico />

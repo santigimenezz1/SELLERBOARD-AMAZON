@@ -21,6 +21,8 @@ import { sincronizarGmail } from "@/lib/gmail";
 import { actualizarGastos } from "@/lib/datos/gastos";
 import { actualizarIngresos, guardarCompensaciones } from "@/lib/datos/ingresos";
 import { actualizarSaldos } from "@/lib/datos/saldos";
+import { lanzarCargaPalabras, mercadosPendientes } from "@/lib/datos/palabrasClave";
+import { actualizarPanEuropeo } from "@/lib/datos/panEuropeo";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -364,6 +366,20 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         await actualizarSaldos([...new Set([...pedidosEnAlmacen().values()].filter((p) => p.fecha.getTime() > hace60).map((p) => p.marketplaceId))]);
       } catch (e) {
         errores.push(`Saldo de Amazon: ${mensaje(e)}`);
+      }
+
+      // 10e. Pan-European FBA status per SKU (at most twice a day)
+      try {
+        escrituras += await actualizarPanEuropeo();
+      } catch (e) {
+        errores.push(`Pan Europeo: ${mensaje(e)}`);
+      }
+
+      // 10f. Brand Analytics (Palabras clave): a new week, when Amazon has published it, loads in the background
+      try {
+        lanzarCargaPalabras(await mercadosPendientes());
+      } catch (e) {
+        errores.push(`Palabras clave: ${mensaje(e)}`);
       }
 
       // 11. Performance notifications from Gmail, when connected (never blocks the sales data)

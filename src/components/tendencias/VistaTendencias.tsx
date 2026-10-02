@@ -52,7 +52,7 @@ function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => v
 
 function Tarjeta({ titulo, subtitulo, total, className = "", children }: { titulo: string; subtitulo: string; total?: number; className?: string; children: React.ReactNode }) {
   return (
-    <section className={`rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft ${className}`}>
+    <section className={`min-w-0 rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft ${className}`}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-ink-100">{titulo}</h2>
@@ -75,6 +75,8 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
   const [dias, setDias] = useState(182);
   const [asin, setAsin] = useState<string | null>(null);
   const [mk, setMk] = useState<string | null>(null);
+  // Weekday whose hours are shown under «¿Qué día se vende más?» (0 = Monday, the default).
+  const [diaElegido, setDiaElegido] = useState(0);
   const zonas = useMemo(() => new Map(datos.paises.map((p) => [p.id, p.zona])), [datos.paises]);
 
   const r = useMemo(() => {
@@ -96,11 +98,15 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
       .filter((x) => x.n > 0)
       .sort((a, b) => b.n - a.n)
       .slice(0, 5);
-    return { total, franjas, porDia, ranking };
+    return { total, franjas, porDia, ranking, matriz };
   }, [datos.ventas, datos.generadoEn, dias, asin, mk, zonas]);
 
   const maxFranja = Math.max(1, ...r.franjas.map((f) => f.n));
   const maxDia = Math.max(1, ...r.porDia);
+  const horasDia = r.matriz[diaElegido];
+  const totalDia = r.porDia[diaElegido];
+  const maxHora = Math.max(1, ...horasDia);
+  const mejorHora = horasDia.indexOf(Math.max(...horasDia));
 
   return (
     <div className="flex flex-col gap-5">
@@ -140,7 +146,7 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
       </div>
 
       {r.total > 0 && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {/* 1. The direct answer */}
           <Tarjeta titulo="Mejores momentos de la semana" subtitulo="Los 5 días y horas con más unidades vendidas">
             <ol className="divide-y divide-white/[0.05]">
@@ -162,9 +168,9 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
           <Tarjeta titulo="¿En qué momento del día se vende?" subtitulo="% y unidades por franja horaria" total={r.total}>
             <div className="flex flex-col gap-2.5">
               {r.franjas.map((f) => (
-                <div key={f.nombre} className="grid grid-cols-[130px_1fr_112px] items-center gap-3 text-sm">
+                <div key={f.nombre} className="grid grid-cols-[88px_1fr_92px] items-center gap-2 text-sm sm:grid-cols-[130px_1fr_112px] sm:gap-3">
                   <span className="text-ink-300">
-                    {f.nombre} <span className="text-xs text-ink-500">({f.desde}–{f.hasta} h)</span>
+                    {f.nombre} <span className="block text-xs text-ink-500 sm:inline">({f.desde}–{f.hasta} h)</span>
                   </span>
                   <div className="h-5 overflow-hidden rounded bg-white/[0.05]">
                     <div className={`h-full rounded ${f.n === maxFranja ? "bg-accent-500" : "bg-accent-500/45"}`} style={{ width: `${(f.n / maxFranja) * 100}%` }} />
@@ -179,17 +185,61 @@ export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
           </Tarjeta>
 
           {/* 3. Weekday */}
-          <Tarjeta titulo="¿Qué día se vende más?" subtitulo="% y unidades por día de la semana" total={r.total} className="lg:col-span-2">
-            <div className="flex h-48 items-end gap-3">
-              {r.porDia.map((n, d) => (
-                <div key={d} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-                  <span className="tabular text-sm font-semibold text-ink-100">{pct(n, r.total)} %</span>
-                  <span className="tabular text-xs text-ink-400">{uds(n)}</span>
-                  <div className={`w-full rounded-t ${n === maxDia ? "bg-accent-500" : "bg-accent-500/45"}`} style={{ height: `${(n / maxDia) * 70}%` }} />
-                  <span className="text-xs text-ink-300">{DIAS[d]}</span>
-                </div>
-              ))}
+          <Tarjeta titulo="¿Qué día se vende más?" subtitulo="% y unidades por día de la semana · pulsa un día para ver sus horas" total={r.total} className="lg:col-span-2">
+            <div className="flex h-48 items-end gap-1.5 sm:gap-3">
+              {r.porDia.map((n, d) => {
+                const elegido = d === diaElegido;
+                return (
+                  <button
+                    key={d}
+                    onClick={() => setDiaElegido(d)}
+                    aria-pressed={elegido}
+                    className={`flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 rounded-lg px-0.5 pt-1 transition-colors ${elegido ? "bg-white/[0.06] ring-1 ring-accent-500/60" : "hover:bg-white/[0.03]"}`}
+                  >
+                    <span className="tabular text-sm font-semibold text-ink-100">{pct(n, r.total)} %</span>
+                    <span className="tabular text-xs text-ink-400">{uds(n)}</span>
+                    <div className={`w-full rounded-t ${n === maxDia ? "bg-accent-500" : "bg-accent-500/45"}`} style={{ height: `${(n / maxDia) * 70}%` }} />
+                    <span className={`truncate text-xs ${elegido ? "font-semibold text-ink-100" : "text-ink-300"}`}>
+                      <span className="sm:hidden">{DIAS[d].slice(0, 3)}</span>
+                      <span className="hidden sm:inline">{DIAS[d]}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+          </Tarjeta>
+
+          {/* 4. Hours of the chosen weekday */}
+          <Tarjeta
+            titulo={`¿A qué hora se vende los ${DIAS[diaElegido].toLowerCase()}?`}
+            subtitulo={totalDia > 0 ? `Unidades por hora de todos los ${DIAS[diaElegido].toLowerCase()} del periodo · la mejor hora: ${mejorHora}–${mejorHora + 1} h` : `Sin ventas los ${DIAS[diaElegido].toLowerCase()} en el periodo`}
+            total={totalDia}
+            className="lg:col-span-2"
+          >
+            <div className="overflow-x-auto">
+              <div className="flex h-44 min-w-[640px] items-end gap-1">
+                {horasDia.map((n, h) => (
+                  <div key={h} className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={`${h}–${h + 1} h: ${uds(n)} (${pct(n, totalDia)} % del día)`}>
+                    {n > 0 && <span className="tabular text-[10px] font-semibold text-ink-100">{n}</span>}
+                    <div className={`w-full rounded-t ${n === maxHora && n > 0 ? "bg-accent-500" : "bg-accent-500/45"}`} style={{ height: `${(n / maxHora) * 75}%`, minHeight: n > 0 ? 2 : 0 }} />
+                    <span className="tabular text-[10px] text-ink-400">{h}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {totalDia > 0 && (
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-white/[0.06] pt-3 text-xs">
+                {FRANJAS.map((fr) => {
+                  const n = horasDia.slice(fr.desde, fr.hasta).reduce((a, b) => a + b, 0);
+                  return (
+                    <span key={fr.nombre} className="text-ink-400">
+                      {fr.nombre} <span className="text-ink-500">({fr.desde}–{fr.hasta} h)</span>: <span className="tabular font-semibold text-ink-100">{pct(n, totalDia)} %</span>
+                      <span className="tabular text-ink-500"> · {uds(n)}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
           </Tarjeta>
         </div>
       )}
