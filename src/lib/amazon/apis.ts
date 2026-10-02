@@ -590,6 +590,32 @@ export async function articulosEnvioFBA(marketplaceId: string, shipmentId: strin
 
 export type InventarioPais = { sku: string; asin: string; pais: string; unidades: number };
 
+/** Volume per unit converted to cubic metres (Amazon gives cubic metres in Europe, cubic feet in the UK). */
+function aMetrosCubicos(v: number, unidad: string): number {
+  if (/feet|foot|ft/i.test(unidad)) return v * 0.0283168;
+  if (/inch/i.test(unidad)) return v * 0.0000163871;
+  if (/centim/i.test(unidad)) return v / 1_000_000;
+  return v;
+}
+
+/**
+ * Storage space used in a marketplace's region, in cubic metres, from the FBA inventory planning report: units
+ * in the warehouses (available, reserved, unfulfillable) and on their way there, by each SKU's volume.
+ */
+export async function espacioOcupado(marketplaceId: string): Promise<{ enAlmacen: number; enCamino: number }> {
+  const filas = await informePlano("GET_FBA_INVENTORY_PLANNING_DATA", [marketplaceId], null);
+  let enAlmacen = 0;
+  let enCamino = 0;
+  const n = (v: string | undefined) => Number(v) || 0;
+  for (const f of filas) {
+    const volumen = aMetrosCubicos(n(f["item-volume"]), f["volume-unit-measurement"] ?? "");
+    if (!volumen) continue;
+    enAlmacen += (n(f["available"]) + n(f["Total Reserved Quantity"]) + n(f["unfulfillable-quantity"])) * volumen;
+    enCamino += n(f["inbound-quantity"]) * volumen;
+  }
+  return { enAlmacen, enCamino };
+}
+
 /**
  * Pan-European FBA status of every SKU (the report comes in the account's language: «Inscrito», «Válido»,
  * «Fin de inscripción próximo», «Inscripción finalizada», «No válido»… or the English ones).

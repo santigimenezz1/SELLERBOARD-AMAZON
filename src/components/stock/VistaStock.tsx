@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { ArticuloStock, CantidadesStock, Stock } from "@/lib/datos/stock";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
 import { formatFechaHora, formatNumero } from "@/lib/format";
 import { Spinner } from "@/components/Spinner";
 
-type Props = { stock: Stock | null; imagenes: Record<string, string>; titulos: Record<string, string> };
+type Props = { stock: Stock | null; imagenes: Record<string, string>; titulos: Record<string, string>; capacidad?: ReactNode };
 
 const CERO: CantidadesStock = { total: 0, vendible: 0, reservado: 0, enCamino: 0, noVendible: 0, investigando: 0 };
 
@@ -26,7 +26,7 @@ function sumar(a: ArticuloStock): CantidadesStock {
 }
 
 /** Stock page: region totals on top, one row per SKU below (only SKUs with stock unless asked). */
-export function VistaStock({ stock, imagenes, titulos }: Props) {
+export function VistaStock({ stock, imagenes, titulos, capacidad }: Props) {
   const router = useRouter();
   const [estado, setEstado] = useState<{ tipo: "idle" | "cargando" } | { tipo: "error"; msg: string }>({ tipo: "idle" });
   const [verTodos, setVerTodos] = useState(false);
@@ -56,6 +56,7 @@ export function VistaStock({ stock, imagenes, titulos }: Props) {
         {estado.tipo === "cargando" ? "Consultando a Amazon…" : "Actualizar stock"}
       </button>
       {stock && <span className="text-xs text-ink-400">Actualizado: {formatFechaHora(new Date(stock.actualizadoEn))}</span>}
+      {capacidad}
       {estado.tipo === "error" && (
         <span role="alert" className="text-sm text-danger">
           {estado.msg}

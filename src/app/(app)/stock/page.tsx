@@ -8,10 +8,12 @@ import { EnviosFBA } from "@/components/stock/EnviosFBA";
 import { obtenerInventarioPaises, paisesConVentas as paisesVendidos } from "@/lib/datos/inventarioPaises";
 import { InventarioPaises } from "@/components/stock/InventarioPaises";
 import { conEuros, costesPorEnvio, obtenerCostesEnvios } from "@/lib/datos/costesEnvios";
+import { obtenerCapacidad } from "@/lib/datos/capacidad";
+import { CapacidadStock } from "@/components/stock/CapacidadStock";
 
 /** FBA stock per region and inbound shipments. Everything comes from memory after the first load. */
 export default async function StockPage() {
-  const [stock, ultima, envios, inventario, costesDoc] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises(), obtenerCostesEnvios()]);
+  const [stock, ultima, envios, inventario, costesDoc, capacidad] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises(), obtenerCostesEnvios(), obtenerCapacidad()]);
   const costes = await conEuros(costesPorEnvio(costesDoc), Object.fromEntries(envios.envios.map((e) => [e.id, e.creado])));
   const { imagenes, lineas } = await datosVentas(ultima?.id ?? null);
 
@@ -35,7 +37,7 @@ export default async function StockPage() {
         <p className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning">Faltan las credenciales de Amazon en .env.local.</p>
       ) : (
         <>
-          <VistaStock stock={stock} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
+          <VistaStock stock={stock} imagenes={Object.fromEntries(imagenes)} titulos={titulos} capacidad={<CapacidadStock key="capacidad" capacidad={capacidad} />} />
           <InventarioPaises filas={inventario.filas} actualizadoEn={inventario.actualizadoEn} paisesConVentas={paisesConVentas} imagenes={Object.fromEntries(imagenes)} titulos={titulos} />
           <EnviosFBA envios={envios.envios} actualizadoEn={envios.actualizadoEn} asinDe={asinDe} costes={costes} />
         </>

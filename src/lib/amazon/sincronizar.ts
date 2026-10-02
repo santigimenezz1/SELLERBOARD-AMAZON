@@ -23,6 +23,7 @@ import { actualizarIngresos, guardarCompensaciones } from "@/lib/datos/ingresos"
 import { actualizarSaldos } from "@/lib/datos/saldos";
 import { lanzarCargaPalabras, mercadosPendientes } from "@/lib/datos/palabrasClave";
 import { actualizarPanEuropeo } from "@/lib/datos/panEuropeo";
+import { actualizarCapacidad } from "@/lib/datos/capacidad";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -375,7 +376,14 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         errores.push(`Pan Europeo: ${mensaje(e)}`);
       }
 
-      // 10f. Brand Analytics (Palabras clave): a new week, when Amazon has published it, loads in the background
+      // 10f. FBA storage space used per region (at most every 6 hours)
+      try {
+        escrituras += await actualizarCapacidad();
+      } catch (e) {
+        errores.push(`Capacidad de almacenamiento: ${mensaje(e)}`);
+      }
+
+      // 10g. Brand Analytics (Palabras clave): a new week, when Amazon has published it, loads in the background
       try {
         lanzarCargaPalabras(await mercadosPendientes());
       } catch (e) {
