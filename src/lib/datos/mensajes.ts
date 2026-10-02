@@ -3,11 +3,12 @@ import "server-only";
 import { adminDb } from "@/lib/firebase/admin";
 import { correosClientesNuevos, type CorreoCliente } from "@/lib/gmail";
 import { contarEscrituras, contarLecturas } from "./consumo";
+import { avisarMensajesClientes } from "@/lib/telegram";
 
 /*
  * Buyer messages. Amazon's API can't read them, but it emails a copy of each one (…@marketplace.amazon.xx) to the
  * address set in Seller Central's notification preferences; the connected Gmail is read (read only). One doc,
- * `config/mensajesClientes`, kept in memory; the complete sync adds the new ones.
+ * `config/mensajesClientes`, kept in memory; every sync (each 5 min) adds the new ones and notifies them.
  */
 
 type Doc = { lista: CorreoCliente[]; actualizadoEn: string | null };
@@ -23,7 +24,11 @@ export async function obtenerMensajes(): Promise<Doc> {
   return g.__mensajesClientes;
 }
 
-/** Adds the messages not stored yet. Returns the new ones (the alert will use them). */
+/**
+ * Adds the messages not stored yet and sends each new one to the Telegram group (not on the very first load,
+ * which brings the past year). Returns the new ones. Stored before notifying, so a Telegram failure never
+ * makes the same message ring twice.
+ */
 export async function actualizarMensajes(): Promise<CorreoCliente[]> {
   const doc = await obtenerMensajes();
   const nuevos = await correosClientesNuevos(new Set(doc.lista.map((m) => m.id)));
@@ -33,5 +38,6 @@ export async function actualizarMensajes(): Promise<CorreoCliente[]> {
   await ref().set(nuevo);
   contarEscrituras(1);
   g.__mensajesClientes = nuevo;
+  if (doc.actualizadoEn) await avisarMensajesClientes(nuevos);
   return nuevos;
 }

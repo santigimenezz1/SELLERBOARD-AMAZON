@@ -280,6 +280,14 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
       errores.push(`Recalcular beneficio: ${mensaje(e)}`);
     }
 
+    // 4b. Buyer messages from the connected Gmail, on every sync so their Telegram notice comes within
+    // minutes (one light Gmail list call when nothing is new; never blocks the sales data).
+    try {
+      if ((await actualizarMensajes()).length) escrituras++;
+    } catch (e) {
+      errores.push(`Mensajes de clientes: ${mensaje(e)}`);
+    }
+
     // 5–11. Photos, stock, listings, reports, shipments, account health and Gmail (complete syncs only)
     if (completa) {
       // 5. Listing photos (a failure here never blocks the sales data)
@@ -382,13 +390,6 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         escrituras += await actualizarCapacidad();
       } catch (e) {
         errores.push(`Capacidad de almacenamiento: ${mensaje(e)}`);
-      }
-
-      // 10g. Buyer messages from the connected Gmail (never blocks the sales data)
-      try {
-        if ((await actualizarMensajes()).length) escrituras++;
-      } catch (e) {
-        errores.push(`Mensajes de clientes: ${mensaje(e)}`);
       }
 
       // 10h. Brand Analytics (Palabras clave): a new week, when Amazon has published it, loads in the background
