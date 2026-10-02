@@ -70,11 +70,13 @@ type Actualizacion = { message?: { chat?: Chat; migrate_to_chat_id?: number }; m
  */
 const GRUPOS = {
   /** Account alerts: any group not claimed by the title of another kind. */
-  alertas: { env: "TELEGRAM_CHAT_ALERTAS", campo: "chatAlertas", titulo: (t: string) => !/mensaje|listing/i.test(t) },
+  alertas: { env: "TELEGRAM_CHAT_ALERTAS", campo: "chatAlertas", titulo: (t: string) => !/mensaje|listing|infracci/i.test(t) },
   /** Buyer messages: the group named «Mensaje comprador Amazon» (any title with «mensaje»). */
   mensajes: { env: "TELEGRAM_CHAT_MENSAJES", campo: "chatMensajes", titulo: (t: string) => /mensaje/i.test(t) },
   /** Watched listings going inactive / active again: the group «Listing inactivo» (any title with «listing»). */
   listings: { env: "TELEGRAM_CHAT_LISTINGS", campo: "chatListings", titulo: (t: string) => /listing/i.test(t) },
+  /** New policy infractions while the account stays at 200+ points: «Estado cuenta infraccion +200 pt». */
+  infracciones: { env: "TELEGRAM_CHAT_INFRACCIONES", campo: "chatInfracciones", titulo: (t: string) => /infracci/i.test(t) },
 } as const;
 type Grupo = keyof typeof GRUPOS;
 
@@ -271,6 +273,33 @@ export async function avisarListings(cambios: CambioListing[]): Promise<void> {
         ? `🟢 <b>Listing activo de nuevo</b>\n${listing}\n${pais}`
         : `🔴 <b>¡Listing inactivo!</b>\n${listing}\n${pais}${c.motivo ? `\nMotivo: ${escapar(c.motivo.slice(0, 300))}` : ""}\nRevísalo en Seller Central.`,
       "listings",
+    );
+  }
+}
+
+export type NuevaInfraccion = {
+  marketplaceId: string;
+  puntuacion: number;
+  puntuacionAntes: number | null;
+  /** Each category that went up, e.g. { texto: "Incumplimiento de la política de publicación", antes: 0, ahora: 1 }. */
+  subidas: { texto: string; antes: number; ahora: number }[];
+};
+
+/**
+ * New policy infractions in a marketplace whose Account Health Rating is still at 200+ points (below that the
+ * «estado en riesgo» notice already goes to the alerts group). One message per marketplace.
+ */
+export async function avisarInfracciones(nuevas: NuevaInfraccion[]): Promise<void> {
+  if (!telegramConfigurado()) return;
+  for (const [i, n] of nuevas.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS));
+    const mk = marketplaceConocido(n.marketplaceId);
+    const pais = mk ? `${bandera(mk.codigoPais)} ${escapar(mk.pais)}` : escapar(n.marketplaceId);
+    const antes = n.puntuacionAntes !== null && n.puntuacionAntes !== n.puntuacion ? ` (antes ${formatNumero(n.puntuacionAntes)})` : "";
+    const lineas = n.subidas.map((s) => `• ${escapar(s.texto)}: ${formatNumero(s.antes)} → <b>${formatNumero(s.ahora)}</b>`);
+    await enviarTelegram(
+      `⚠️ <b>Nueva infracción en la salud de la cuenta</b>\n${pais} · <b>${formatNumero(n.puntuacion)} puntos</b>${antes}\n${lineas.join("\n")}\nRevisa «Estado de la cuenta» en la app o en Seller Central.`,
+      "infracciones",
     );
   }
 }

@@ -3,14 +3,15 @@ import "server-only";
 import { adminDb } from "@/lib/firebase/admin";
 import { rendimientoVendedor } from "@/lib/amazon/apis";
 import { contarEscrituras, contarLecturas } from "./consumo";
-import { avisarEstadoCuenta, type CambioPuntuacion } from "@/lib/telegram";
+import { avisarEstadoCuenta, avisarInfracciones, type CambioPuntuacion, type NuevaInfraccion } from "@/lib/telegram";
 
 /*
  * Account health per marketplace: account status, Account Health Rating and
  * policy compliance counts, from Amazon's seller performance report (one per
  * marketplace, ~20 s each, requested in parallel). One doc,
  * `config/estadoCuenta`, refreshed by every complete sync, hourly (Amazon recomputes the rating about daily). A
- * Telegram notice goes out when a marketplace drops below 200 points or gets back above.
+ * Telegram notice goes out when a marketplace drops below 200 points or gets back above, and another (to its own
+ * group) when a new policy infraction shows up while the account is still at 200+ points.
  */
 
 // Just under an hour, so every hourly complete sync refreshes it.
@@ -121,5 +122,25 @@ export async function actualizarEstadoCuenta(marketplaceIds: string[], forzar = 
     if (antes === null ? esRojo : eraRojo !== esRojo) cambios.push({ marketplaceId: id, antes, ahora });
   }
   if (cambios.length) await avisarEstadoCuenta(cambios).catch((e) => errores.push(`Aviso de Telegram: ${e instanceof Error ? e.message : e}`));
+
+  const nuevas = infraccionesNuevas(actual.porMercado, porMercado);
+  if (nuevas.length) await avisarInfracciones(nuevas).catch((e) => errores.push(`Aviso de infracción por Telegram: ${e instanceof Error ? e.message : e}`));
   return { escrituras: 1, errores };
+}
+
+/**
+ * Marketplaces where a policy category (or the infraction warnings) went up since the previous reading while
+ * the rating is still at 200+ points. Counts are rolling windows, so going down is not news; a marketplace
+ * without a previous reading is not compared.
+ */
+export function infraccionesNuevas(antes: Record<string, EstadoMercado>, ahora: Record<string, EstadoMercado>): NuevaInfraccion[] {
+  const res: NuevaInfraccion[] = [];
+  for (const [id, e] of Object.entries(ahora)) {
+    const previo = antes[id];
+    if (!previo?.categorias || e === previo || e.puntuacion === null || e.puntuacion < PUNTUACION_ADECUADA) continue;
+    const subidas: NuevaInfraccion["subidas"] = CATEGORIAS_POLITICAS.map((c) => ({ texto: c.texto, antes: previo.categorias[c.clave] ?? 0, ahora: e.categorias[c.clave] ?? 0 })).filter((s) => s.ahora > s.antes);
+    if (e.avisos > (previo.avisos ?? 0)) subidas.push({ texto: "Avisos de infracción de políticas", antes: previo.avisos ?? 0, ahora: e.avisos });
+    if (subidas.length) res.push({ marketplaceId: id, puntuacion: e.puntuacion, puntuacionAntes: previo.puntuacion, subidas });
+  }
+  return res;
 }
