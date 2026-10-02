@@ -10,6 +10,8 @@ import { tarifasDeSkus } from "./tarifasVenta";
 import { obtenerGastos } from "./gastos";
 import { adminDb } from "@/lib/firebase/admin";
 import { contarEscrituras, contarLecturas } from "./consumo";
+import type { Pedido } from "./tipos";
+import { avisarVine, type ReclamoVine } from "@/lib/telegram";
 
 /*
  * Amazon Vine: the units given to reviewers and what they cost. Amazon doesn't flag Vine orders: they're the
@@ -157,4 +159,95 @@ export async function guardarInscripcionesVine(marketplaceId: string, filas: unk
   contarEscrituras(1);
   gi.__vineInscripciones = nuevo;
   return limpias;
+}
+
+// ---------- Claims notice (every sync) ----------
+
+/**
+ * A Vine unit: an order line with a 100 % discount (price 0). Pending lines are left out: before Amazon
+ * prices an order, a normal one without list price would also read 0.
+ */
+const esLineaVine = (p: Pedido) => p.ventaTotal === 0 && p.unidades > 0 && p.estado !== "CANCELLED" && !/PENDING/i.test(p.estado) && !p.amazonOrderId.startsWith("S0");
+
+type DocAvisos = { avisados: string[] };
+const ga = globalThis as unknown as { __vineAvisos?: DocAvisos };
+const refAvisos = () => adminDb().collection("config").doc("vineAvisos");
+
+/**
+ * The enrollment a claim belongs to: in its marketplace, the latest one enrolled on or before the claim's day
+ * (Vine orders don't say which enrollment they come from).
+ */
+function inscripcionDe(lista: InscripcionVine[] | undefined, dia: string): InscripcionVine | null {
+  return (lista ?? []).filter((f) => f.fechaInscripcion && f.fechaInscripcion <= dia).sort((a, b) => b.fechaInscripcion!.localeCompare(a.fechaInscripcion!))[0] ?? null;
+}
+
+/**
+ * Sync stage: Vine units the app hadn't notified yet (an order becomes a Vine one when Amazon prices it at 0,
+ * minutes or hours after it was placed) → one Telegram notice per marketplace to the «Vine» group, and the
+ * «Reclamado» of the matching enrollment in the Vine table raised to the units seen (never lowered: older
+ * claims may predate the app's order history). The first run only records what is there. Returns writes done.
+ */
+export async function avisarReclamosVine(): Promise<number> {
+  const lineas = [...pedidosEnAlmacen().values()].filter(esLineaVine);
+  if (!ga.__vineAvisos) {
+    const snap = await refAvisos().get();
+    contarLecturas(1);
+    ga.__vineAvisos = snap.exists ? { avisados: (snap.get("avisados") as string[] | undefined) ?? [] } : undefined;
+  }
+  let escrituras = 0;
+  if (!ga.__vineAvisos) {
+    ga.__vineAvisos = { avisados: lineas.map((p) => p.id) };
+    await refAvisos().set({ ...ga.__vineAvisos, actualizadoEn: new Date().toISOString() });
+    contarEscrituras(1);
+    return 1;
+  }
+  const avisados = new Set(ga.__vineAvisos.avisados);
+  const nuevas = lineas.filter((p) => !avisados.has(p.id));
+
+  // «Reclamado» in the table: units per enrollment, never below what was typed in.
+  const inscripciones = await inscripcionesVine();
+  const porInscripcion = new Map<string, number>();
+  for (const p of lineas) {
+    const f = inscripcionDe(inscripciones.porMercado[p.marketplaceId], diaMadrid(p.fecha));
+    if (f) porInscripcion.set(f.id, (porInscripcion.get(f.id) ?? 0) + p.unidades);
+  }
+  let tablaCambiada = false;
+  const porMercado = Object.fromEntries(
+    Object.entries(inscripciones.porMercado).map(([mk, lista]) => [
+      mk,
+      lista.map((f) => {
+        const vistos = porInscripcion.get(f.id) ?? 0;
+        if (vistos <= f.reclamado) return f;
+        tablaCambiada = true;
+        return { ...f, reclamado: vistos };
+      }),
+    ]),
+  );
+  if (tablaCambiada) {
+    await refInscripciones().set({ porMercado, actualizadoEn: new Date().toISOString() });
+    contarEscrituras(1);
+    gi.__vineInscripciones = { porMercado };
+    escrituras++;
+  }
+  if (nuevas.length === 0) return escrituras;
+
+  // Recorded before notifying, so a Telegram failure never makes the same claim ring twice.
+  ga.__vineAvisos = { avisados: [...avisados, ...nuevas.map((p) => p.id)] };
+  await refAvisos().set({ ...ga.__vineAvisos, actualizadoEn: new Date().toISOString() });
+  contarEscrituras(1);
+  escrituras++;
+
+  const reclamos: ReclamoVine[] = [];
+  for (const mk of new Set(nuevas.map((p) => p.marketplaceId))) {
+    const delMercado = nuevas.filter((p) => p.marketplaceId === mk);
+    const unidades = delMercado.reduce((s, p) => s + p.unidades, 0);
+    const ultima = delMercado.at(-1)!;
+    const f = inscripcionDe(porMercado[mk], diaMadrid(ultima.fecha));
+    // With an enrollment in the table its «Reclamado»; otherwise all the Vine units seen in that marketplace.
+    const ahora = f ? f.reclamado : lineas.filter((p) => p.marketplaceId === mk).reduce((s, p) => s + p.unidades, 0);
+    const producto = [...new Set(delMercado.map((p) => ETIQUETAS_POR_ASIN[p.asin] ?? (p.titulo.slice(0, 40) || p.sku)))].join(" + ");
+    reclamos.push({ marketplaceId: mk, producto, unidades, antes: Math.max(0, ahora - unidades), ahora, registradas: f?.registrado ?? null });
+  }
+  await avisarVine(reclamos);
+  return escrituras;
 }

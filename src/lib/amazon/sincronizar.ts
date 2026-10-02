@@ -296,6 +296,15 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
       errores.push(`Vigilancia de listings: ${mensaje(e)}`);
     }
 
+    // 4d. Vine: Telegram notice when a reviewer claims a unit, and «Reclamado» in the Vine table kept up to date
+    // (from the orders in memory; loaded here because vine.ts → panel.ts imports this module).
+    try {
+      const { avisarReclamosVine } = await import("@/lib/datos/vine");
+      escrituras += await avisarReclamosVine();
+    } catch (e) {
+      errores.push(`Vine: ${mensaje(e)}`);
+    }
+
     // 5–11. Photos, stock, listings, reports, shipments, account health and Gmail (complete syncs only)
     if (completa) {
       // 5. Listing photos (a failure here never blocks the sales data)

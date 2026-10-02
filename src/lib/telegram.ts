@@ -70,13 +70,15 @@ type Actualizacion = { message?: { chat?: Chat; migrate_to_chat_id?: number }; m
  */
 const GRUPOS = {
   /** Account alerts: any group not claimed by the title of another kind. */
-  alertas: { env: "TELEGRAM_CHAT_ALERTAS", campo: "chatAlertas", titulo: (t: string) => !/mensaje|listing|infracci/i.test(t) },
+  alertas: { env: "TELEGRAM_CHAT_ALERTAS", campo: "chatAlertas", titulo: (t: string) => !/mensaje|listing|infracci|vine/i.test(t) },
   /** Buyer messages: the group named «Mensaje comprador Amazon» (any title with «mensaje»). */
   mensajes: { env: "TELEGRAM_CHAT_MENSAJES", campo: "chatMensajes", titulo: (t: string) => /mensaje/i.test(t) },
   /** Watched listings going inactive / active again: the group «Listing inactivo» (any title with «listing»). */
   listings: { env: "TELEGRAM_CHAT_LISTINGS", campo: "chatListings", titulo: (t: string) => /listing/i.test(t) },
   /** New policy infractions while the account stays at 200+ points: «Estado cuenta infraccion +200 pt». */
   infracciones: { env: "TELEGRAM_CHAT_INFRACCIONES", campo: "chatInfracciones", titulo: (t: string) => /infracci/i.test(t) },
+  /** Vine units claimed by reviewers: the group «Vine». */
+  vine: { env: "TELEGRAM_CHAT_VINE", campo: "chatVine", titulo: (t: string) => /vine/i.test(t) },
 } as const;
 type Grupo = keyof typeof GRUPOS;
 
@@ -305,6 +307,34 @@ export async function avisarInfracciones(nuevas: NuevaInfraccion[]): Promise<voi
     await enviarTelegram(
       `⚠️ <b>Nueva infracción en la salud de la cuenta</b>\n${pais}${puntos}\n${[...lineas, ...detalles].join("\n")}\nRevisa «Estado de la cuenta» en la app o en Seller Central.`,
       "infracciones",
+    );
+  }
+}
+
+export type ReclamoVine = {
+  marketplaceId: string;
+  /** Listing name (label) of the claimed units. */
+  producto: string;
+  /** Units claimed in this notice. */
+  unidades: number;
+  /** Units claimed in that marketplace before / now (all Vine orders the app knows). */
+  antes: number;
+  ahora: number;
+  /** Units registered in that marketplace's Vine enrollment, when it is in the Vine table. */
+  registradas: number | null;
+};
+
+/** A Vine reviewer claimed units (a 100 %-discount order): one message per marketplace, to the «Vine» group. */
+export async function avisarVine(reclamos: ReclamoVine[]): Promise<void> {
+  if (!telegramConfigurado()) return;
+  for (const [i, r] of reclamos.entries()) {
+    if (i > 0) await new Promise((res) => setTimeout(res, PAUSA_MS));
+    const mk = marketplaceConocido(r.marketplaceId);
+    const pais = mk ? `${bandera(mk.codigoPais)} ${escapar(mk.pais)}` : escapar(r.marketplaceId);
+    const de = r.registradas ? ` de ${formatNumero(r.registradas)}` : "";
+    await enviarTelegram(
+      `🎁 <b>${r.unidades === 1 ? "Nueva unidad de Vine reclamada" : `${formatNumero(r.unidades)} unidades de Vine reclamadas`}</b>\n${pais} · ${escapar(r.producto)}\nReclamado: ${formatNumero(r.antes)} → <b>${formatNumero(r.ahora)}</b>${de}`,
+      "vine",
     );
   }
 }
