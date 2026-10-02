@@ -279,10 +279,13 @@ export async function avisarListings(cambios: CambioListing[]): Promise<void> {
 
 export type NuevaInfraccion = {
   marketplaceId: string;
-  puntuacion: number;
+  /** null when the account health report has no score for that marketplace yet. */
+  puntuacion: number | null;
   puntuacionAntes: number | null;
   /** Each category that went up, e.g. { texto: "Incumplimiento de la política de publicación", antes: 0, ahora: 1 }. */
   subidas: { texto: string; antes: number; ahora: number }[];
+  /** What each new issue is about, when known (compliance issues: "SKU: Amazon's message"). */
+  detalles?: string[];
 };
 
 /**
@@ -296,9 +299,11 @@ export async function avisarInfracciones(nuevas: NuevaInfraccion[]): Promise<voi
     const mk = marketplaceConocido(n.marketplaceId);
     const pais = mk ? `${bandera(mk.codigoPais)} ${escapar(mk.pais)}` : escapar(n.marketplaceId);
     const antes = n.puntuacionAntes !== null && n.puntuacionAntes !== n.puntuacion ? ` (antes ${formatNumero(n.puntuacionAntes)})` : "";
+    const puntos = n.puntuacion !== null ? ` · <b>${formatNumero(n.puntuacion)} puntos</b>${antes}` : "";
     const lineas = n.subidas.map((s) => `• ${escapar(s.texto)}: ${formatNumero(s.antes)} → <b>${formatNumero(s.ahora)}</b>`);
+    const detalles = (n.detalles ?? []).map((d) => `📦 ${escapar(d.length > 250 ? `${d.slice(0, 250).trimEnd()}…` : d)}`);
     await enviarTelegram(
-      `⚠️ <b>Nueva infracción en la salud de la cuenta</b>\n${pais} · <b>${formatNumero(n.puntuacion)} puntos</b>${antes}\n${lineas.join("\n")}\nRevisa «Estado de la cuenta» en la app o en Seller Central.`,
+      `⚠️ <b>Nueva infracción en la salud de la cuenta</b>\n${pais}${puntos}\n${[...lineas, ...detalles].join("\n")}\nRevisa «Estado de la cuenta» en la app o en Seller Central.`,
       "infracciones",
     );
   }

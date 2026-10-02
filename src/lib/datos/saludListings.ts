@@ -5,7 +5,8 @@ import { estadoListing, sellerIdPropio, type EstadoListing } from "@/lib/amazon/
 import { pedidosEnAlmacen } from "./almacen";
 import { obtenerStock } from "./stock";
 import { contarEscrituras, contarLecturas } from "./consumo";
-import { avisarListings, type CambioListing } from "@/lib/telegram";
+import { avisarInfracciones, avisarListings, type CambioListing, type NuevaInfraccion } from "@/lib/telegram";
+import { obtenerEstadoCuenta, PUNTUACION_ADECUADA } from "./estadoCuenta";
 
 /*
  * Listing health: status and open issues (suppressions, missing attributes,
@@ -67,6 +68,7 @@ export async function actualizarSaludListings(marketplaceIds: string[]): Promise
   await ref().set(doc);
   contarEscrituras(1);
   await avisarListings(cambiosVigilados(actual.items, items));
+  await avisarNormativosNuevos(actual.items, items);
   return 1;
 }
 
@@ -122,6 +124,7 @@ export async function vigilarListings(): Promise<number> {
   contarEscrituras(1);
   g.__saludListings = doc;
   await avisarListings(cambiosVigilados(actual.items, items));
+  await avisarNormativosNuevos(actual.items, items);
   return 1;
 }
 
@@ -138,9 +141,12 @@ const NORMATIVO = /\bRER\b|\bEPR\b|responsabilidad ampliada|normativ|regulator|c
 
 /** Per marketplace: open compliance issues of any SKU (deduplicated by message). */
 export async function problemasNormativos(): Promise<Record<string, ProblemaProducto[]>> {
-  const doc = await leer();
+  return normativosDe((await leer()).items);
+}
+
+function normativosDe(items: Record<string, EstadoListing>): Record<string, ProblemaProducto[]> {
   const res: Record<string, ProblemaProducto[]> = {};
-  for (const [k, e] of Object.entries(doc.items)) {
+  for (const [k, e] of Object.entries(items)) {
     const [sku, mk] = k.split("|");
     for (const p of e.problemas) {
       if (IGNORADOS.has(p.codigo) || !NORMATIVO.test(p.mensaje)) continue;
@@ -149,6 +155,38 @@ export async function problemasNormativos(): Promise<Record<string, ProblemaProd
     }
   }
   return res;
+}
+
+/**
+ * «Cumplimiento normativo» going up in a marketplace still at 200+ points (Seller Central counts it in policy
+ * compliance, but the performance report doesn't carry it): sent with the other new infractions. Only issues of
+ * SKU×marketplace pairs already read before count, so a listing read for the first time doesn't ring for what it
+ * already had.
+ */
+async function avisarNormativosNuevos(antes: Record<string, EstadoListing>, despues: Record<string, EstadoListing>): Promise<void> {
+  const { porMercado } = await obtenerEstadoCuenta();
+  const nuevas = normativosNuevos(antes, despues, Object.fromEntries(Object.entries(porMercado).map(([mk, e]) => [mk, e.puntuacion])));
+  if (nuevas.length) await avisarInfracciones(nuevas);
+}
+
+export function normativosNuevos(antes: Record<string, EstadoListing>, despues: Record<string, EstadoListing>, puntuaciones: Record<string, number | null>): NuevaInfraccion[] {
+  const conocidos = Object.fromEntries(Object.entries(despues).filter(([k]) => k in antes));
+  const previos = normativosDe(antes);
+  const actuales = normativosDe(conocidos);
+  const nuevas: NuevaInfraccion[] = [];
+  for (const [mk, lista] of Object.entries(actuales)) {
+    const nuevos = lista.filter((p) => !previos[mk]?.some((x) => x.mensaje === p.mensaje));
+    const puntuacion = puntuaciones[mk] ?? null;
+    if (nuevos.length === 0 || (puntuacion !== null && puntuacion < PUNTUACION_ADECUADA)) continue;
+    nuevas.push({
+      marketplaceId: mk,
+      puntuacion,
+      puntuacionAntes: null,
+      subidas: [{ texto: "Cumplimiento normativo", antes: previos[mk]?.length ?? 0, ahora: (previos[mk]?.length ?? 0) + nuevos.length }],
+      detalles: nuevos.map((p) => `${p.sku}: ${p.mensaje}`),
+    });
+  }
+  return nuevas;
 }
 
 /** Health of one product (all its SKUs) in each marketplace where it is listed. */
