@@ -50,8 +50,9 @@ type Doc = { porMercado: Record<string, EstadoMercado>; actualizadoEn: string | 
 const g = globalThis as unknown as { __estadoCuenta?: Doc };
 const ref = () => adminDb().collection("config").doc("estadoCuenta");
 
-export async function obtenerEstadoCuenta(): Promise<Doc> {
-  if (g.__estadoCuenta) return g.__estadoCuenta;
+/** `fresco`: skip the in-memory copy (the stored doc may have been changed from outside this server). */
+export async function obtenerEstadoCuenta(fresco = false): Promise<Doc> {
+  if (g.__estadoCuenta && !fresco) return g.__estadoCuenta;
   const snap = await ref().get();
   contarLecturas(1);
   g.__estadoCuenta = { porMercado: (snap.get("porMercado") as Doc["porMercado"] | undefined) ?? {}, actualizadoEn: (snap.get("actualizadoEn") as string | undefined) ?? null };
@@ -70,7 +71,7 @@ export async function resumenEstadoCuenta(): Promise<"ok" | "mal" | null> {
   return puntuaciones.every((p) => p >= PUNTUACION_ADECUADA) ? "ok" : "mal";
 }
 
-async function leerMercado(marketplaceId: string): Promise<EstadoMercado | null> {
+export async function leerMercado(marketplaceId: string): Promise<EstadoMercado | null> {
   const r = await rendimientoVendedor(marketplaceId);
   const m = r?.performanceMetrics?.find((x) => x.marketplaceId === marketplaceId) ?? r?.performanceMetrics?.[0];
   if (!r || !m) return null;
@@ -94,9 +95,12 @@ async function leerMercado(marketplaceId: string): Promise<EstadoMercado | null>
  * done. Skipped when refreshed lately (`forzar` shortens "lately" to minutes: Amazon limits report requests).
  */
 export async function actualizarEstadoCuenta(marketplaceIds: string[], forzar = false): Promise<{ escrituras: number; errores: string[] }> {
-  const actual = await obtenerEstadoCuenta();
-  const edad = actual.actualizadoEn ? Date.now() - new Date(actual.actualizadoEn).getTime() : Infinity;
+  const enMemoria = await obtenerEstadoCuenta();
+  const edad = enMemoria.actualizadoEn ? Date.now() - new Date(enMemoria.actualizadoEn).getTime() : Infinity;
   if (edad < (forzar ? MINIMO_MS : REFRESCO_MS) || marketplaceIds.length === 0) return { escrituras: 0, errores: [] };
+  // The notices compare against the stored doc as it is now (one read per hour): an infraction already
+  // acknowledged there (stored as the starting point by hand) must not ring again.
+  const actual = await obtenerEstadoCuenta(true);
   const resultados = await Promise.allSettled(marketplaceIds.map((mk, i) => new Promise((r) => setTimeout(r, i * 1500)).then(() => leerMercado(mk))));
   const porMercado = { ...actual.porMercado };
   const errores: string[] = [];
