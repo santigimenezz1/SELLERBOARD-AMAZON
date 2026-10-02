@@ -4,6 +4,7 @@ import { actualizarIngresos, importarCompensaciones } from "@/lib/datos/ingresos
 import { actualizarSaldos } from "@/lib/datos/saldos";
 import { actualizarPanEuropeo } from "@/lib/datos/panEuropeo";
 import { actualizarCapacidad } from "@/lib/datos/capacidad";
+import { actualizarMensajes } from "@/lib/datos/mensajes";
 import { asegurarAlmacen, pedidosEnAlmacen } from "@/lib/datos/almacen";
 import { idUltimaSync } from "@/lib/datos/panel";
 
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
     const hace60 = Date.now() - 60 * 24 * 3600_000;
     await actualizarPanEuropeo();
     await actualizarCapacidad(true);
+    await actualizarMensajes();
     await actualizarSaldos([...new Set([...pedidosEnAlmacen().values()].filter((p) => p.fecha.getTime() > hace60).map((p) => p.marketplaceId))]);
     return NextResponse.json({ ok: true, pagos: await actualizarIngresos(), compensaciones });
   } catch (e) {

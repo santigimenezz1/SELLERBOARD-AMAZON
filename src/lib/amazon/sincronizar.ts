@@ -24,6 +24,7 @@ import { actualizarSaldos } from "@/lib/datos/saldos";
 import { lanzarCargaPalabras, mercadosPendientes } from "@/lib/datos/palabrasClave";
 import { actualizarPanEuropeo } from "@/lib/datos/panEuropeo";
 import { actualizarCapacidad } from "@/lib/datos/capacidad";
+import { actualizarMensajes } from "@/lib/datos/mensajes";
 import { eventosFinancieros, imagenesCatalogo, marketplacesActivos, pedidosActualizados, type PedidoAmazon } from "./apis";
 import { muestrasTarifas, resumirEventos, type TransaccionResumida } from "./finanzas";
 import { guardarTarifas, tarifasCreadas } from "@/lib/datos/tarifasVenta";
@@ -383,7 +384,14 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         errores.push(`Capacidad de almacenamiento: ${mensaje(e)}`);
       }
 
-      // 10g. Brand Analytics (Palabras clave): a new week, when Amazon has published it, loads in the background
+      // 10g. Buyer messages from the connected Gmail (never blocks the sales data)
+      try {
+        if ((await actualizarMensajes()).length) escrituras++;
+      } catch (e) {
+        errores.push(`Mensajes de clientes: ${mensaje(e)}`);
+      }
+
+      // 10h. Brand Analytics (Palabras clave): a new week, when Amazon has published it, loads in the background
       try {
         lanzarCargaPalabras(await mercadosPendientes());
       } catch (e) {

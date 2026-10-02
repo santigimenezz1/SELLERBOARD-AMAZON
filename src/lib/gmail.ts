@@ -120,3 +120,74 @@ export async function sincronizarGmail(): Promise<number> {
   if (nuevos.length > 0 || doc.actualizadoEn === null) await guardarGmail({ notificaciones, descartados: [...vistos], actualizadoEn: new Date().toISOString() });
   return anadidas;
 }
+
+// ---------- Buyer messages (Amazon sends a copy of each one from …@marketplace.amazon.xx) ----------
+
+export type CorreoCliente = {
+  id: string;
+  fecha: string;
+  asunto: string;
+  /** Domain of the sending marketplace: "amazon.de"… */
+  dominio: string;
+  marketplaceId: string | null;
+  cliente: string | null;
+  pedido: string | null;
+  producto: string | null;
+  asin: string | null;
+  texto: string;
+};
+
+type Parte = { mimeType?: string; body?: { data?: string }; parts?: Parte[] };
+type CorreoCompleto = { id: string; internalDate?: string; payload?: Parte & { headers?: { name: string; value: string }[] } };
+
+function textoPlano(p: Parte | undefined): string {
+  if (!p) return "";
+  if (p.mimeType === "text/plain" && p.body?.data) return Buffer.from(p.body.data, "base64url").toString("utf8");
+  for (const q of p.parts ?? []) {
+    const t = textoPlano(q);
+    if (t) return t;
+  }
+  return "";
+}
+
+/** Reads one buyer-message email: the order, the product, the buyer's text between Amazon's dashed lines. */
+function leerCorreoCliente(m: CorreoCompleto): CorreoCliente {
+  const cabecera = (n: string) => m.payload?.headers?.find((h) => h.name.toLowerCase() === n)?.value ?? "";
+  const asunto = cabecera("subject");
+  const remitente = cabecera("from");
+  const cuerpo = textoPlano(m.payload).replace(/\r/g, "");
+  const lineas = cuerpo.split("\n");
+  const guiones = lineas.map((l, i) => (/^-{5,}.*-{5,}\s*$/.test(l.trim()) ? i : -1)).filter((i) => i >= 0);
+  const texto = (guiones.length >= 2 ? lineas.slice(guiones[0] + 1, guiones[1]) : lineas.slice(0, 40)).join("\n").trim();
+  const producto = cuerpo.match(/^\s*\d+\s*\/\s*(.+?)\s*\[ASIN:\s*([A-Z0-9]{10})\]/m);
+  return {
+    id: m.id,
+    fecha: new Date(Number(m.internalDate) || Date.now()).toISOString(),
+    asunto,
+    dominio: remitente.match(/@marketplace\.(amazon\.[a-z.]+)/i)?.[1]?.toLowerCase() ?? "",
+    marketplaceId: cuerpo.match(/[?&]mp=([A-Z0-9]{9,14})/)?.[1] ?? null,
+    cliente: asunto.match(/(?:Amazon-Kunde|client Amazon|cliente de Amazon|cliente Amazon|Amazon customer|cliente Amazon)\s+([^()]+?)\s*(?:\(|$)/i)?.[1]?.trim() ?? null,
+    pedido: cuerpo.match(/#\s*(\d{3}-\d{7}-\d{7})/)?.[1] ?? asunto.match(/(\d{3}-\d{7}-\d{7})/)?.[1] ?? null,
+    producto: producto?.[1] ?? null,
+    asin: producto?.[2] ?? null,
+    texto: texto.slice(0, 5000),
+  };
+}
+
+/** Buyer messages of the last year not in `conocidos` (at most 60 per call, newest first). */
+export async function correosClientesNuevos(conocidos: Set<string>): Promise<CorreoCliente[]> {
+  const doc = await obtenerGmail();
+  if (!doc.refreshToken) return [];
+  const { access_token } = await token({ refresh_token: doc.refreshToken, grant_type: "refresh_token" });
+  const r = await gmailGet<{ messages?: { id: string }[] }>(access_token, "/messages", [
+    ["q", "from:marketplace.amazon newer_than:365d"],
+    ["maxResults", "500"],
+  ]);
+  const nuevos = (r.messages ?? []).map((m) => m.id).filter((id) => !conocidos.has(id)).slice(0, 60);
+  const res: CorreoCliente[] = [];
+  for (const id of nuevos) {
+    const m = await gmailGet<CorreoCompleto>(access_token, `/messages/${id}`, [["format", "full"]]).catch(() => null);
+    if (m) res.push(leerCorreoCliente(m));
+  }
+  return res;
+}
