@@ -13,7 +13,7 @@ import { avisarVentas } from "@/lib/telegram";
 import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
 import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
-import { actualizarSaludListings } from "@/lib/datos/saludListings";
+import { actualizarSaludListings, vigilarListings } from "@/lib/datos/saludListings";
 import { actualizarEnvios } from "@/lib/datos/envios";
 import { actualizarInventarioPaises } from "@/lib/datos/inventarioPaises";
 import { actualizarEstadoCuenta } from "@/lib/datos/estadoCuenta";
@@ -286,6 +286,14 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
       if ((await actualizarMensajes()).length) escrituras++;
     } catch (e) {
       errores.push(`Mensajes de clientes: ${mensaje(e)}`);
+    }
+
+    // 4c. Watched listings (LISTING VIEJO / NUEVO, FUTBLEXPROKIT1): Telegram notice when one goes inactive in a
+    // country, within minutes (a couple of dozen Listings API calls; never blocks the sales data).
+    try {
+      escrituras += await vigilarListings();
+    } catch (e) {
+      errores.push(`Vigilancia de listings: ${mensaje(e)}`);
     }
 
     // 5–11. Photos, stock, listings, reports, shipments, account health and Gmail (complete syncs only)

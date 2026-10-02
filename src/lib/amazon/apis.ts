@@ -526,8 +526,11 @@ export async function estadoListing(sellerId: string, sku: string, marketplaceId
       issueLocale: "es_ES",
     });
     return {
-      estado: r.summaries?.[0]?.status ?? [],
-      problemas: (r.issues ?? []).map((i) => ({ severidad: i.severity, codigo: i.code, mensaje: i.message, acciones: i.enforcements?.actions?.map((a) => a.action) ?? [] })),
+      // Sorted: Amazon returns the same statuses and issues in varying order, which would look like a change.
+      estado: [...(r.summaries?.[0]?.status ?? [])].sort(),
+      problemas: (r.issues ?? [])
+        .map((i) => ({ severidad: i.severity, codigo: i.code, mensaje: i.message, acciones: i.enforcements?.actions?.map((a) => a.action) ?? [] }))
+        .sort((a, b) => a.codigo.localeCompare(b.codigo) || a.mensaje.localeCompare(b.mensaje)),
     };
   } catch (e) {
     if (e instanceof ErrorAmazon && e.status === 404) return null;

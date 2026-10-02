@@ -5,6 +5,7 @@ import { estadoListing, sellerIdPropio, type EstadoListing } from "@/lib/amazon/
 import { pedidosEnAlmacen } from "./almacen";
 import { obtenerStock } from "./stock";
 import { contarEscrituras, contarLecturas } from "./consumo";
+import { avisarListings, type CambioListing } from "@/lib/telegram";
 
 /*
  * Listing health: status and open issues (suppressions, missing attributes,
@@ -65,6 +66,62 @@ export async function actualizarSaludListings(marketplaceIds: string[]): Promise
   if (!cambio) return 0;
   await ref().set(doc);
   contarEscrituras(1);
+  await avisarListings(cambiosVigilados(actual.items, items));
+  return 1;
+}
+
+/** Listings watched every few minutes, by SKU, with the name used in the Telegram notice. */
+const VIGILADOS: Record<string, string> = {
+  FUTBLEXPRO1: "LISTING VIEJO",
+  "ALFOMBRA-CONOS": "LISTING NUEVO",
+  FUTBLEXPROKIT1: "FUTBLEXPROKIT1",
+};
+const comprable = (e: EstadoListing | undefined) => !!e?.estado.includes("BUYABLE");
+
+/**
+ * Watched listings that were buyable and no longer are (or the other way round). A key that wasn't known
+ * before is not a change; one that disappeared (no longer listed) counts as inactive.
+ */
+function cambiosVigilados(antes: Record<string, EstadoListing>, despues: Record<string, EstadoListing>): CambioListing[] {
+  const res: CambioListing[] = [];
+  for (const k of Object.keys(antes)) {
+    const [sku, marketplaceId] = k.split("|");
+    if (!(sku in VIGILADOS) || comprable(antes[k]) === comprable(despues[k])) continue;
+    const motivo = despues[k]?.problemas.find((p) => p.severidad === "ERROR" && !IGNORADOS.has(p.codigo))?.mensaje ?? null;
+    res.push({ nombre: VIGILADOS[sku], sku, marketplaceId, activo: comprable(despues[k]), motivo });
+  }
+  return res;
+}
+
+/**
+ * Sync stage run every few minutes: re-reads the watched SKUs in the marketplaces where they are listed and
+ * sends a Telegram notice when one goes inactive (or back to active). Uses what the hourly stage stored as
+ * the starting point; writes only when something changed. A marketplace that fails to answer keeps its
+ * previous status (tried again next time).
+ */
+export async function vigilarListings(): Promise<number> {
+  const actual = await leer();
+  if (!actual.sellerId) return 0;
+  const claves = Object.keys(actual.items).filter((k) => k.split("|")[0] in VIGILADOS);
+  if (claves.length === 0) return 0;
+
+  const items = { ...actual.items };
+  for (const k of claves) {
+    const [sku, mk] = k.split("|");
+    try {
+      const e = await estadoListing(actual.sellerId, sku, mk);
+      // No longer listed there: kept with no status, so it stays watched and counts as inactive.
+      items[k] = e ?? { estado: [], problemas: [] };
+    } catch {
+      // Keep the previous status.
+    }
+  }
+  if (JSON.stringify(items) === JSON.stringify(actual.items)) return 0;
+  const doc: Doc = { ...actual, items, comprobadoEn: actual.comprobadoEn };
+  await ref().set(doc);
+  contarEscrituras(1);
+  g.__saludListings = doc;
+  await avisarListings(cambiosVigilados(actual.items, items));
   return 1;
 }
 

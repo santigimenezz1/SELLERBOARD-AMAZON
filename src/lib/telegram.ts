@@ -70,9 +70,11 @@ type Actualizacion = { message?: { chat?: Chat; migrate_to_chat_id?: number }; m
  */
 const GRUPOS = {
   /** Account alerts: any group not claimed by the title of another kind. */
-  alertas: { env: "TELEGRAM_CHAT_ALERTAS", campo: "chatAlertas", titulo: (t: string) => !/mensaje/i.test(t) },
+  alertas: { env: "TELEGRAM_CHAT_ALERTAS", campo: "chatAlertas", titulo: (t: string) => !/mensaje|listing/i.test(t) },
   /** Buyer messages: the group named «Mensaje comprador Amazon» (any title with «mensaje»). */
   mensajes: { env: "TELEGRAM_CHAT_MENSAJES", campo: "chatMensajes", titulo: (t: string) => /mensaje/i.test(t) },
+  /** Watched listings going inactive / active again: the group «Listing inactivo» (any title with «listing»). */
+  listings: { env: "TELEGRAM_CHAT_LISTINGS", campo: "chatListings", titulo: (t: string) => /listing/i.test(t) },
 } as const;
 type Grupo = keyof typeof GRUPOS;
 
@@ -248,5 +250,27 @@ export async function avisarMensajesClientes(mensajes: CorreoCliente[]): Promise
   if (resto > 0) {
     await new Promise((r) => setTimeout(r, PAUSA_MS));
     await enviarTelegram(`💬 <b>Y ${resto} mensajes de clientes más</b>\nLos tienes en «Mensajes» en la app.`, "mensajes");
+  }
+}
+
+export type CambioListing = { nombre: string; sku: string; marketplaceId: string; activo: boolean; motivo: string | null };
+
+/**
+ * A watched listing that stopped being buyable in a marketplace (red, with Amazon's reason when it gives one)
+ * or is buyable again (green). One message per change, to the «Listing inactivo» group.
+ */
+export async function avisarListings(cambios: CambioListing[]): Promise<void> {
+  if (!telegramConfigurado()) return;
+  for (const [i, c] of cambios.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS));
+    const mk = marketplaceConocido(c.marketplaceId);
+    const pais = mk ? `${bandera(mk.codigoPais)} ${escapar(mk.pais)}` : escapar(c.marketplaceId);
+    const listing = c.nombre === c.sku ? `<b>${escapar(c.sku)}</b>` : `<b>${escapar(c.nombre)}</b> (${escapar(c.sku)})`;
+    await enviarTelegram(
+      c.activo
+        ? `🟢 <b>Listing activo de nuevo</b>\n${listing}\n${pais}`
+        : `🔴 <b>¡Listing inactivo!</b>\n${listing}\n${pais}${c.motivo ? `\nMotivo: ${escapar(c.motivo.slice(0, 300))}` : ""}\nRevísalo en Seller Central.`,
+      "listings",
+    );
   }
 }
