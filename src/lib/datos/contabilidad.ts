@@ -22,9 +22,10 @@ import type { TarifaVenta } from "@/lib/amazon/finanzas";
  * + Amazon's compensations                        lost/damaged units, refunds never returned…
  * = What Amazon leaves you from your sales
  * − Account charges                               storage, ads, subscription… in the month they belong to
- *                                                 (storage charged on the 7th is last month's); a charge
- *                                                 not billed yet (storage, ads, the subscription) is
- *                                                 estimated with the latest month actually billed
+ *                                                 (storage charged on the 7th is last month's). Only what
+ *                                                 Amazon has charged, except two provisional amounts until
+ *                                                 the real ones are billed: the month's storage (a fixed
+ *                                                 amount) and the current month's Professional plan fee
  * = Result before the cost of the goods
  * − Cost of the goods sold                        units sold × their unit cost from the product's cost
  *                                                 breakdown (freight and duties included); a product whose
@@ -39,11 +40,8 @@ export type Region = "eu" | "uk";
 type PorRegion = Record<Region, number>;
 const cero = (): PorRegion => ({ eu: 0, uk: 0 });
 
-/**
- * A charge not billed yet, estimated with the latest billed month. In the current month only the part of the
- * days gone by counts (`dias` of `diasMes`), like its sales: the whole amount once the month is over.
- */
-export type GastoEstimado = { categoria: CategoriaGasto; region: Region; eur: number; cobro: string; dias: number | null; diasMes: number | null };
+/** A provisional charge until Amazon bills the real one: a month's storage, the current month's plan fee. */
+export type GastoEstimado = { categoria: CategoriaGasto; region: Region; eur: number; cobro: string };
 
 export type MesContable = {
   mes: string;
@@ -68,24 +66,17 @@ export type MesContable = {
 
 const PRIMER_MES = "2026-01";
 const r2 = (v: number) => Math.round(v * 100) / 100;
-const mesAnterior = (mes: string) => {
-  const [a, m] = mes.split("-").map(Number);
-  return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, "0")}`;
-};
-/** "2026-10-06" + n days, as "YYYY-MM-DD". */
-const sumarDiasMes = (dia: string, n: number) => {
-  const [a, m, d] = dia.split("-").map(Number);
-  return new Date(Date.UTC(a, m - 1, d + n)).toISOString().slice(0, 10);
-};
 const mesSiguiente = (mes: string) => {
   const [a, m] = mes.split("-").map(Number);
   return m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, "0")}`;
 };
 
-// Charges billed after the month they belong to: the day of the next month Amazon bills them.
-const COBRO_POSTERIOR: Partial<Record<CategoriaGasto, number>> = { almacenamiento: 7, publicidad: 2 };
-/** The monthly subscription is billed around this day of its own month. */
+/** The Professional plan: billed around this day of its own month, at about this amount (euros). */
 const DIA_SUSCRIPCION = 6;
+const CUOTA_SUSCRIPCION = 40;
+/** Provisional storage of a month (euros, Europe + UK) until Amazon bills it, on the 7th of the next month. */
+const ALMACENAMIENTO_PROVISIONAL = 2256;
+const DIA_ALMACENAMIENTO = 7;
 
 /**
  * Fees of one unit at a given price from a real sale's fees (same maths as the product page): the referral fee
@@ -204,37 +195,22 @@ export async function obtenerContabilidad(ahora = new Date()): Promise<MesContab
   // Customer refunds are already counted per order above; AGL is part of the goods' unit cost.
   for (const l of gastosDatos.lineas) if (l.categoria !== "agl" && l.categoria !== "devoluciones") meses.get(l.mes)?.gastos.push(l);
 
-  // Real charges of a category in the latest month before `desde` (inclusive) that has them, up to 4 months back:
-  // the month just before may not be billed yet either (September's storage comes on 7 October).
-  const ultimoCobrado = (cat: CategoriaGasto, desde: string) => {
-    for (let k = desde, i = 0; i < 4; k = mesAnterior(k), i++) {
-      const ls = meses.get(k)?.gastos.filter((l) => l.categoria === cat) ?? [];
-      if (ls.length) return ls;
-    }
-    return [];
-  };
-  const [anio, mesNum, diaHoy] = hoy.split("-").map(Number);
-  const diasMesActual = new Date(Date.UTC(anio, mesNum, 0)).getUTCDate();
-  const estimar = (m: MesContable, cat: CategoriaGasto, cobro: string) => {
-    const previo = ultimoCobrado(cat, mesAnterior(m.mes));
-    // The current month shows its sales up to today: its charges too, the share of the days gone by.
-    const parte = m.enCurso ? diaHoy / diasMesActual : 1;
-    for (const r of ["eu", "uk"] as const) {
-      const eur = previo.filter((l) => l.region === r).reduce((s, l) => s + l.eur, 0);
-      if (eur > 0)
-        m.gastosEstimados.push({ categoria: cat, region: r, eur: r2(eur * parte), cobro, dias: m.enCurso ? diaHoy : null, diasMes: m.enCurso ? diasMesActual : null });
-    }
-  };
+  // Storage of each month not billed yet: the fixed provisional amount, split between Europe and the UK like the
+  // latest storage actually billed.
+  const ultimoAlmacen = [...meses.values()].reverse().map((m) => m.gastos.filter((l) => l.categoria === "almacenamiento")).find((ls) => ls.length) ?? [];
+  const totalUltimo = ultimoAlmacen.reduce((s, l) => s + l.eur, 0);
+  const parteUK = totalUltimo > 0 ? ultimoAlmacen.filter((l) => l.region === "uk").reduce((s, l) => s + l.eur, 0) / totalUltimo : 0;
   for (const m of meses.values()) {
-    // Storage and ads billed next month: while their bill hasn't come, estimated with the latest billed month.
-    for (const [cat, dia] of Object.entries(COBRO_POSTERIOR) as [CategoriaGasto, number][]) {
-      const cobro = `${mesSiguiente(m.mes)}-${String(dia).padStart(2, "0")}`;
-      if (hoy > cobro || m.gastos.some((l) => l.categoria === cat)) continue;
-      estimar(m, cat, cobro);
-    }
-    // The subscription of the current month, until it's billed (a few days' margin after the usual day).
-    const cobroSuscripcion = `${m.mes}-${String(DIA_SUSCRIPCION).padStart(2, "0")}`;
-    if (m.enCurso && hoy <= sumarDiasMes(cobroSuscripcion, 6) && !m.gastos.some((l) => l.categoria === "suscripcion")) estimar(m, "suscripcion", cobroSuscripcion);
+    const cobro = `${mesSiguiente(m.mes)}-${String(DIA_ALMACENAMIENTO).padStart(2, "0")}`;
+    if (hoy > cobro || m.gastos.some((l) => l.categoria === "almacenamiento")) continue;
+    for (const [r, parte] of [["eu", 1 - parteUK], ["uk", parteUK]] as const)
+      if (parte > 0) m.gastosEstimados.push({ categoria: "almacenamiento", region: r, eur: r2(ALMACENAMIENTO_PROVISIONAL * parte), cobro });
+  }
+
+  // The current month's Professional plan, whole from day 1, until Amazon bills the real one.
+  for (const m of meses.values()) {
+    if (m.enCurso && !m.gastos.some((l) => l.categoria === "suscripcion"))
+      m.gastosEstimados.push({ categoria: "suscripcion", region: "eu", eur: CUOTA_SUSCRIPCION, cobro: `${m.mes}-${String(DIA_SUSCRIPCION).padStart(2, "0")}` });
   }
 
   for (const m of meses.values()) {

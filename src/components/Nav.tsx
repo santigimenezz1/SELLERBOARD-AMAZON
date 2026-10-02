@@ -10,6 +10,7 @@ const ENLACES = [
   { href: "/stock", texto: "Stock" },
   { href: "/gastos", texto: "Gastos" },
   { href: "/tendencias", texto: "Tendencias" },
+  { href: "/vine", texto: "Vine" },
   // Hidden for now (the page, its data and the weekly load stay as they are): uncomment to show it again.
   // { href: "/palabras-clave", texto: "Palabras clave" },
   { href: "/documentos", texto: "Documentos" },
@@ -38,7 +39,7 @@ function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
 export function Nav({ estadoCuenta, fila = false }: { estadoCuenta: Estado; fila?: boolean }) {
   const ruta = usePathname();
   return (
-    <nav className={fila ? "-mx-2.5 hidden items-center gap-1 overflow-x-auto pb-2 md:flex min-[1080px]:hidden" : "hidden items-center gap-1 min-[1080px]:flex"}>
+    <nav className={fila ? "-mx-2.5 hidden items-center gap-1 overflow-x-auto pb-2 md:max-[1080px]:flex" : "hidden items-center gap-1 min-[1080px]:flex"}>
       {ENLACES.map((e) => {
         const activo = esActivo(e.href, ruta);
         return (

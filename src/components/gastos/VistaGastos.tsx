@@ -163,8 +163,7 @@ function TarjetaGastos({ gastos, estimados, mes }: { gastos: LineaGasto[]; estim
                               </span>
                             </td>
                             <td className="py-1.5 text-right text-ink-100">
-                              ≈ {formatEuros(-e.eur)}{" "}
-                              <span className="text-ink-400">({e.dias ? `último mes cobrado, ${e.dias} de ${e.diasMes} días` : "como el último mes cobrado"})</span>
+                              {formatEuros(-e.eur)} <span className="text-ink-400">(provisional, hasta que Amazon lo cobre)</span>
                             </td>
                           </tr>
                         ))}
@@ -181,7 +180,7 @@ function TarjetaGastos({ gastos, estimados, mes }: { gastos: LineaGasto[]; estim
       {/* Month total, bottom right, under the rows' totals */}
       <div className="mt-auto flex items-center justify-between gap-4 border-t border-white/[0.08] bg-white/[0.03] py-3 pr-[38px] pl-4">
         <p className="text-[11px] leading-snug text-ink-500">
-          Cada gasto va en el mes al que corresponde: el almacenamiento cobrado el día 7 es del mes anterior, igual que la factura de publicidad de principios de mes.
+          Cada gasto va en el mes al que corresponde: el almacenamiento cobrado el día 7 es del mes anterior, igual que la factura de publicidad de principios de mes. Hasta que Amazon los cobra, el almacenamiento y la suscripción van con un importe provisional.
           {sinDias ? " De este mes Amazon ya no guarda el detalle por día (solo 90 días)." : ""} Libras pasadas a euros al cambio del día del cobro.
         </p>
         <p className="shrink-0 text-right">

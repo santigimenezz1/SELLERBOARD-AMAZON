@@ -37,7 +37,7 @@ type Props = {
  */
 export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, productos, marketplaces, acciones, avisos, consumo }: Props) {
   const mercado = marketplaces.find((m) => m.id === estado.pais);
-  // Near the limit the usage line becomes a warning at the top; otherwise it sits quietly at the bottom.
+  // The usage line sits quietly at the bottom while usage is low; near the limit it isn't shown (no red warning).
   const consumoAlto = consumo.lecturas / LIMITE_LECTURAS >= 0.5 || consumo.escrituras / LIMITE_ESCRITURAS >= 0.5;
   return (
     <TransicionPanel>
@@ -47,7 +47,6 @@ export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, p
           <BarraFiltros base={base} estado={estado} marketplaces={marketplaces} hoy={hoy} />
         </div>
         {avisos}
-        {consumoAlto && <Consumo {...consumo} />}
         <Atenuable>
           <div className="flex flex-col gap-8">
             <TarjetasPeriodo tarjetas={tarjetas} seleccionado={seleccionado.id} base={base} estado={estado} />
