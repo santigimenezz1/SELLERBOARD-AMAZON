@@ -14,6 +14,7 @@ const ENLACES = [
   // Hidden for now (the page, its data and the weekly load stay as they are): uncomment to show it again.
   // { href: "/palabras-clave", texto: "Palabras clave" },
   { href: "/mensajes", texto: "Mensajes" },
+  { href: "/analisis-h10", texto: "Análisis H10" },
   { href: "/documentos", texto: "Documentos" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
@@ -40,7 +41,7 @@ function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
 export function Nav({ estadoCuenta, fila = false }: { estadoCuenta: Estado; fila?: boolean }) {
   const ruta = usePathname();
   return (
-    <nav className={fila ? "-mx-2 hidden items-center gap-0.5 overflow-x-auto pb-2 md:max-[1180px]:flex" : "hidden items-center gap-1 min-[1180px]:flex"}>
+    <nav className={fila ? "-mx-2 hidden items-center overflow-x-auto pb-2 md:max-[1280px]:flex" : "hidden items-center gap-1 min-[1280px]:flex"}>
       {ENLACES.map((e) => {
         const activo = esActivo(e.href, ruta);
         return (
@@ -48,7 +49,7 @@ export function Nav({ estadoCuenta, fila = false }: { estadoCuenta: Estado; fila
             key={e.href}
             href={e.href}
             aria-current={activo ? "page" : undefined}
-            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg py-1.5 transition-colors ${fila ? "px-2 text-[13px]" : "px-2.5 text-sm"} ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg py-1.5 transition-colors ${fila ? "px-1.5 text-[13px]" : "px-2.5 text-sm"} ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
           >
             <Punto href={e.href} estadoCuenta={estadoCuenta} />
             {e.texto}

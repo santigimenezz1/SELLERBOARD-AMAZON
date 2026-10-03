@@ -49,11 +49,12 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
             const mercadoPrecio = p.precio ? mk.get(p.precio.marketplaceId) : undefined;
             return (
               <li key={p.asin} className="min-w-0">
-                {/* Compact card: small photo left, key figures right. The full listing opens on click. */}
-                <Link
-                  href={`/productos/${p.asin}`}
+                {/* Compact card: small photo left, key figures right. The full listing opens on click (a link
+                    covering the card, so the Amazon.es link can sit on top of it without nesting links). */}
+                <div
                   className={`group relative flex h-full gap-3 rounded-xl border border-white/[0.06] bg-ink-900/70 p-3 transition-colors hover:border-white/[0.16] hover:bg-ink-900 ${p.activo ? "" : "opacity-60"}`}
                 >
+                  <Link href={`/productos/${p.asin}`} aria-label={p.titulo} className="absolute inset-0 z-[1] rounded-xl" />
                   {/* Top left: whether the listing can be bought. */}
                   <span
                     className={`absolute top-1.5 left-1.5 z-10 rounded px-1.5 py-px text-[9px] font-bold tracking-wide shadow-soft ${comprable ? "bg-success text-ink-950" : "bg-danger text-white"}`}
@@ -84,14 +85,24 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
                     </p>
                     <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-ink-100 group-hover:text-accent-300">{p.titulo}</p>
                     <div className="mt-auto flex items-end justify-between gap-2 pt-1.5">
-                      {p.precio ? (
-                        <p className="tabular flex items-center gap-1 text-base font-semibold text-ink-100">
-                          {mercadoPrecio && <Bandera codigo={mercadoPrecio.codigoPais} className="text-xs" />}
-                          {formatMoneda(p.precio.precio, p.precio.moneda)}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-ink-400">Sin oferta</p>
-                      )}
+                      <div className="flex flex-col gap-0.5">
+                        {p.precio ? (
+                          <p className="tabular flex items-center gap-1 text-base font-semibold text-ink-100">
+                            {mercadoPrecio && <Bandera codigo={mercadoPrecio.codigoPais} className="text-xs" />}
+                            {formatMoneda(p.precio.precio, p.precio.moneda)}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-ink-400">Sin oferta</p>
+                        )}
+                        <a
+                          href={`https://www.amazon.es/dp/${p.asin}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative z-[2] self-start text-[11px] font-medium text-accent-300 underline-offset-2 hover:underline"
+                        >
+                          Ver en Amazon.es ↗
+                        </a>
+                      </div>
                       <p className="tabular text-right text-[11px] leading-tight text-ink-400">
                         <span className="font-semibold text-ink-100">{formatNumero(p.stockVendible)}</span> stock
                         <br />
@@ -99,7 +110,7 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
                       </p>
                     </div>
                   </div>
-                </Link>
+                </div>
               </li>
             );
           })}

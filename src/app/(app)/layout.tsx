@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/auth/session";
 import { Logo } from "@/components/Logo";
 import { LogoutButton } from "@/components/LogoutButton";
 import { MenuMovil, Nav } from "@/components/Nav";
-import { ContadorConsumo } from "@/components/ContadorConsumo";
+// import { ContadorConsumo } from "@/components/ContadorConsumo";
 import { resumenEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
 
@@ -26,8 +26,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
               <Nav estadoCuenta={estadoCuenta} />
             </div>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-              {/* TEMPORARY: Firestore usage while testing the free-plan consumption. */}
-              <ContadorConsumo />
+              {/* TEMPORARY: Firestore usage while testing the free-plan consumption. Hidden: next to the full menu it no
+                  longer fits in the header (max 1280 px). Uncomment it and its import to show it again. */}
+              {/* <ContadorConsumo /> */}
               <LogoutButton />
               {/* Phones only: a hamburger opens the menu. */}
               <MenuMovil estadoCuenta={estadoCuenta} email={user.email ?? null} />
