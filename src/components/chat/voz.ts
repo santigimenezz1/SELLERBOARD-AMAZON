@@ -62,10 +62,17 @@ export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto:
   const r = new C();
   r.lang = "es-ES";
   r.interimResults = true;
-  r.continuous = false;
+  // Continuous: in several iOS versions single-phrase mode closes the microphone right after opening it. The end
+  // is decided here anyway (silence, second tap).
+  r.continuous = true;
   let dicho = "";
   let error: string | undefined;
+  /** Raw error code from the browser, to explain an early close. */
+  let codigo = "";
   let terminado = false;
+  let paradoAqui = false;
+  let reintentado = false;
+  let inicio = Date.now();
   let silencio: ReturnType<typeof setTimeout> | undefined;
   const terminar = () => {
     if (terminado) return;
@@ -77,6 +84,7 @@ export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto:
   /** Asks the browser to stop and finishes even if it never says it has. */
   const parar = () => {
     if (terminado) return;
+    paradoAqui = true;
     try {
       r.stop();
     } catch {}
@@ -87,19 +95,37 @@ export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto:
   }, SIN_VOZ_MS);
 
   r.onresult = (e) => {
-    // Rebuilt from every result each time: some browsers repeat results or always report index 0.
+    // Rebuilt from every result each time (some browsers repeat results or always report index 0). Some give each
+    // result as the whole phrase so far: then the newer one replaces the older instead of adding to it.
     let texto = "";
-    for (let i = 0; i < e.results.length; i++) texto += e.results[i][0].transcript;
+    for (let i = 0; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript.trim();
+      texto = t.toLowerCase().startsWith(texto.toLowerCase()) ? t : `${texto} ${t}`;
+    }
     dicho = texto;
     alCambiar(dicho.trim());
     clearTimeout(silencio);
     silencio = setTimeout(parar, SILENCIO_MS);
   };
   r.onerror = (e) => {
+    codigo = e.error;
     // «no-speech» and «aborted» just mean nothing was said or it was stopped.
-    if (e.error !== "no-speech" && e.error !== "aborted") error = ERRORES_DICTADO[e.error] ?? `No se pudo dictar (${e.error})`;
+    if (e.error !== "no-speech" && e.error !== "aborted") error = ERRORES_DICTADO[e.error] ?? `No se pudo dictar (Safari dice: ${e.error}). Mientras tanto, toca la caja de texto y usa el micrófono del teclado.`;
   };
-  r.onend = terminar;
+  r.onend = () => {
+    // Closed by the browser almost at once, with nothing heard: try once more, then explain.
+    if (!paradoAqui && !dicho && !error && Date.now() - inicio < 2500) {
+      if (!reintentado) {
+        reintentado = true;
+        inicio = Date.now();
+        try {
+          return r.start();
+        } catch {}
+      }
+      error = `El micrófono se cerró nada más abrirse${codigo ? ` (Safari dice: ${codigo})` : ""}. Mientras tanto, toca la caja de texto y usa el micrófono del teclado del iPhone.`;
+    }
+    terminar();
+  };
   try {
     r.start();
   } catch {
@@ -192,6 +218,7 @@ export function prepararVoces(): void {
   if (vozDisponible()) speechSynthesis.getVoices();
 }
 
+/** Stops speech, only if something is being said: on iPhone touching speech right before dictating can close the microphone. */
 export function callar(): void {
-  if (vozDisponible()) speechSynthesis.cancel();
+  if (vozDisponible() && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
 }
