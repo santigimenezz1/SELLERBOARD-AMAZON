@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { EventoChat } from "@/lib/ia/chat";
 import { Markdown } from "./Markdown";
 import { Spinner } from "@/components/Spinner";
-import { callar, dictadoDisponible, escuchar, hablar, prepararVoces, textoParaVoz, vozDisponible } from "./voz";
+import { callar, desbloquearVoz, dictadoDisponible, escuchar, esIOS, hablar, prepararVoces, textoParaVoz, vozDisponible } from "./voz";
 
 /** Where this browser remembers whether answers are read aloud. */
 const CLAVE_VOZ = "chat.voz";
@@ -32,14 +32,17 @@ export function Chat() {
   const entrada = useRef<HTMLTextAreaElement>(null);
 
   // Voice: what this browser supports (known only after mounting), the «read aloud» switch, and what's going on.
-  const [soporte, setSoporte] = useState({ dictado: false, voz: false });
+  const [soporte, setSoporte] = useState({ dictado: false, voz: false, ios: false });
   const [vozActiva, setVozActiva] = useState(false);
   const [escuchando, setEscuchando] = useState(false);
   const [hablando, setHablando] = useState(false);
   const [avisoVoz, setAvisoVoz] = useState<string | null>(null);
   const detenerDictado = useRef<(() => void) | null>(null);
+  // iPhone: the 🎤 opens the keyboard to dictate with it; the question then sent counts as asked by voice.
+  const porTeclado = useRef(false);
+  const [pista, setPista] = useState<string | null>(null);
   useEffect(() => {
-    setSoporte({ dictado: dictadoDisponible(), voz: vozDisponible() });
+    setSoporte({ dictado: dictadoDisponible(), voz: vozDisponible(), ios: esIOS() });
     prepararVoces();
     try {
       setVozActiva(localStorage.getItem(CLAVE_VOZ) === "1");
@@ -82,9 +85,14 @@ export function Chat() {
   const preguntar = async (pregunta: string, porVoz = false) => {
     pregunta = pregunta.trim();
     if (!pregunta || pensando) return;
+    porVoz ||= porTeclado.current;
+    porTeclado.current = false;
     pararVoz();
+    // Still inside the tap that sends it: lets Safari on iPhone read the answer aloud when it arrives.
+    if ((vozActiva || porVoz) && soporte.voz) desbloquearVoz();
     setTexto("");
     setAvisoVoz(null);
+    setPista(null);
     setPensando(true);
     let completo = "";
     let fallo = false;
@@ -133,6 +141,14 @@ export function Chat() {
   };
 
   const dictar = () => {
+    if (soporte.ios) {
+      // Focusing within the tap opens the keyboard, whose own microphone does work.
+      porTeclado.current = true;
+      setAvisoVoz(null);
+      setPista("Pulsa el 🎤 del teclado, di tu pregunta y envíala: te responderé en voz alta.");
+      entrada.current?.focus();
+      return;
+    }
     if (escuchando) return detenerDictado.current?.();
     pararVoz();
     setAvisoVoz(null);
@@ -253,6 +269,7 @@ export function Chat() {
             )}
           </div>
 
+          {pista && !avisoVoz && <p className="border-t border-white/[0.06] bg-accent-500/10 px-4 py-2 text-xs text-accent-300">{pista}</p>}
           {avisoVoz && <p className="border-t border-white/[0.06] bg-danger/10 px-4 py-2 text-xs text-danger">{avisoVoz}</p>}
           <form
             onSubmit={(e) => {
@@ -261,7 +278,7 @@ export function Chat() {
             }}
             className="flex items-end gap-2 border-t border-white/[0.06] bg-ink-900 p-3"
           >
-            {soporte.dictado && (
+            {(soporte.dictado || soporte.ios) && (
               <button
                 type="button"
                 onClick={dictar}
@@ -290,7 +307,7 @@ export function Chat() {
               }}
               rows={1}
               maxLength={2000}
-              placeholder={escuchando ? "Te escucho…" : soporte.dictado ? "Escribe o dicta tu pregunta…" : "Escribe tu pregunta…"}
+              placeholder={escuchando ? "Te escucho…" : soporte.dictado || soporte.ios ? "Escribe o dicta tu pregunta…" : "Escribe tu pregunta…"}
               className="max-h-32 min-h-10 flex-1 resize-none rounded-xl border border-white/[0.08] bg-ink-950/60 px-3 py-2.5 text-sm text-ink-100 outline-none [field-sizing:content] focus:border-accent-500/60"
             />
             <button

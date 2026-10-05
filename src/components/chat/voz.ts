@@ -26,7 +26,14 @@ function constructorReconocimiento(): ConstructorReconocimiento | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-export const dictadoDisponible = () => constructorReconocimiento() !== null;
+/**
+ * iPhone / iPad, in any browser (they all run on Safari's engine). Their in-page dictation closes the microphone
+ * at once («aborted»), so there the keyboard's own dictation is used instead.
+ */
+export const esIOS = () =>
+  typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+export const dictadoDisponible = () => constructorReconocimiento() !== null && !esIOS();
 export const vozDisponible = () => typeof window !== "undefined" && "speechSynthesis" in window;
 
 const ERRORES_DICTADO: Record<string, string> = {
@@ -211,6 +218,17 @@ export async function hablar(texto: string, alTerminar: (error?: string) => void
     }
     speechSynthesis.speak(u);
   });
+}
+
+/**
+ * Safari on iPhone only lets a page speak after speech was started by a tap. The answer arrives seconds later, so
+ * call this in the tap that sends the question: a silent utterance unlocks speech for the rest of the visit.
+ */
+export function desbloquearVoz(): void {
+  if (!vozDisponible()) return;
+  const u = new SpeechSynthesisUtterance(" ");
+  u.volume = 0;
+  speechSynthesis.speak(u);
 }
 
 /** Chrome loads its voices lazily: asking early has them ready for the first answer. */
