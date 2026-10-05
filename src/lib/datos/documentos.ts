@@ -53,7 +53,8 @@ const CARPETAS_INICIALES: Carpeta[] = [
 type Archivo = { lista: Documento[]; carpetas: Carpeta[] };
 const g = globalThis as unknown as { __documentosV2?: Archivo };
 const ref = () => adminDb().collection("config").doc("documentos");
-const bucket = () => {
+/** The Firebase Storage bucket (also holds the purchase tickets). */
+export const bucket = () => {
   const nombre = limpiarEnv(process.env.FIREBASE_STORAGE_BUCKET) || `${limpiarEnv(process.env.FIREBASE_ADMIN_PROJECT_ID)}.firebasestorage.app`;
   adminDb(); // makes sure the admin app is initialised
   return getStorage().bucket(nombre);

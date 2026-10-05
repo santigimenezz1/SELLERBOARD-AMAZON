@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "fflate": "^0.8.3",
     "firebase": "^12.19.0",
     "firebase-admin": "^14.5.0",
     "flag-icons": "^7.5.0",
