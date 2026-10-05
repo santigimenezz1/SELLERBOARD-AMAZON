@@ -31,14 +31,27 @@ export const vozDisponible = () => typeof window !== "undefined" && "speechSynth
 
 const ERRORES_DICTADO: Record<string, string> = {
   "not-allowed": "El navegador no tiene permiso para usar el micrófono: actívalo en el candado de la barra de direcciones",
-  "service-not-allowed": "El navegador no tiene permiso para usar el micrófono",
+  // On iPhone this is what you get with Dictation switched off.
+  "service-not-allowed": "No se puede dictar: en el iPhone activa Ajustes → General → Teclado → Dictado, y permite el micrófono a Safari",
   "audio-capture": "No se encuentra ningún micrófono",
   network: "El dictado necesita conexión a internet",
 };
 
+/** Quiet time after the last word that counts as «finished speaking». */
+const SILENCIO_MS = 1500;
+/** Nothing understood in this long: stop listening. */
+const SIN_VOZ_MS = 10_000;
+/** After asking the browser to stop, how long to wait for its own end before finishing anyway. */
+const ESPERA_FIN_MS = 500;
+
 /**
- * Starts listening (Spanish). `alCambiar` gets what's been said so far while speaking; `alTerminar` the final
- * text (empty if nothing was understood) when the speaker stops, or an error. Returns a function that stops it.
+ * Starts listening (Spanish). `alCambiar` gets what's been said so far while speaking; `alTerminar` the text
+ * (empty if nothing was understood), or an error, exactly once. Returns a function that stops it and sends what was
+ * heard.
+ *
+ * Mobile browsers don't all behave: Safari on iPhone and some Android Chrome never fire the end of speech, or
+ * only ever give provisional results. So the end doesn't wait for the browser: a pause after speaking, a second tap
+ * or a long silence finish it, and provisional text counts.
  */
 export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto: string, error?: string) => void): () => void {
   const C = constructorReconocimiento();
@@ -50,24 +63,50 @@ export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto:
   r.lang = "es-ES";
   r.interimResults = true;
   r.continuous = false;
-  let final = "";
+  let dicho = "";
   let error: string | undefined;
+  let terminado = false;
+  let silencio: ReturnType<typeof setTimeout> | undefined;
+  const terminar = () => {
+    if (terminado) return;
+    terminado = true;
+    clearTimeout(silencio);
+    clearTimeout(sinVoz);
+    alTerminar(dicho.trim(), error);
+  };
+  /** Asks the browser to stop and finishes even if it never says it has. */
+  const parar = () => {
+    if (terminado) return;
+    try {
+      r.stop();
+    } catch {}
+    setTimeout(terminar, ESPERA_FIN_MS);
+  };
+  const sinVoz = setTimeout(() => {
+    if (!dicho) parar();
+  }, SIN_VOZ_MS);
+
   r.onresult = (e) => {
-    let provisional = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const res = e.results[i];
-      if (res.isFinal) final += res[0].transcript;
-      else provisional += res[0].transcript;
-    }
-    alCambiar((final + provisional).trim());
+    // Rebuilt from every result each time: some browsers repeat results or always report index 0.
+    let texto = "";
+    for (let i = 0; i < e.results.length; i++) texto += e.results[i][0].transcript;
+    dicho = texto;
+    alCambiar(dicho.trim());
+    clearTimeout(silencio);
+    silencio = setTimeout(parar, SILENCIO_MS);
   };
   r.onerror = (e) => {
     // «no-speech» and «aborted» just mean nothing was said or it was stopped.
     if (e.error !== "no-speech" && e.error !== "aborted") error = ERRORES_DICTADO[e.error] ?? `No se pudo dictar (${e.error})`;
   };
-  r.onend = () => alTerminar(final.trim(), error);
-  r.start();
-  return () => r.stop();
+  r.onend = terminar;
+  try {
+    r.start();
+  } catch {
+    error = "No se pudo empezar a escuchar: vuelve a tocar el micrófono";
+    terminar();
+  }
+  return parar;
 }
 
 // ---------- Reading aloud ----------
