@@ -1,4 +1,4 @@
-import type { CompetidorXray, EstudioH10 } from "./h10Tipos";
+import { SUPUESTOS_INICIALES, type CompetidorXray, type EstudioH10 } from "./h10Tipos";
 
 /*
  * Sample data for the «Análisis H10» preview, taken from Helium 10 Xray screenshots (only the rows visible in
@@ -23,6 +23,24 @@ export const ESTUDIOS_DEMO: EstudioH10[] = [
     nombre: "Rebounder de fútbol",
     descripcion: "Red de rebote para entrenar pases y controles",
     ejemplo: true,
+    // Amazon's revenue calculator as the owner shared it (Racetex, amazon.de, 5 Oct 2026).
+    calculadoras: {
+      DE: {
+        codigoPais: "DE",
+        moneda: "EUR",
+        asin: "B0DS9VCV6L",
+        producto: "Racetex Rebounder für Fußball",
+        precio: 89.99,
+        comision: 13.5,
+        tarifaFba: 6.72,
+        almacenamientoMes: 0.52,
+        iva: 19,
+        peso: "6,84 kg",
+        dimensiones: "9 x 26 x 101,5 cm",
+        fecha: "2026-10-05",
+      },
+    },
+    supuestos: SUPUESTOS_INICIALES,
     mercados: [
       {
         codigoPais: "GB", moneda: "GBP", palabraClave: "rebounder football", fecha: "2026-10-05",
@@ -95,6 +113,7 @@ export const ESTUDIOS_DEMO: EstudioH10[] = [
     nombre: "Porterías infantiles",
     descripcion: "Porterías de fútbol para niños y jardín",
     ejemplo: true,
+    supuestos: { ...SUPUESTOS_INICIALES, costeFabrica: 8, envioUnidad: 3 },
     mercados: [
       {
         codigoPais: "GB", moneda: "GBP", palabraClave: "kids football goals for garden", fecha: "2026-10-05",

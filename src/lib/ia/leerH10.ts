@@ -199,7 +199,55 @@ const ESQUEMA_CAPTURA = {
   additionalProperties: false,
 };
 
-export const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+// ---------- Amazon's revenue calculator ----------
+
+export type CalculadoraLeida = {
+  codigoPais: CodigoPais | null;
+  moneda: "EUR" | "GBP";
+  asin: string;
+  producto: string;
+  precio: number;
+  comision: number;
+  tarifaFba: number;
+  almacenamientoMes: number;
+  iva: number;
+  peso: string;
+  dimensiones: string;
+};
+
+const ESQUEMA_CALCULADORA = {
+  type: "object",
+  properties: {
+    codigoPais: { type: "string", enum: PAISES, description: "La «Tienda de Amazon» elegida (DE, ES…)" },
+    moneda: { type: "string", enum: ["EUR", "GBP"] },
+    asin: { type: "string" },
+    producto: { type: "string", description: "Título del producto, abreviado" },
+    precio: { type: "number", description: "Precio del producto en la columna «Logística de Amazon»" },
+    comision: { type: "number", description: "Tarifa por referencia" },
+    tarifaFba: { type: "number", description: "Tarifas de gestión logística" },
+    almacenamientoMes: { type: "number", description: "Coste mensual de almacenamiento por unidad (enero a septiembre)" },
+    iva: { type: "number", description: "IVA estimado, en % (19 en Alemania)" },
+    peso: { type: "string", description: "Peso unitario tal cual aparece" },
+    dimensiones: { type: "string", description: "Dimensiones del paquete tal cual aparecen" },
+  },
+  required: ["codigoPais", "moneda", "asin", "producto", "precio", "comision", "tarifaFba", "almacenamientoMes", "iva", "peso", "dimensiones"],
+  additionalProperties: false,
+};
+
+/** Reads a screenshot of Amazon's revenue calculator (the «Logística de Amazon» column). */
+export async function leerCalculadora(datos: Buffer, tipo: TipoImagen, nombre: string, pista: Pista): Promise<CalculadoraLeida> {
+  const r = await pedir<Omit<CalculadoraLeida, "codigoPais"> & { codigoPais: string }>(
+    "Lees capturas de la calculadora de ingresos de Amazon (Revenue Calculator) de un vendedor europeo. Copia los importes de la columna «Logística de Amazon» como números (13,50 € → 13.5). Si un dato no aparece, pon 0 o cadena vacía.",
+    [
+      { type: "image", source: { type: "base64", media_type: tipo, data: datos.toString("base64") } },
+      { type: "text", text: pistaTexto(pista, nombre) },
+    ],
+    ESQUEMA_CALCULADORA,
+  );
+  return { ...r, codigoPais: pista.codigoPais ?? (esCodigoPais(r.codigoPais) ? r.codigoPais : null) };
+}
+
+export const TIPOS_IMAGEN =["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
 type TipoImagen = (typeof TIPOS_IMAGEN)[number];
 export const esImagen = (t: string): t is TipoImagen => (TIPOS_IMAGEN as readonly string[]).includes(t);
 

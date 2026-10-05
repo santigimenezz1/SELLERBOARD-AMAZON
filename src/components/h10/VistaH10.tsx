@@ -4,6 +4,8 @@ import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
 import { PestanaDatos } from "./PestanaDatos";
+import { PestanaRentabilidad } from "./PestanaRentabilidad";
+import { rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
 import type { ArchivoH10, EstudioH10, MercadoXray, PalabrasMercado, ResenasEstudio } from "@/lib/datos/h10Tipos";
 import { analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
@@ -19,6 +21,7 @@ const PESTANAS = [
   { id: "competidores", texto: "Competidores" },
   { id: "palabras", texto: "Palabras clave" },
   { id: "resenas", texto: "Reseñas" },
+  { id: "rentabilidad", texto: "Rentabilidad" },
   { id: "conclusiones", texto: "Conclusiones" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
@@ -118,10 +121,16 @@ export function VistaH10({
         ) : (
           <SinDatos texto="El análisis de reseñas con IA llega en la fase 3. Mientras tanto, sube las reseñas de los competidores en «Datos»: quedan guardadas y se analizarán entonces." onIrADatos={datosAqui} />
         ))}
+      {pestana === "rentabilidad" &&
+        (resumen ? (
+          <PestanaRentabilidad key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={resumen.mejor.mercado.codigoPais} />
+        ) : (
+          <SinDatos texto="La rentabilidad necesita el Xray de al menos un país; la calculadora de Amazon la hace mucho más precisa." onIrADatos={datosAqui} />
+        ))}
       {pestana === "conclusiones" &&
         (resumen ? (
           <div className="flex flex-col gap-4">
-            <Informe informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], resenas[estudio.id] ? analizarResenas(resenas[estudio.id]) : null)} />
+            <Informe informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], resenas[estudio.id] ? analizarResenas(resenas[estudio.id]) : null, rentabilidadInforme(estudio, resumen, palabrasEstudio))} />
             <Tarjeta titulo="Todas las conclusiones" subtitulo="Por ahora salen de reglas fijas; en la fase 3 las redactará la IA con todos los datos del estudio.">
               <div className="text-sm leading-relaxed text-ink-300">
                 <Markdown
@@ -498,6 +507,13 @@ function Marcas({ estudio }: { estudio: EstudioH10 }) {
   );
 }
 
+/** The best country's profit, as the report wants it. */
+function rentabilidadInforme(estudio: EstudioH10, resumen: NonNullable<ReturnType<typeof resumirEstudio>>, palabras: Record<string, PalabrasMercado>) {
+  const r = rentabilidadPais(estudio, resumen.mejor.mercado, palabras[resumen.mejor.mercado.codigoPais]);
+  const e = r.escenarios[1];
+  return { beneficio: r.desglose.beneficio, margen: r.margen, beneficioMes5: e?.beneficioMes ?? 0, inversion5: e?.inversion ?? 0, meses5: e?.mesesRecuperar ?? null };
+}
+
 /** The verdict card: launch / validate / drop, with the score and the reasons. */
 function Informe({ informe }: { informe: ReturnType<typeof informeFinal> }) {
   const estilo = {
@@ -529,7 +545,7 @@ function Informe({ informe }: { informe: ReturnType<typeof informeFinal> }) {
         ))}
       </dl>
       <p className="mt-3 text-[11px] text-ink-500">
-        Nota final: la oportunidad del mejor país, +0,4 si los clientes de la competencia se quejan mucho (hay hueco para hacerlo mejor) y −0,8 si hay datos dudosos. 7 o más: lanzar · 5–7: validar · menos de 5: descartar.
+        Nota final: la oportunidad del mejor país, +0,4 si los clientes de la competencia se quejan mucho (hay hueco para hacerlo mejor), −0,8 si hay datos dudosos, y la rentabilidad: −4 si pierdes dinero, −2 con menos de un 10 % de margen, +0,3 con un 25 % o más. 7 o más: lanzar · 5–7: validar · menos de 5: descartar.
       </p>
     </section>
   );

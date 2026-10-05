@@ -6,15 +6,19 @@ import { bucket } from "./documentos";
 import { contarEscrituras, contarLecturas } from "./consumo";
 import { diaMadrid } from "./fechas";
 import { leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, type FilaPalabra } from "./h10Csv";
-import { esImagen, leerCaptura, reconocerCsv, type CapturaLeida, type Pista } from "@/lib/ia/leerH10";
+import { esImagen, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista } from "@/lib/ia/leerH10";
 import { mensajeError } from "@/lib/ia/errores";
 import {
   HERRAMIENTAS_H10,
+  SUPUESTOS_INICIALES,
+  esCodigoPais,
   type ArchivoH10,
   type CodigoPais,
   type CompetidorXray,
   type EstudioH10,
   type HerramientaH10,
+  type CalculadoraAmazon,
+  type SupuestosRentabilidad,
   type MercadoXray,
   type PalabraClave,
   type PalabrasMercado,
@@ -30,12 +34,21 @@ import {
  * Everything is read once per server process and kept in memory.
  */
 
-type EstudioGuardado = { id: string; nombre: string; descripcion: string; creadoEn: string; actualizadoEn: string; archivos: ArchivoH10[] };
+type EstudioGuardado = {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  creadoEn: string;
+  actualizadoEn: string;
+  archivos: ArchivoH10[];
+  supuestos?: SupuestosRentabilidad;
+};
 type DatosArchivo = {
   herramienta: HerramientaH10;
   codigoPais: CodigoPais | null;
   mercado?: MercadoXray;
   palabras?: { columnasPosicion: string[]; filas: FilaPalabra[] };
+  calculadora?: CalculadoraAmazon;
 };
 type Entrada = { estudio: EstudioGuardado; datos: Map<string, DatosArchivo> };
 
@@ -98,12 +111,34 @@ export async function crearEstudio(datos: { nombre?: unknown; descripcion?: unkn
   return estudio.id;
 }
 
-export async function editarEstudio(id: string, cambios: { nombre?: unknown; descripcion?: unknown }): Promise<void> {
+/** A number in a range, or the current value when it isn't one. */
+const cifra = (v: unknown, actual: number, max: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= max ? Math.round(v * 100) / 100 : actual);
+
+/** The owner's costs and assumptions of the profitability tab. */
+function leerSupuestos(v: unknown, actual: SupuestosRentabilidad): SupuestosRentabilidad {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  return {
+    costeFabrica: cifra(o.costeFabrica, actual.costeFabrica, 10_000),
+    envioUnidad: cifra(o.envioUnidad, actual.envioUnidad, 10_000),
+    conversion: Math.max(0.5, cifra(o.conversion, actual.conversion, 100)),
+    devoluciones: cifra(o.devoluciones, actual.devoluciones, 100),
+    mesesStock: cifra(o.mesesStock, actual.mesesStock, 36),
+    lanzamiento: cifra(o.lanzamiento, actual.lanzamiento, 1_000_000),
+    precios: Object.fromEntries(
+      Object.entries(o.precios && typeof o.precios === "object" ? (o.precios as Record<string, unknown>) : {})
+        .filter(([p, v]) => esCodigoPais(p) && typeof v === "number" && v > 0 && v < 10_000)
+        .map(([p, v]) => [p, Math.round((v as number) * 100) / 100]),
+    ),
+  };
+}
+
+export async function editarEstudio(id: string, cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown }): Promise<void> {
   const e = await entrada(id);
   e.estudio = {
     ...e.estudio,
     nombre: texto(cambios.nombre, 80) || e.estudio.nombre,
     descripcion: cambios.descripcion !== undefined ? texto(cambios.descripcion, 200) : e.estudio.descripcion,
+    ...(cambios.supuestos !== undefined && { supuestos: leerSupuestos(cambios.supuestos, e.estudio.supuestos ?? SUPUESTOS_INICIALES) }),
     actualizadoEn: new Date().toISOString(),
   };
   await guardarEstudio(e.estudio);
@@ -184,7 +219,19 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
     }
     const tipo = archivo.type;
     if (esImagen(tipo)) {
+      // Amazon's revenue calculator: straight to its own reader when the owner says so, else after the general one.
+      const calculadora = async () => {
+        const k = await leerCalculadora(datos, tipo, archivo.name, pista);
+        if (!k.codigoPais) return sinPais("calculadora");
+        const leida: CalculadoraAmazon = { ...k, codigoPais: k.codigoPais, fecha };
+        return {
+          meta: { herramienta: "calculadora" as const, codigoPais: k.codigoPais, estado: "procesado" as const, resumen: `Calculadora Amazon · ${k.codigoPais} · ${k.asin || k.producto.slice(0, 40)} · ${k.precio} ${k.moneda === "GBP" ? "£" : "€"}` },
+          datos: { herramienta: "calculadora" as const, codigoPais: k.codigoPais, calculadora: leida },
+        };
+      };
+      if (pista.herramienta === "calculadora") return await calculadora();
       const c = await leerCaptura(datos, tipo, archivo.name, pista);
+      if (c.herramienta === "calculadora") return await calculadora();
       if (c.herramienta === "xray" && c.competidores.length) {
         if (!c.codigoPais) return sinPais("xray");
         const mercado = mercadoDesdeCaptura(c, c.codigoPais, fecha);
@@ -282,6 +329,9 @@ function ensamblar({ estudio, datos }: Entrada): EstudioParaVista {
   const subido = new Map(estudio.archivos.map((a) => [a.id, a.subidoEn]));
   const lista = [...datos.entries()].sort((a, b) => (subido.get(b[0]) ?? "").localeCompare(subido.get(a[0]) ?? ""));
 
+  const calculadoras: Partial<Record<CodigoPais, CalculadoraAmazon>> = {};
+  for (const [, d] of lista) if (d.calculadora && d.codigoPais && !calculadoras[d.codigoPais]) calculadoras[d.codigoPais] = d.calculadora;
+
   const mercados = new Map<CodigoPais, MercadoXray>();
   for (const [, d] of lista) if (d.mercado && d.codigoPais && !mercados.has(d.codigoPais)) mercados.set(d.codigoPais, structuredClone(d.mercado));
 
@@ -335,7 +385,7 @@ function ensamblar({ estudio, datos }: Entrada): EstudioParaVista {
   }
 
   return {
-    estudio: { id: estudio.id, nombre: estudio.nombre, descripcion: estudio.descripcion, mercados: [...mercados.values()] },
+    estudio: { id: estudio.id, nombre: estudio.nombre, descripcion: estudio.descripcion, mercados: [...mercados.values()], calculadoras, supuestos: estudio.supuestos ?? SUPUESTOS_INICIALES },
     palabras,
     archivos: estudio.archivos,
     creadoEn: estudio.creadoEn,

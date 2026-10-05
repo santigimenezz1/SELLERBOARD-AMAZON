@@ -54,9 +54,55 @@ export type EstudioH10 = {
   nombre: string;
   descripcion: string;
   mercados: MercadoXray[];
+  /** Amazon's revenue calculator read per country (the latest one). */
+  calculadoras?: Partial<Record<CodigoPais, CalculadoraAmazon>>;
+  /** The owner's own costs and assumptions for the profitability tab. */
+  supuestos?: SupuestosRentabilidad;
   /** A built-in sample study (not stored, can't be changed). */
   ejemplo?: boolean;
 };
+
+// ---------- Profitability ----------
+
+/** What Amazon's revenue calculator shows for an ASIN with Logística de Amazon (amounts in the marketplace currency). */
+export type CalculadoraAmazon = {
+  codigoPais: CodigoPais;
+  moneda: "EUR" | "GBP";
+  asin: string;
+  producto: string;
+  precio: number;
+  /** Referral fee (Tarifa por referencia), in money. */
+  comision: number;
+  /** Fulfilment fee (Tarifas de gestión logística). */
+  tarifaFba: number;
+  /** Storage per unit and month, January–September. */
+  almacenamientoMes: number;
+  /** VAT rate, in %. */
+  iva: number;
+  peso: string;
+  dimensiones: string;
+  fecha: string;
+};
+
+/** The owner's numbers: what the calculator can't know. Money in euros, per unit. */
+export type SupuestosRentabilidad = {
+  /** Factory price per unit. */
+  costeFabrica: number;
+  /** Freight to Amazon's warehouse plus customs, per unit. */
+  envioUnidad: number;
+  /** Ad clicks that end in a sale, in %. */
+  conversion: number;
+  /** Units returned, in %. */
+  devoluciones: number;
+  /** Average months a unit waits in Amazon's warehouse. */
+  mesesStock: number;
+  /** One-off launch spend (extra ads, Vine, photos…), in euros. */
+  lanzamiento: number;
+  /** Your own selling price per country, in euros (else the calculator's, or the same as another country). */
+  precios?: Partial<Record<CodigoPais, number>>;
+};
+
+export const SUPUESTOS_INICIALES: SupuestosRentabilidad = { costeFabrica: 20, envioUnidad: 6, conversion: 10, devoluciones: 5, mesesStock: 2, lanzamiento: 1500 };
 
 // ---------- Cerebro / Magnet: keywords ----------
 

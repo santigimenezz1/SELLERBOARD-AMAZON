@@ -250,12 +250,21 @@ export type InformeFinal = {
  * The verdict: the best country's opportunity, nudged up when the competitors' customers complain a lot (room to
  * do better) and down when the data has warnings. ≥ 7 launch, 5–7 validate first, < 5 drop it.
  */
-export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado | undefined, resenas: AnalisisResenas | null): InformeFinal {
+/** The profit figures the report needs (from h10Rentabilidad, for the best country). */
+export type RentabilidadInforme = { beneficio: number; margen: number; beneficioMes5: number; inversion5: number; meses5: number | null };
+
+export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado | undefined, resenas: AnalisisResenas | null, rentabilidad?: RentabilidadInforme): InformeFinal {
   const m = resumen.mejor;
   const pais = nombrePais(m.mercado.codigoPais);
   let puntuacion = m.oportunidad;
   if (resenas && resenas.negativas >= 12) puntuacion += 0.4;
   if (m.avisos.length) puntuacion -= 0.8;
+  // A big market is worth nothing if each sale earns little: profit weighs in.
+  if (rentabilidad) {
+    if (rentabilidad.beneficio <= 0) puntuacion -= 4;
+    else if (rentabilidad.margen < 0.1) puntuacion -= 2;
+    else if (rentabilidad.margen >= 0.25) puntuacion += 0.3;
+  }
   puntuacion = redondear(acotar(puntuacion), 1);
   const veredicto = puntuacion >= 7 ? "lanzar" : puntuacion >= 5 ? "validar" : "descartar";
   const max = palabras ? Math.max(...palabras.palabras.map((p) => p.busquedas)) : 0;
@@ -280,6 +289,15 @@ export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado 
           ? `Prometedor: valida antes con un pedido pequeño en ${pais}`
           : "No compensa: busca otro producto",
     puntos: [
+      rentabilidad
+        ? {
+            titulo: "Rentabilidad",
+            texto:
+              rentabilidad.beneficio <= 0
+                ? `Con tus costes perderías ${euros(-rentabilidad.beneficio)} por unidad en ${pais}: hace falta un producto más barato o un precio más alto.`
+                : `Ganarías unos ${euros(rentabilidad.beneficio)} por unidad (${Math.round(rentabilidad.margen * 100)} % de margen). Con un 5 % del mercado, ${euros(rentabilidad.beneficioMes5)} al mes; inversión de ${euros(rentabilidad.inversion5)}${rentabilidad.meses5 !== null ? ` que recuperas en unos ${nota(rentabilidad.meses5)} meses` : ""}.`,
+          }
+        : null,
       { titulo: "Dónde", texto: `${pais} primero: ${euros(m.facturacionEur)} al mes y dificultad ${nota(m.dificultad)}/10. ${resumen.analisis.length > 1 ? `Después, ${nombrePais(resumen.analisis[1].mercado.codigoPais)}.` : ""}` },
       precio
         ? { titulo: "Precio", texto: `Entre ${precio.desde} y ${precio.hasta === Infinity ? "más" : precio.hasta} €, donde más se vende en ${pais}${lider ? ` (el líder, ${lider.marca}, está en ${lider.precio.toLocaleString("es-ES")} ${m.mercado.moneda === "GBP" ? "£" : "€"})` : ""}.` }
