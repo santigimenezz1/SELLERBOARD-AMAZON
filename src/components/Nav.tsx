@@ -42,7 +42,7 @@ function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
 export function Nav({ estadoCuenta, fila = false }: { estadoCuenta: Estado; fila?: boolean }) {
   const ruta = usePathname();
   return (
-    <nav className={fila ? "-mx-2 hidden items-center overflow-x-auto pb-2 md:max-[1280px]:flex" : "hidden items-center gap-1 min-[1280px]:flex"}>
+    <nav className={fila ? "-mx-2 hidden items-center overflow-x-auto pb-2 md:max-[1400px]:flex" : "hidden items-center gap-1 min-[1400px]:flex"}>
       {ENLACES.map((e) => {
         const activo = esActivo(e.href, ruta);
         return (
