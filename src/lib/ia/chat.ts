@@ -39,7 +39,13 @@ Cómo responder:
 - Usa el formato español para los números: 1.234,56 €.
 - Para listas de varios productos o países usa una tabla en Markdown; para el resto, frases cortas o viñetas. Puedes usar **negrita**.
 - Nombra los productos por su título corto (no solo el SKU).
-- Si algo de los datos es llamativo (un país que cae, un producto sin stock), menciónalo en una línea al final.`;
+- Si algo de los datos es llamativo (un país que cae, un producto sin stock), menciónalo en una línea al final.
+
+Preguntas por voz:
+- Si la pregunta empieza por [VOZ], el dueño la ha hecho hablando y tu respuesta se le leerá en voz alta, no la verá escrita.
+- Entonces responde solo a lo que pregunta, en una a tres frases cortas, como lo dirías hablando: sin tablas, sin listas, sin Markdown, sin observaciones ni ofrecimientos extra.
+- Di las cifras como se pronuncian: «11.561 euros», «206 unidades», «10,99 libras»; los céntimos solo si importan. Las fechas como «el 3 de septiembre», no 03/09.
+- Si la respuesta tiene varios elementos (por ejemplo cada producto), nombra solo los principales en una frase.`;
 
 let cliente: Anthropic | null = null;
 
@@ -64,13 +70,14 @@ function detalleConsulta(entrada: unknown): string {
 }
 
 /** Answers `pregunta` within the conversation `historial`, sending text and progress to `emitir` as it goes. */
-export async function responder(historial: Anthropic.Beta.BetaMessageParam[], pregunta: string, emitir: (e: EventoChat) => void): Promise<void> {
+/** `voz`: asked by voice, so the answer is short and meant to be heard (see «Preguntas por voz» in the instructions). */
+export async function responder(historial: Anthropic.Beta.BetaMessageParam[], pregunta: string, emitir: (e: EventoChat) => void, voz = false): Promise<void> {
   if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY en las variables de entorno");
   cliente ??= new Anthropic({ apiKey });
   const ctx = await contextoChat();
   const herramientas = definicionesHerramientas();
   const mercados = ctx.marketplaces.map((m) => `${m.pais} (${m.codigoPais}, ${m.moneda})`).join(", ");
-  const mensajes: Anthropic.Beta.BetaMessageParam[] = [...historial, { role: "user", content: pregunta }];
+  const mensajes: Anthropic.Beta.BetaMessageParam[] = [...historial, { role: "user", content: voz ? `[VOZ] ${pregunta}` : pregunta }];
 
   for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
     const stream = cliente.beta.messages.stream({

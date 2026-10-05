@@ -10,7 +10,8 @@ import { callar, desbloquearVoz, dictadoDisponible, escuchar, esIOS, hablar, pre
 const CLAVE_VOZ = "chat.voz";
 
 type Consulta = { etiqueta: string; detalle: string };
-type Mensaje = { rol: "usuario" | "asistente"; texto: string; consultas: Consulta[]; error?: string };
+/** `voz`: answer to a question asked by voice, heard rather than read (its text stays hidden unless `verTexto`). */
+type Mensaje = { rol: "usuario" | "asistente"; texto: string; consultas: Consulta[]; error?: string; voz?: boolean; verTexto?: boolean };
 
 const SUGERENCIAS = [
   "¿Cuántas ventas tuvimos el mes pasado?",
@@ -36,6 +37,8 @@ export function Chat() {
   const [vozActiva, setVozActiva] = useState(false);
   const [escuchando, setEscuchando] = useState(false);
   const [hablando, setHablando] = useState(false);
+  /** Index of the message being read aloud, for its voice bubble. */
+  const [leyendo, setLeyendo] = useState<number | null>(null);
   const [avisoVoz, setAvisoVoz] = useState<string | null>(null);
   const detenerDictado = useRef<(() => void) | null>(null);
   // iPhone: the 🎤 opens the keyboard to dictate with it; the question then sent counts as asked by voice.
@@ -52,6 +55,7 @@ export function Chat() {
   const pararVoz = () => {
     callar();
     setHablando(false);
+    setLeyendo(null);
   };
   const cambiarVoz = () => {
     const activa = !vozActiva;
@@ -96,9 +100,11 @@ export function Chat() {
     setPensando(true);
     let completo = "";
     let fallo = false;
-    setMensajes((ms) => [...ms, { rol: "usuario", texto: pregunta, consultas: [] }, { rol: "asistente", texto: "", consultas: [] }]);
+    // Index the answer will have, for its voice bubble.
+    const indice = mensajes.length + 1;
+    setMensajes((ms) => [...ms, { rol: "usuario", texto: pregunta, consultas: [] }, { rol: "asistente", texto: "", consultas: [], voz: porVoz }]);
     try {
-      const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pregunta, historial: historial.current }) });
+      const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pregunta, historial: historial.current, voz: porVoz }) });
       if (!r.ok || !r.body) {
         const b = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(b.error ?? `Error ${r.status}`);
@@ -131,14 +137,30 @@ export function Chat() {
     } finally {
       setPensando(false);
     }
-    if (!fallo && completo && (vozActiva || porVoz) && soporte.voz) {
-      setHablando(true);
-      void hablar(textoParaVoz(completo), (error) => {
-        setHablando(false);
-        if (error) setAvisoVoz(error);
-      });
+    if (!fallo && completo && (vozActiva || porVoz)) {
+      if (!soporte.voz) return actualizar((m) => ({ ...m, verTexto: true }));
+      leer(indice, completo);
     }
   };
+
+  /** Reads message `indice` aloud; if this device can't speak Spanish, its text is shown instead. */
+  const leer = (indice: number, texto: string) => {
+    setHablando(true);
+    setLeyendo(indice);
+    void hablar(textoParaVoz(texto), (error) => {
+      setHablando(false);
+      setLeyendo(null);
+      if (error) {
+        setAvisoVoz(error);
+        setMensajes((ms) => ms.map((m, i) => (i === indice ? { ...m, verTexto: true } : m)));
+      }
+    });
+  };
+  const repetir = (indice: number) => {
+    pararVoz();
+    leer(indice, mensajes[indice].texto);
+  };
+  const verTexto = (indice: number) => setMensajes((ms) => ms.map((m, i) => (i === indice ? { ...m, verTexto: !m.verTexto } : m)));
 
   const dictar = () => {
     if (soporte.ios) {
@@ -261,7 +283,20 @@ export function Chat() {
                         ))}
                       </ul>
                     )}
-                    {m.texto ? <Markdown texto={m.texto} /> : pensando && i === mensajes.length - 1 && !m.error && <Spinner tamano="sm" etiqueta="Pensando" />}
+                    {m.voz && !m.error ? (
+                      <BurbujaVoz
+                        listo={!(pensando && i === mensajes.length - 1)}
+                        hablando={leyendo === i}
+                        verTexto={!!m.verTexto}
+                        onRepetir={() => (leyendo === i ? pararVoz() : repetir(i))}
+                        onVerTexto={() => verTexto(i)}
+                      />
+                    ) : null}
+                    {m.voz && !m.verTexto && !m.error ? null : m.texto ? (
+                      <Markdown texto={m.texto} />
+                    ) : (
+                      pensando && i === mensajes.length - 1 && !m.error && <Spinner tamano="sm" etiqueta="Pensando" />
+                    )}
                     {m.error && <p className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-danger">{m.error}</p>}
                   </div>
                 ),
@@ -328,5 +363,32 @@ export function Chat() {
         </section>
       )}
     </>
+  );
+}
+
+/** The answer to a question asked by voice: heard, not read. Replay it, stop it or show its text. */
+function BurbujaVoz({ listo, hablando, verTexto, onRepetir, onVerTexto }: { listo: boolean; hablando: boolean; verTexto: boolean; onRepetir: () => void; onVerTexto: () => void }) {
+  if (!listo)
+    return (
+      <p className="flex items-center gap-2 text-ink-400">
+        <Spinner tamano="sm" /> Preparando la respuesta…
+      </p>
+    );
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        onClick={onRepetir}
+        className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${hablando ? "bg-accent-500 text-ink-950" : "bg-accent-500/15 text-accent-300 hover:bg-accent-500/25"}`}
+      >
+        <svg viewBox="0 0 24 24" className={`size-4 ${hablando ? "animate-pulse" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M11 5L6 9H3v6h3l5 4V5z" />
+          <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+        </svg>
+        {hablando ? "Hablando… toca para parar" : "Repetir respuesta"}
+      </button>
+      <button onClick={onVerTexto} className="rounded-md px-2 py-1 text-xs text-ink-400 hover:bg-white/[0.06] hover:text-ink-100">
+        {verTexto ? "Ocultar texto" : "Ver texto"}
+      </button>
+    </div>
   );
 }
