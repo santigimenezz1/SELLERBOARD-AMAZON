@@ -4,9 +4,10 @@ import { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
 import { PestanaDatos } from "./PestanaDatos";
+import { DatosAmazon } from "./DatosAmazon";
 import { PestanaRentabilidad } from "./PestanaRentabilidad";
-import { rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
-import type { ArchivoH10, EstudioH10, MercadoXray, PalabrasMercado, ResenasEstudio } from "@/lib/datos/h10Tipos";
+import { cajaCompleta, rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
+import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado, ResenasEstudio } from "@/lib/datos/h10Tipos";
 import { analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
 import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
@@ -46,12 +47,18 @@ export function VistaH10({
   palabras,
   resenas,
   archivos,
+  costesPropios,
+  paresAmazon,
 }: {
   estudios: EstudioH10[];
   palabras: Record<string, Record<string, PalabrasMercado>>;
   resenas: Record<string, ResenasEstudio>;
   /** Uploaded files of each stored study. */
   archivos: Record<string, ArchivoH10[]>;
+  /** Stored studies whose owner already saved their own costs. */
+  costesPropios: Record<string, boolean>;
+  /** Competitor ASINs × countries «Traer datos de Amazon» fetches, per stored study. */
+  paresAmazon: Record<string, { asin: string; codigoPais: CodigoPais }[]>;
 }) {
   const router = useRouter();
   const [elegido, setElegido] = useState<string | null>(null);
@@ -104,11 +111,22 @@ export function VistaH10({
         ))}
       </nav>
 
-      {pestana === "datos" && !estudio.ejemplo && <PestanaDatos key={estudio.id} estudioId={estudio.id} archivos={archivos[estudio.id] ?? []} />}
+      {pestana === "datos" && !estudio.ejemplo && <PestanaDatos
+          key={estudio.id}
+          estudioId={estudio.id}
+          archivos={archivos[estudio.id] ?? []}
+          costesPropios={!!costesPropios[estudio.id]}
+          cajaPropia={cajaCompleta(estudio.supuestos?.miCaja)}
+          tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
+        />}
       {pestana === "mercado" &&
         (resumen ? <PestanaMercado key={estudio.id} estudio={estudio} resumen={resumen} /> : <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />)}
-      {pestana === "competidores" &&
-        (resumen ? <PestanaCompetidores key={estudio.id} estudio={estudio} palabras={palabrasEstudio} /> : <SinDatos texto="Los competidores salen del Xray: súbelo en «Datos»." onIrADatos={datosAqui} />)}
+      {pestana === "competidores" && (
+        <div className="flex flex-col gap-4">
+          {(!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon[estudio.id] ?? []} />}
+          {resumen ? <PestanaCompetidores key={estudio.id} estudio={estudio} palabras={palabrasEstudio} /> : <SinDatos texto="La tabla de competidores sale del Xray: súbelo en «Datos»." onIrADatos={datosAqui} />}
+        </div>
+      )}
       {pestana === "palabras" &&
         (Object.keys(palabrasEstudio).length ? (
           <PestanaPalabras key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={paisInicial} ejemplo={!!estudio.ejemplo} />

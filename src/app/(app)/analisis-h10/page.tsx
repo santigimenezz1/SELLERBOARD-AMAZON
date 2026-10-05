@@ -18,6 +18,8 @@ export default async function AnalisisH10Page() {
         palabras={{ ...PALABRAS_DEMO, ...Object.fromEntries(guardados.map((g) => [g.estudio.id, g.palabras])) }}
         resenas={RESENAS_DEMO}
         archivos={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.archivos]))}
+        costesPropios={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.costesPropios]))}
+        paresAmazon={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.paresAmazon]))}
       />
     </div>
   );

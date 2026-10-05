@@ -330,6 +330,132 @@ export async function preciosCompetitivos(asins: string[], marketplaceId: string
   return r.payload ?? [];
 }
 
+// ---------- Competitors of a Helium 10 study (any ASIN, not only ours) ----------
+
+type MedidaAmazon = { unit?: string; value?: number };
+const A_CM: Record<string, number> = { inches: 2.54, centimeters: 1, millimeters: 0.1, meters: 100 };
+const A_KG: Record<string, number> = { pounds: 0.45359237, kilograms: 1, grams: 0.001, ounces: 0.028349523 };
+const cm = (m?: MedidaAmazon) => (m?.value && m.unit && A_CM[m.unit] ? Math.round(m.value * A_CM[m.unit] * 10) / 10 : null);
+const kg = (m?: MedidaAmazon) => (m?.value && m.unit && A_KG[m.unit] ? Math.round(m.value * A_KG[m.unit] * 100) / 100 : null);
+
+export type FichaCompetidorAmazon = {
+  titulo: string | null;
+  marca: string | null;
+  /** Package as Amazon has it, in cm and kg (what the FBA fee depends on). */
+  paquete: { largo: number; ancho: number; alto: number; peso: number } | null;
+  rankings: { rank: number; categoria: string }[];
+};
+
+type ItemFicha = {
+  asin: string;
+  summaries?: { itemName?: string; brand?: string }[];
+  dimensions?: { package?: { length?: MedidaAmazon; width?: MedidaAmazon; height?: MedidaAmazon; weight?: MedidaAmazon } }[];
+  salesRanks?: { classificationRanks?: { title: string; rank: number }[]; displayGroupRanks?: { title: string; rank: number }[] }[];
+};
+
+function ficha(it: ItemFicha): FichaCompetidorAmazon {
+  const s = it.summaries?.[0];
+  const pq = it.dimensions?.[0]?.package;
+  const medidas = [cm(pq?.length), cm(pq?.width), cm(pq?.height)];
+  const peso = kg(pq?.weight);
+  const r = it.salesRanks?.[0];
+  return {
+    titulo: s?.itemName ?? null,
+    marca: s?.brand ?? null,
+    paquete: medidas.every((x) => x !== null) && peso !== null ? { largo: medidas[0]!, ancho: medidas[1]!, alto: medidas[2]!, peso } : null,
+    // The narrow category first (#2 in «Fußballtornetze»), then the big one.
+    rankings: [...(r?.classificationRanks ?? []), ...(r?.displayGroupRanks ?? [])].map((x) => ({ rank: x.rank, categoria: x.title })),
+  };
+}
+
+/** Catalog data (name, brand, package, sales ranks) of up to 20 ASINs in one marketplace; missing ones aren't returned. */
+export async function fichasCompetidores(asins: string[], marketplaceId: string): Promise<Map<string, FichaCompetidorAmazon>> {
+  const r = await spGet<{ items?: ItemFicha[] }>("/catalog/2022-04-01/items", {
+    identifiers: asins.slice(0, 20),
+    identifiersType: "ASIN",
+    marketplaceIds: marketplaceId,
+    includedData: ["summaries", "dimensions", "salesRanks"],
+    pageSize: 20,
+  });
+  return new Map((r.items ?? []).map((it) => [it.asin, ficha(it)]));
+}
+
+export type OfertasAmazon = { precio: number | null; moneda: string | null; ofertas: number | null; destacadaFba: boolean | null };
+
+/** Offers of any ASIN: the featured offer's price, how many sellers, and whether the featured one ships with Amazon. */
+export async function ofertasCompetidor(asin: string, marketplaceId: string): Promise<OfertasAmazon> {
+  type Precio = { Amount?: number; CurrencyCode?: string };
+  const r = await spGet<{
+    payload?: {
+      Summary?: { TotalOfferCount?: number; BuyBoxPrices?: { LandedPrice?: Precio }[]; LowestPrices?: { LandedPrice?: Precio }[] };
+      Offers?: { IsBuyBoxWinner?: boolean; IsFulfilledByAmazon?: boolean; ListingPrice?: Precio }[];
+    };
+  }>(`/products/pricing/v0/items/${encodeURIComponent(asin)}/offers`, { MarketplaceId: marketplaceId, ItemCondition: "New" });
+  const p = r.payload;
+  const destacada = p?.Offers?.filter((o) => o.IsBuyBoxWinner) ?? [];
+  const precio = p?.Summary?.BuyBoxPrices?.[0]?.LandedPrice ?? p?.Summary?.LowestPrices?.[0]?.LandedPrice;
+  return {
+    precio: precio?.Amount ?? null,
+    moneda: precio?.CurrencyCode ?? null,
+    ofertas: p?.Summary?.TotalOfferCount ?? null,
+    destacadaFba: destacada.length ? destacada.some((o) => o.IsFulfilledByAmazon) : null,
+  };
+}
+
+/**
+ * Featured-offer price and number of sellers of up to 20 ASINs at once (for the daily follow-up). ASINs Amazon
+ * didn't answer for («ClientError») are left out; one without offers comes back with 0 sellers and no price.
+ */
+export async function preciosCompetidores(asins: string[], marketplaceId: string): Promise<Map<string, { precio: number | null; ofertas: number }>> {
+  const r = await preciosCompetitivos(asins, marketplaceId);
+  return new Map(
+    r
+      .filter((x) => x.status === "Success")
+      .map((x) => {
+        const c = x.Product?.CompetitivePricing;
+        const destacada = c?.CompetitivePrices?.find((p) => p.CompetitivePriceId === "1") ?? c?.CompetitivePrices?.[0];
+        const ofertas = c?.NumberOfOfferListings?.find((n) => /new/i.test(n.condition ?? ""))?.Count ?? c?.NumberOfOfferListings?.[0]?.Count ?? 0;
+        return [x.ASIN, { precio: destacada?.Price?.LandedPrice?.Amount ?? null, ofertas }];
+      }),
+  );
+}
+
+export type TarifasAmazon = { comision: number; tarifaFba: number; total: number };
+
+/**
+ * Amazon's fee estimate for an ASIN sold with FBA at a price: referral fee and fulfilment fee, as the revenue
+ * calculator shows them. Amazon answers «InternalError» at random to between one call in ten and one in three
+ * (tested in October 2026, same with the batch endpoint): it's retried up to six times.
+ */
+export async function tarifasCompetidor(asin: string, marketplaceId: string, precio: number, moneda: string): Promise<TarifasAmazon> {
+  type Resultado = {
+    Status?: string;
+    Error?: { Code?: string; Message?: string };
+    FeesEstimate?: { TotalFeesEstimate?: { Amount?: number }; FeeDetailList?: { FeeType?: string; FinalFee?: { Amount?: number } }[] };
+  };
+  let ultimo = "";
+  for (let intento = 0; intento < 6; intento++) {
+    const r = await spPost<{ payload?: { FeesEstimateResult?: Resultado } }>(`/products/fees/v0/items/${encodeURIComponent(asin)}/feesEstimate`, {
+      FeesEstimateRequest: {
+        MarketplaceId: marketplaceId,
+        IsAmazonFulfilled: true,
+        PriceToEstimateFees: { ListingPrice: { CurrencyCode: moneda, Amount: precio }, Shipping: { CurrencyCode: moneda, Amount: 0 } },
+        Identifier: `h10-${asin}-${Date.now()}`,
+      },
+    });
+    const res = r.payload?.FeesEstimateResult;
+    if (res?.Status === "Success" && res.FeesEstimate) {
+      const tarifa = (tipo: string) => res.FeesEstimate!.FeeDetailList?.find((f) => f.FeeType === tipo)?.FinalFee?.Amount ?? 0;
+      return { comision: tarifa("ReferralFee"), tarifaFba: tarifa("FBAFees"), total: res.FeesEstimate.TotalFeesEstimate?.Amount ?? 0 };
+    }
+    ultimo = res?.Error ? `${res.Error.Code}: ${res.Error.Message}` : "sin respuesta";
+    // Only Amazon's own hiccups are worth retrying.
+    if (res?.Error?.Code !== "InternalError") break;
+    await new Promise((ok) => setTimeout(ok, 1500 * (intento + 1)));
+  }
+  throw new ErrorAmazon(`Tarifas de ${asin}: ${ultimo}`, 500);
+}
+
 // ---------- Reports 2021-06-30 ----------
 
 async function descargarInforme(reportType: string, reportDocumentId: string): Promise<string> {

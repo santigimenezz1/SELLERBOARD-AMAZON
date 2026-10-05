@@ -22,9 +22,9 @@ export function Nota({ valor, invertida = false }: { valor: number; invertida?: 
   );
 }
 
-export function Tarjeta({ titulo, subtitulo, children, className = "" }: { titulo: string; subtitulo?: string; children: React.ReactNode; className?: string }) {
+export function Tarjeta({ id, titulo, subtitulo, children, className = "" }: { id?: string; titulo: string; subtitulo?: string; children: React.ReactNode; className?: string }) {
   return (
-    <section className={`min-w-0 rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft ${className}`}>
+    <section id={id} className={`min-w-0 rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft ${className}`}>
       <h2 className="text-sm font-semibold text-ink-100">{titulo}</h2>
       {subtitulo && <p className="mt-0.5 text-xs text-ink-400">{subtitulo}</p>}
       <div className="mt-3">{children}</div>

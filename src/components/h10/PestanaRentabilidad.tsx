@@ -121,6 +121,23 @@ export function PestanaRentabilidad({ estudio, palabras, inicial }: { estudio: E
               )}
             </p>
           </div>
+          <div className="mt-3 border-t border-white/[0.06] pt-3">
+            <p className="mb-2 text-xs font-medium text-ink-300">Tu caja (de la ficha del proveedor)</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(["largo", "ancho", "alto", "peso"] as const).map((k) => (
+                <Campo
+                  key={k}
+                  etiqueta={k === "peso" ? "Peso" : k.charAt(0).toUpperCase() + k.slice(1)}
+                  ayuda={k === "peso" ? "Peso de la caja, en kg" : `${k} de la caja, en cm`}
+                  valor={s.miCaja?.[k] ?? 0}
+                  unidad={k === "peso" ? "kg" : "cm"}
+                  paso={k === "peso" ? 0.1 : 1}
+                  onCambio={(v) => setS({ ...s, miCaja: { largo: 0, ancho: 0, alto: 0, peso: 0, ...s.miCaja, [k]: Math.max(0, v) } })}
+                />
+              ))}
+            </div>
+            <NotaReferencia r={r} />
+          </div>
           {estudio.ejemplo ? (
             <p className="mt-3 text-[11px] text-ink-500">Estudio de ejemplo: los cambios no se guardan.</p>
           ) : (
@@ -180,6 +197,35 @@ export function PestanaRentabilidad({ estudio, palabras, inicial }: { estudio: E
 
       <Comparativa todos={todos} />
     </div>
+  );
+}
+
+/** Which competitor's Amazon fees stand for yours here, and whether its box is like yours. */
+function NotaReferencia({ r }: { r: RentabilidadPais }) {
+  const ref = r.referencia;
+  const pais = nombrePais(r.codigoPais);
+  if (!ref) {
+    const deCalc = /Calculadora de Amazon/.test(r.entradas.tarifaFba.fuente);
+    return (
+      <p className="mt-2 text-[11px] text-ink-500">
+        {deCalc ? `En ${pais} se usan las tarifas de tu calculadora de Amazon.` : `Sin tarifas de Amazon en ${pais}: pulsa «Traer datos de Amazon» en Competidores para tenerlas reales.`}
+      </p>
+    );
+  }
+  const f = ref.ficha;
+  const caja = f.paquete ? `${[f.paquete.largo, f.paquete.ancho, f.paquete.alto].map((x) => x.toLocaleString("es-ES")).join(" × ")} cm · ${f.paquete.peso.toLocaleString("es-ES")} kg` : "sin medidas";
+  const nombre = f.marca ?? f.asin;
+  if (ref.parecido === false)
+    return (
+      <p className="mt-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+        ⚠ Ninguna caja de la competencia en {pais} se parece a la tuya (la más cercana: {nombre}, {caja}). Tu tarifa FBA será distinta: calcúlala en la calculadora de Amazon → «Definir producto» con tus medidas y
+        súbela en «Datos».
+      </p>
+    );
+  return (
+    <p className={`mt-2 text-[11px] ${ref.parecido ? "text-success" : "text-ink-500"}`}>
+      {ref.parecido ? "✓ " : ""}Tarifa FBA de {nombre} ({caja}): {ref.motivo}.
+    </p>
   );
 }
 

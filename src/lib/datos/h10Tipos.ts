@@ -58,6 +58,10 @@ export type EstudioH10 = {
   calculadoras?: Partial<Record<CodigoPais, CalculadoraAmazon>>;
   /** The owner's own costs and assumptions for the profitability tab. */
   supuestos?: SupuestosRentabilidad;
+  /** Competitors read straight from Amazon (any ASIN, per country), with their daily follow-up. */
+  amazon?: SeguimientoAmazon[];
+  /** ASINs added by hand to the Amazon follow-up (they're fetched in every country). */
+  asinsManuales?: string[];
   /** A built-in sample study (not stored, can't be changed). */
   ejemplo?: boolean;
 };
@@ -100,7 +104,41 @@ export type SupuestosRentabilidad = {
   lanzamiento: number;
   /** Your own selling price per country, in euros (else the calculator's, or the same as another country). */
   precios?: Partial<Record<CodigoPais, number>>;
+  /** Your product's box, in cm and kg: picks the competitor whose FBA fee is like yours. */
+  miCaja?: Paquete;
 };
+
+// ---------- Competitors read from Amazon ----------
+
+export type Paquete = { largo: number; ancho: number; alto: number; peso: number };
+
+/** One competitor ASIN in one country, as Amazon gives it (amounts in the marketplace currency). */
+export type FichaAmazon = {
+  asin: string;
+  codigoPais: CodigoPais;
+  moneda: "EUR" | "GBP";
+  titulo: string | null;
+  marca: string | null;
+  paquete: Paquete | null;
+  rankings: { rank: number; categoria: string }[];
+  /** Featured-offer price (or the lowest), and how many sellers offer it. */
+  precio: number | null;
+  ofertas: number | null;
+  destacadaFba: boolean | null;
+  /** Amazon's fee estimate at `precioTarifas` (FBA, stock in that country). */
+  comision: number | null;
+  tarifaFba: number | null;
+  precioTarifas: number | null;
+  tarifasEn: string | null;
+  actualizadoEn: string;
+  /** Not sold in that country, or Amazon didn't answer. */
+  error?: string;
+};
+
+/** A day of the follow-up: price, sellers and main sales rank. */
+export type PuntoSeguimiento = { dia: string; precio: number | null; ofertas: number | null; rank: number | null };
+
+export type SeguimientoAmazon = { ficha: FichaAmazon; puntos: PuntoSeguimiento[] };
 
 export const SUPUESTOS_INICIALES: SupuestosRentabilidad = { costeFabrica: 20, envioUnidad: 6, conversion: 10, devoluciones: 5, mesesStock: 2, lanzamiento: 1500 };
 
@@ -153,14 +191,35 @@ export type ResenasEstudio = { temas: TemaResena[]; competidores: ResenasCompeti
 
 // ---------- Uploaded files ----------
 
-export type HerramientaH10 = "xray" | "cerebro" | "magnet" | "resenas" | "calculadora" | "otro";
+/** What a file is: a Helium 10 tool, an Amazon page or one of the owner's own documents. */
+export type HerramientaH10 =
+  | "xray"
+  | "cerebro"
+  | "magnet"
+  | "resenas"
+  | "historial"
+  | "calculadora"
+  | "ficha"
+  | "restricciones"
+  | "proveedor"
+  | "envio"
+  | "medidas"
+  | "certificados"
+  | "otro";
 export const HERRAMIENTAS_H10: { id: HerramientaH10; nombre: string; ayuda: string }[] = [
-  { id: "xray", nombre: "Xray", ayuda: "Mercado de una búsqueda: competidores, precios, ventas" },
-  { id: "cerebro", nombre: "Cerebro", ayuda: "Palabras clave de los competidores y sus posiciones" },
-  { id: "magnet", nombre: "Magnet", ayuda: "Variantes de la búsqueda con su volumen" },
-  { id: "resenas", nombre: "Reseñas", ayuda: "Reseñas de los competidores" },
-  { id: "calculadora", nombre: "Calculadora Amazon", ayuda: "Calculadora de beneficios de Amazon con el ASIN cargado" },
-  { id: "otro", nombre: "Otro", ayuda: "Cualquier otra captura o archivo" },
+  { id: "xray", nombre: "Xray", ayuda: "Helium 10: mercado de una búsqueda (competidores, precios, ventas)" },
+  { id: "cerebro", nombre: "Cerebro", ayuda: "Helium 10: palabras clave de los competidores y sus posiciones" },
+  { id: "magnet", nombre: "Magnet", ayuda: "Helium 10: variantes de la búsqueda con su volumen" },
+  { id: "resenas", nombre: "Reseñas", ayuda: "Reseñas de los competidores (Helium 10 o capturas de Amazon)" },
+  { id: "historial", nombre: "Historial de ventas", ayuda: "Helium 10: gráficas de ventas, precio y BSR de 12 meses" },
+  { id: "calculadora", nombre: "Calculadora Amazon", ayuda: "Calculadora de ingresos de Amazon con el ASIN del competidor cargado" },
+  { id: "ficha", nombre: "Ficha de competidor", ayuda: "Captura de la página de un competidor en Amazon (fotos, título, viñetas)" },
+  { id: "restricciones", nombre: "Restricciones de categoría", ayuda: "Seller Central → Añadir un producto: si la categoría pide aprobación" },
+  { id: "proveedor", nombre: "Presupuesto del proveedor", ayuda: "Precio por unidad y cantidad mínima (Alibaba, proforma…)" },
+  { id: "envio", nombre: "Envío y aduana", ayuda: "Presupuesto del transitario: transporte hasta Amazon y aranceles" },
+  { id: "medidas", nombre: "Medidas y peso", ayuda: "Medidas y peso de la caja de tu producto (ficha del proveedor)" },
+  { id: "certificados", nombre: "Certificados", ayuda: "CE, EN 71 (juguetes)… del proveedor" },
+  { id: "otro", nombre: "Otro", ayuda: "Cualquier otro archivo" },
 ];
 export const esHerramienta = (v: unknown): v is HerramientaH10 => HERRAMIENTAS_H10.some((h) => h.id === v);
 
@@ -176,5 +235,7 @@ export type ArchivoH10 = {
   estado: "procesado" | "guardado" | "error";
   /** What was read from it: «Xray · DE · rebounder für fußball · 38 productos». */
   resumen: string;
+  /** Xray only: the keyword it analyses (to tell the main search from the secondary ones). */
+  palabraClave?: string;
   error?: string;
 };

@@ -3,7 +3,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { limpiarEnv } from "@/lib/env";
 import type { MapaPalabras, MapaXray } from "@/lib/datos/h10Csv";
-import { esCodigoPais, esHerramienta, type CodigoPais, type HerramientaH10 } from "@/lib/datos/h10Tipos";
+import { esCodigoPais, esHerramienta, HERRAMIENTAS_H10, type CodigoPais, type HerramientaH10 } from "@/lib/datos/h10Tipos";
 
 /*
  * Claude reads Helium 10 files for the «Análisis H10» studies:
@@ -23,7 +23,7 @@ const conectar = () => {
 
 export type Pista = { codigoPais: CodigoPais | null; herramienta: HerramientaH10 | null };
 
-const HERRAMIENTAS = ["xray", "cerebro", "magnet", "resenas", "calculadora", "otro"];
+const HERRAMIENTAS = HERRAMIENTAS_H10.map((h) => h.id);
 const PAISES = ["ES", "DE", "FR", "IT", "GB", "desconocido"];
 // The API allows at most 16 nullable fields per schema: CSV column names use "" for «not there» instead of null.
 const columnaCsv = { type: "string", description: "Nombre exacto de la cabecera, o cadena vacía si no existe" };
@@ -35,7 +35,14 @@ Herramientas:
 - cerebro: palabras clave de uno o varios ASIN: Keyword Phrase, Search Volume, CPR, Title Density, Organic Rank y una columna de posición por ASIN.
 - magnet: variantes de una palabra clave: Keyword Phrase, Magnet IQ Score, Search Volume, Competing Products…
 - resenas: reseñas de clientes de un producto.
+- historial: gráficas de Helium 10 con la evolución de ventas, precio o BSR de un producto a lo largo de los meses.
 - calculadora: calculadora de beneficios / Revenue Calculator de Amazon (tarifas, precio, beneficio).
+- ficha: la página de un producto en Amazon (fotos, título, viñetas, descripción, A+).
+- restricciones: Seller Central al añadir un producto: si la categoría o la marca necesita aprobación.
+- proveedor: presupuesto, proforma o anuncio de un proveedor (Alibaba…) con precio por unidad o cantidad mínima.
+- envio: presupuesto de transporte o de un transitario (flete, aduana, aranceles).
+- medidas: ficha técnica con las medidas y el peso de la caja del producto.
+- certificados: certificados de conformidad o ensayos (CE, EN 71, REACH…).
 - otro: cualquier otra cosa.
 País: por la moneda y el idioma (£ o amazon.co.uk → GB; € con alemán → DE, francés → FR, italiano → IT, español → ES). Si no se puede saber, «desconocido».
 Si el usuario indica país o herramienta, úsalos.`;
@@ -247,16 +254,18 @@ export async function leerCalculadora(datos: Buffer, tipo: TipoImagen, nombre: s
   return { ...r, codigoPais: pista.codigoPais ?? (esCodigoPais(r.codigoPais) ? r.codigoPais : null) };
 }
 
-export const TIPOS_IMAGEN =["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+export const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
 type TipoImagen = (typeof TIPOS_IMAGEN)[number];
 export const esImagen = (t: string): t is TipoImagen => (TIPOS_IMAGEN as readonly string[]).includes(t);
 
-/** Reads a Helium 10 screenshot: which tool and country, and the data it shows. */
-export async function leerCaptura(datos: Buffer, tipo: TipoImagen, nombre: string, pista: Pista): Promise<CapturaLeida> {
+/** Reads a screenshot (or a PDF): what it is, which country, and the data it shows. */
+export async function leerCaptura(datos: Buffer, tipo: TipoImagen | "application/pdf", nombre: string, pista: Pista): Promise<CapturaLeida> {
   const r = await pedir<Omit<CapturaLeida, "codigoPais" | "herramienta"> & { codigoPais: string; herramienta: string }>(
-    `${COMUN}\nLee la captura de pantalla. Copia los números tal cual se ven (como números, sin símbolos; 1.234,56 € → 1234.56). Solo lo visible: no inventes filas. Rellena solo la parte que corresponde a la herramienta; las demás, vacías.`,
+    `${COMUN}\nLee la captura de pantalla o el documento. Copia los números tal cual se ven (como números, sin símbolos; 1.234,56 € → 1234.56). Solo lo visible: no inventes filas. Rellena solo la parte que corresponde a la herramienta; las demás, vacías.`,
     [
-      { type: "image", source: { type: "base64", media_type: tipo, data: datos.toString("base64") } },
+      tipo === "application/pdf"
+        ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: datos.toString("base64") } }
+        : { type: "image", source: { type: "base64", media_type: tipo, data: datos.toString("base64") } },
       { type: "text", text: pistaTexto(pista, nombre) },
     ],
     ESQUEMA_CAPTURA,

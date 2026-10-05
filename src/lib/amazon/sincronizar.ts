@@ -17,6 +17,7 @@ import { actualizarSaludListings, vigilarListings } from "@/lib/datos/saludListi
 import { actualizarEnvios } from "@/lib/datos/envios";
 import { actualizarInventarioPaises } from "@/lib/datos/inventarioPaises";
 import { actualizarEstadoCuenta } from "@/lib/datos/estadoCuenta";
+import { lanzarSeguimientoH10 } from "@/lib/datos/estudiosH10";
 import { sincronizarGmail } from "@/lib/gmail";
 import { actualizarGastos } from "@/lib/datos/gastos";
 import { actualizarIngresos, guardarCompensaciones } from "@/lib/datos/ingresos";
@@ -414,6 +415,13 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         lanzarCargaPalabras(await mercadosPendientes());
       } catch (e) {
         errores.push(`Palabras clave: ${mensaje(e)}`);
+      }
+
+      // 10i. Helium 10 studies: daily price, sellers and sales rank of the competitors read from Amazon (background, once a day)
+      try {
+        lanzarSeguimientoH10();
+      } catch (e) {
+        errores.push(`Seguimiento de competidores (H10): ${mensaje(e)}`);
       }
 
       // 11. Performance notifications from Gmail, when connected (never blocks the sales data)

@@ -1,4 +1,4 @@
-import { SUPUESTOS_INICIALES, type CompetidorXray, type EstudioH10 } from "./h10Tipos";
+import { SUPUESTOS_INICIALES, type CodigoPais, type CompetidorXray, type EstudioH10, type FichaAmazon, type SeguimientoAmazon } from "./h10Tipos";
 
 /*
  * Sample data for the «Análisis H10» preview, taken from Helium 10 Xray screenshots (only the rows visible in
@@ -16,6 +16,29 @@ const c = (puesto: number, titulo: string, marca: string, precio: number, factur
   variacionResenas,
   etiquetas,
 });
+
+/** Racetex's rebounder as Amazon's API gave it in the test, in one country. */
+function racetex(codigoPais: CodigoPais, moneda: "EUR" | "GBP", comision: number, tarifaFba: number, precioTarifas: number, extra: Partial<FichaAmazon> = {}): SeguimientoAmazon {
+  const ficha: FichaAmazon = {
+    asin: "B0DS9VCV6L",
+    codigoPais,
+    moneda,
+    titulo: "Rebounder für Fußball 100x100 / Fussball Rebounder mit robuster Konstruktion",
+    marca: "Racetex",
+    paquete: { largo: 101.5, ancho: 26, alto: 9, peso: 6.84 },
+    rankings: [],
+    precio: null,
+    ofertas: null,
+    destacadaFba: null,
+    comision,
+    tarifaFba,
+    precioTarifas,
+    tarifasEn: "2026-10-05T12:00:00.000Z",
+    actualizadoEn: "2026-10-05T12:00:00.000Z",
+    ...extra,
+  };
+  return { ficha, puntos: ficha.precio ? [{ dia: "2026-10-05", precio: ficha.precio, ofertas: ficha.ofertas, rank: ficha.rankings[0]?.rank ?? null }] : [] };
+}
 
 export const ESTUDIOS_DEMO: EstudioH10[] = [
   {
@@ -41,6 +64,15 @@ export const ESTUDIOS_DEMO: EstudioH10[] = [
       },
     },
     supuestos: SUPUESTOS_INICIALES,
+    // What Amazon's API answered for Racetex's rebounder in the read-only test of 5 Oct 2026 (catalog and offers in
+    // Germany; fee estimates in the five countries).
+    amazon: [
+      racetex("DE", "EUR", 13.5, 6.72, 89.99, { precio: 89.99, ofertas: 3, destacadaFba: true, rankings: [{ rank: 2, categoria: "Fußballtornetze" }, { rank: 2975, categoria: "Sport & Freizeit" }] }),
+      racetex("ES", "EUR", 13.5, 9.21, 89.99),
+      racetex("FR", "EUR", 13.5, 9.52, 89.99),
+      racetex("IT", "EUR", 13.5, 9.91, 89.99),
+      racetex("GB", "GBP", 11.7, 6.25, 77.99),
+    ],
     mercados: [
       {
         codigoPais: "GB", moneda: "GBP", palabraClave: "rebounder football", fecha: "2026-10-05",

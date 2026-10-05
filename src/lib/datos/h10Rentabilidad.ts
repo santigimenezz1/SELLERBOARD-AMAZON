@@ -1,5 +1,5 @@
 import { EUR_POR_GBP, rangosDePrecio } from "./h10Analisis";
-import { SUPUESTOS_INICIALES, type CodigoPais, type EstudioH10, type MercadoXray, type PalabrasMercado, type SupuestosRentabilidad } from "./h10Tipos";
+import { SUPUESTOS_INICIALES, type CodigoPais, type EstudioH10, type FichaAmazon, type MercadoXray, type Paquete, type PalabrasMercado, type SupuestosRentabilidad } from "./h10Tipos";
 
 /*
  * What you'd make per unit selling the study's product in one country, and with a share of the market. Pure maths, all
@@ -43,6 +43,8 @@ export type Desglose = {
 export type RentabilidadPais = {
   codigoPais: CodigoPais;
   entradas: { precio: Dato; comisionPct: Dato; tarifaFba: Dato; almacenamientoMes: Dato; iva: Dato; pujaPpc: Dato };
+  /** The competitor whose Amazon fees stand for yours in this country (null without Amazon data). */
+  referencia: Referencia | null;
   desglose: Desglose;
   margen: number;
   roi: number;
@@ -55,6 +57,37 @@ export type RentabilidadPais = {
   unidadesMercado: number;
   escenarios: { cuota: number; unidades: number; beneficioMes: number; inversion: number; mesesRecuperar: number | null }[];
 };
+
+/**
+ * The competitor read from Amazon whose fees stand for yours: with your box, the one whose package is most alike
+ * (`parecido`: every side and the weight within 20 %); without it, the one that sells most there.
+ */
+export type Referencia = { ficha: FichaAmazon; parecido: boolean | null; motivo: string };
+
+/** How far two packages are apart: the biggest ratio between matching sides (sorted) or weights, as a log. */
+function distancia(a: Paquete, b: Paquete): number {
+  const la = [a.largo, a.ancho, a.alto].sort((x, y) => y - x);
+  const lb = [b.largo, b.ancho, b.alto].sort((x, y) => y - x);
+  return Math.max(...la.map((x, i) => Math.abs(Math.log(x / lb[i]))), Math.abs(Math.log(a.peso / b.peso)));
+}
+const PARECIDO = Math.log(1.2);
+export const cajaCompleta = (c?: Paquete | null): c is Paquete => !!c && c.largo > 0 && c.ancho > 0 && c.alto > 0 && c.peso > 0;
+
+export function referenciaAmazon(estudio: EstudioH10, m: MercadoXray, s: SupuestosRentabilidad): Referencia | null {
+  const fichas = (estudio.amazon ?? []).map((v) => v.ficha).filter((f) => f.codigoPais === m.codigoPais && f.tarifaFba !== null);
+  if (!fichas.length) return null;
+  if (cajaCompleta(s.miCaja)) {
+    const conCaja = fichas.filter((f) => cajaCompleta(f.paquete));
+    if (conCaja.length) {
+      const mejor = conCaja.map((f) => ({ f, d: distancia(s.miCaja!, f.paquete!) })).sort((a, b) => a.d - b.d)[0];
+      return { ficha: mejor.f, parecido: mejor.d <= PARECIDO, motivo: mejor.d <= PARECIDO ? "su caja es la más parecida a la tuya" : "es la caja menos distinta, pero ninguna se parece a la tuya" };
+    }
+  }
+  // Without your box: the competitor that makes most there (Xray), else the first one read.
+  const facturacion = new Map(m.competidores.map((c) => [c.asin, c.facturacion]));
+  const lider = [...fichas].sort((a, b) => (facturacion.get(b.asin) ?? 0) - (facturacion.get(a.asin) ?? 0))[0];
+  return { ficha: lider, parecido: null, motivo: "es el que más vende (pon las medidas de tu caja para elegir el más parecido)" };
+}
 
 /** Profit per unit at a given price, with everything else fixed. */
 function desgloseA(precio: number, e: { comisionPct: number; tarifaFba: number; almacenamientoMes: number; iva: number; pujaPpc: number }, s: SupuestosRentabilidad): Desglose {
@@ -85,6 +118,9 @@ export function rentabilidadPais(estudio: EstudioH10, m: MercadoXray, palabras: 
   const s = supuestos ?? estudio.supuestos ?? SUPUESTOS_INICIALES;
   const calc = estudio.calculadoras?.[m.codigoPais];
   const otra = Object.values(estudio.calculadoras ?? {}).find((c) => c && c.codigoPais !== m.codigoPais);
+  const ref = calc ? null : referenciaAmazon(estudio, m, s);
+  const rf = ref?.ficha;
+  const nombreRef = rf ? rf.marca || rf.asin : "";
 
   // Price: yours; else the calculator's; else the same as in a country that has one (it's the same product);
   // else the middle of the band that sells most; else the average.
@@ -94,16 +130,25 @@ export function rentabilidadPais(estudio: EstudioH10, m: MercadoXray, palabras: 
     ? { valor: tuyo, fuente: "Tu precio" }
     : calc
     ? { valor: aEur(calc.precio, calc.moneda), fuente: "Calculadora de Amazon" }
+    : rf?.precio
+    ? { valor: aEur(rf.precio, rf.moneda), fuente: `Precio actual de ${nombreRef} (Amazon)` }
     : otra
     ? { valor: aEur(otra.precio, otra.moneda), fuente: `Mismo precio que en ${otra.codigoPais} (calculadora)` }
     : banda
       ? { valor: banda.desde + 5, fuente: "Rango de precio que más vende (Xray)" }
       : { valor: aEur(m.precioMedio, m.moneda), fuente: "Precio medio (Xray)" };
-  const comisionPct: Dato = calc && calc.precio > 0 ? { valor: calc.comision / calc.precio, fuente: "Calculadora de Amazon" } : { valor: COMISION_HABITUAL, fuente: "Habitual en la categoría" };
+  const comisionPct: Dato =
+    calc && calc.precio > 0
+      ? { valor: calc.comision / calc.precio, fuente: "Calculadora de Amazon" }
+      : rf?.comision && rf.precioTarifas
+        ? { valor: rf.comision / rf.precioTarifas, fuente: `Amazon (automático) · ${nombreRef}` }
+        : { valor: COMISION_HABITUAL, fuente: "Habitual en la categoría" };
   const fbaXray = mediana(m.competidores.map((c) => c.tarifaFba).filter((v): v is number => !!v));
   const tarifaFba: Dato = calc
     ? { valor: aEur(calc.tarifaFba, calc.moneda), fuente: "Calculadora de Amazon" }
-    : otra
+    : rf?.tarifaFba !== undefined && rf?.tarifaFba !== null
+      ? { valor: aEur(rf.tarifaFba, rf.moneda), fuente: `Amazon (automático) · como el de ${nombreRef}, con stock en ese país` }
+      : otra
       ? { valor: aEur(otra.tarifaFba, otra.moneda), fuente: `Calculadora de ${otra.codigoPais} (estimado)` }
       : fbaXray
         ? { valor: aEur(fbaXray, m.moneda), fuente: "Mediana de los competidores (Xray)" }
@@ -128,6 +173,7 @@ export function rentabilidadPais(estudio: EstudioH10, m: MercadoXray, palabras: 
   return {
     codigoPais: m.codigoPais,
     entradas: { precio, comisionPct, tarifaFba, almacenamientoMes, iva, pujaPpc },
+    referencia: ref,
     desglose: d,
     margen: d.precio > 0 ? d.beneficio / d.precio : 0,
     roi: producto > 0 ? d.beneficio / producto : 0,

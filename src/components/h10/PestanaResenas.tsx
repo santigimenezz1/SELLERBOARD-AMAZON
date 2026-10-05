@@ -6,7 +6,10 @@ import { analizarResenas, nombrePais, type TemaContado } from "@/lib/datos/h10An
 import { formatNumero } from "@/lib/format";
 import { Barras, Pais, Tarjeta } from "./comun";
 
-const Estrellas = ({ n }: { n: number }) => (
+/** Reviews shown at a time in the sample list. */
+const POR_PAGINA = 8;
+
+const Estrellas =({ n }: { n: number }) => (
   <span aria-label={`${n} de 5 estrellas`} className="tracking-tight whitespace-nowrap">
     <span className="text-accent-400">{"★".repeat(n)}</span>
     <span className="text-ink-600">{"★".repeat(5 - n)}</span>
@@ -36,11 +39,23 @@ function ListaTemas({ temas, elegido, onElegir }: { temas: TemaContado[]; elegid
 /** «Reseñas»: what the competitors' customers complain about and praise, and what that means for your product. */
 export function PestanaResenas({ datos }: { datos: ResenasEstudio }) {
   const a = analizarResenas(datos);
-  const [tema, setTema] = useState<string | null>(null);
-  const muestra = datos.competidores
+  const [tema, setTemaElegido] = useState<string | null>(null);
+  const [estrellas, setEstrellasElegidas] = useState<number | null>(null);
+  const [visibles, setVisibles] = useState(POR_PAGINA);
+  // A new filter starts again from the first page.
+  const setTema = (t: string | null) => {
+    setTemaElegido(t);
+    setVisibles(POR_PAGINA);
+  };
+  const setEstrellas = (n: number | null) => {
+    setEstrellasElegidas(n);
+    setVisibles(POR_PAGINA);
+  };
+  const delTema = datos.competidores
     .flatMap((c) => c.resenas.map((r) => ({ ...r, c })))
     .filter((r) => !tema || r.temas.includes(tema))
     .sort((x, y) => y.fecha.localeCompare(x.fecha));
+  const muestra = delTema.filter((r) => estrellas === null || r.estrellas === estrellas);
   const nombreTema = new Map(datos.temas.map((t) => [t.id, t]));
 
   return (
@@ -129,14 +144,40 @@ export function PestanaResenas({ datos }: { datos: ResenasEstudio }) {
         </div>
       </Tarjeta>
 
-      <Tarjeta titulo={tema ? `Reseñas sobre «${nombreTema.get(tema)?.texto}»` : "Reseñas de ejemplo"} subtitulo={tema ? undefined : "Traducidas al español. Toca un tema de arriba para filtrarlas."}>
-        {tema && (
-          <button onClick={() => setTema(null)} className="mb-3 rounded-md px-2 py-1 text-xs text-ink-400 hover:bg-white/[0.06] hover:text-ink-100">
-            ✕ Quitar filtro
-          </button>
-        )}
+      <Tarjeta
+        titulo={`${tema ? `Reseñas sobre «${nombreTema.get(tema)?.texto}»` : "Reseñas de ejemplo"} · ${muestra.length}`}
+        subtitulo="Traducidas al español, de la más reciente a la más antigua. Toca un tema de arriba o una puntuación para filtrarlas."
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          {[null, 5, 4, 3, 2, 1].map((n) => {
+            const cuantas = n === null ? delTema.length : delTema.filter((r) => r.estrellas === n).length;
+            return (
+              <button
+                key={n ?? "todas"}
+                onClick={() => setEstrellas(n)}
+                aria-pressed={estrellas === n}
+                disabled={cuantas === 0}
+                className={`inline-flex h-7 items-center gap-1 rounded-lg border px-2.5 text-xs transition-colors disabled:opacity-40 ${estrellas === n ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
+              >
+                {n === null ? "Todas" : (
+                  <>
+                    {n}
+                    <span className="text-accent-400">★</span>
+                  </>
+                )}
+                <span className="tabular text-ink-500">{cuantas}</span>
+              </button>
+            );
+          })}
+          {tema && (
+            <button onClick={() => setTema(null)} className="ml-auto rounded-md px-2 py-1 text-xs text-ink-400 hover:bg-white/[0.06] hover:text-ink-100">
+              ✕ Quitar el tema
+            </button>
+          )}
+        </div>
+        {muestra.length === 0 && <p className="py-6 text-center text-sm text-ink-400">No hay reseñas con este filtro.</p>}
         <ul className="flex flex-col divide-y divide-white/[0.05]">
-          {muestra.map((r, i) => (
+          {muestra.slice(0, visibles).map((r, i) => (
             <li key={i} className="flex flex-col gap-1 py-2.5 text-sm">
               <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-400">
                 <Estrellas n={r.estrellas} />
@@ -155,6 +196,30 @@ export function PestanaResenas({ datos }: { datos: ResenasEstudio }) {
             </li>
           ))}
         </ul>
+        {muestra.length > POR_PAGINA && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3 text-xs text-ink-400">
+            <span className="tabular">
+              Mostrando {Math.min(visibles, muestra.length)} de {muestra.length}
+            </span>
+            <span className="flex gap-1.5">
+              {visibles > POR_PAGINA && (
+                <button onClick={() => setVisibles(POR_PAGINA)} className="rounded-lg px-3 py-1.5 text-ink-400 hover:bg-white/[0.06] hover:text-ink-100">
+                  Mostrar menos
+                </button>
+              )}
+              {visibles < muestra.length && (
+                <>
+                  <button onClick={() => setVisibles(visibles + POR_PAGINA)} className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-ink-200 hover:bg-white/[0.06] hover:text-ink-100">
+                    Mostrar {Math.min(POR_PAGINA, muestra.length - visibles)} más
+                  </button>
+                  <button onClick={() => setVisibles(muestra.length)} className="rounded-lg px-3 py-1.5 text-accent-300 hover:bg-white/[0.06] hover:text-accent-400">
+                    Ver todas
+                  </button>
+                </>
+              )}
+            </span>
+          </div>
+        )}
       </Tarjeta>
     </div>
   );
