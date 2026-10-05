@@ -49,6 +49,13 @@ export async function actualizarDevoluciones(marketplaceId: string): Promise<num
   return 1;
 }
 
+/** Every return of the last year, each with its country (taken from the order), for the data chat. */
+export async function todasLasDevoluciones(): Promise<{ filas: (DevolucionAmazon & { marketplaceId: string | null })[]; actualizadoEn: string | null }> {
+  const doc = await leer();
+  const mkDePedido = new Map([...pedidosEnAlmacen().values()].map((p) => [p.amazonOrderId, p.marketplaceId]));
+  return { filas: (doc?.filas ?? []).map((d) => ({ ...d, marketplaceId: mkDePedido.get(d.orderId) ?? null })), actualizadoEn: doc?.actualizadoEn ?? null };
+}
+
 export type FilaDevolucion = { fecha: string; marketplaceId: string | null; unidades: number; motivo: string; disposicion: string; estado: string; comentario: string };
 export type FilaReembolso = { fecha: string; marketplaceId: string | null; importe: number };
 export type FilaVenta = { dia: string; marketplaceId: string; unidades: number };

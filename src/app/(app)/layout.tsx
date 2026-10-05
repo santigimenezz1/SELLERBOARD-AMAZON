@@ -5,6 +5,7 @@ import { MenuMovil, Nav } from "@/components/Nav";
 // import { ContadorConsumo } from "@/components/ContadorConsumo";
 import { resumenEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
+import { Chat } from "@/components/chat/Chat";
 
 // Every page here depends on the signed-in user and live data: never pre-render them at build time. Without this
 // the build tries to, and each attempt loads the whole order history from Firestore (thousands of reads per build
@@ -40,6 +41,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       </header>
       <RefrescoAutomatico />
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+      {/* «Pregunta a tu app»: the data chat, on every page. */}
+      <Chat />
     </div>
   );
 }
