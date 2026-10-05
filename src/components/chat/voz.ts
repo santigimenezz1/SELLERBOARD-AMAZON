@@ -27,13 +27,13 @@ function constructorReconocimiento(): ConstructorReconocimiento | null {
 }
 
 /**
- * iPhone / iPad, in any browser (they all run on Safari's engine). Their in-page dictation closes the microphone
- * at once («aborted»), so there the keyboard's own dictation is used instead.
+ * iPhone / iPad, in any browser (they all run on Safari's engine). In-page dictation works in some of them (Safari)
+ * and in others closes the microphone at once («aborted», e.g. Chrome): there the keyboard's own dictation is used.
  */
 export const esIOS = () =>
   typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
-export const dictadoDisponible = () => constructorReconocimiento() !== null && !esIOS();
+export const dictadoDisponible = () => constructorReconocimiento() !== null;
 export const vozDisponible = () => typeof window !== "undefined" && "speechSynthesis" in window;
 
 const ERRORES_DICTADO: Record<string, string> = {
@@ -53,14 +53,15 @@ const ESPERA_FIN_MS = 500;
 
 /**
  * Starts listening (Spanish). `alCambiar` gets what's been said so far while speaking; `alTerminar` the text
- * (empty if nothing was understood), or an error, exactly once. Returns a function that stops it and sends what was
+ * (empty if nothing was understood), or an error, exactly once; `noFunciona` when this browser closed the microphone
+ * the moment it opened, i.e. its in-page dictation doesn't work. Returns a function that stops it and sends what was
  * heard.
  *
  * Mobile browsers don't all behave: Safari on iPhone and some Android Chrome never fire the end of speech, or
  * only ever give provisional results. So the end doesn't wait for the browser: a pause after speaking, a second tap
  * or a long silence finish it, and provisional text counts.
  */
-export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto: string, error?: string) => void): () => void {
+export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto: string, error?: string, noFunciona?: boolean) => void): () => void {
   const C = constructorReconocimiento();
   if (!C) {
     alTerminar("", "Este navegador no permite dictar: usa Chrome, Edge o Safari");
@@ -77,6 +78,7 @@ export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto:
   /** Raw error code from the browser, to explain an early close. */
   let codigo = "";
   let terminado = false;
+  let noFunciona = false;
   let paradoAqui = false;
   let reintentado = false;
   let inicio = Date.now();
@@ -86,7 +88,7 @@ export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto:
     terminado = true;
     clearTimeout(silencio);
     clearTimeout(sinVoz);
-    alTerminar(dicho.trim(), error);
+    alTerminar(dicho.trim(), error, noFunciona);
   };
   /** Asks the browser to stop and finishes even if it never says it has. */
   const parar = () => {
@@ -129,7 +131,8 @@ export function escuchar(alCambiar: (texto: string) => void, alTerminar: (texto:
           return r.start();
         } catch {}
       }
-      error = `El micrófono se cerró nada más abrirse${codigo ? ` (Safari dice: ${codigo})` : ""}. Mientras tanto, toca la caja de texto y usa el micrófono del teclado del iPhone.`;
+      noFunciona = true;
+      error = `El micrófono se cerró nada más abrirse${codigo ? ` (el navegador dice: ${codigo})` : ""}. Toca la caja de texto y usa el micrófono del teclado.`;
     }
     terminar();
   };

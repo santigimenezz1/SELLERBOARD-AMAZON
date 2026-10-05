@@ -8,6 +8,8 @@ import { callar, desbloquearVoz, dictadoDisponible, escuchar, esIOS, hablar, pre
 
 /** Where this browser remembers whether answers are read aloud. */
 const CLAVE_VOZ = "chat.voz";
+/** Set in a browser whose in-page dictation failed (Chrome on iPhone): its 🎤 then goes to the keyboard's dictation. */
+const CLAVE_TECLADO = "chat.dictadoTeclado";
 
 type Consulta = { etiqueta: string; detalle: string };
 /** `voz`: answer to a question asked by voice, heard rather than read (its text stays hidden unless `verTexto`). */
@@ -43,12 +45,14 @@ export function Chat() {
   const detenerDictado = useRef<(() => void) | null>(null);
   // iPhone: the 🎤 opens the keyboard to dictate with it; the question then sent counts as asked by voice.
   const porTeclado = useRef(false);
+  const [tecladoPreferido, setTecladoPreferido] = useState(false);
   const [pista, setPista] = useState<string | null>(null);
   useEffect(() => {
     setSoporte({ dictado: dictadoDisponible(), voz: vozDisponible(), ios: esIOS() });
     prepararVoces();
     try {
       setVozActiva(localStorage.getItem(CLAVE_VOZ) === "1");
+      setTecladoPreferido(localStorage.getItem(CLAVE_TECLADO) === "1");
     } catch {}
   }, []);
   // Stopping speech by hand doesn't always fire the end event in every browser: the flag goes down here too.
@@ -163,7 +167,7 @@ export function Chat() {
   const verTexto = (indice: number) => setMensajes((ms) => ms.map((m, i) => (i === indice ? { ...m, verTexto: !m.verTexto } : m)));
 
   const dictar = () => {
-    if (soporte.ios) {
+    if (soporte.ios && (tecladoPreferido || !soporte.dictado)) {
       // Focusing within the tap opens the keyboard, whose own microphone does work.
       porTeclado.current = true;
       setAvisoVoz(null);
@@ -177,9 +181,19 @@ export function Chat() {
     setEscuchando(true);
     detenerDictado.current = escuchar(
       (dicho) => setTexto(dicho),
-      (dicho, error) => {
+      (dicho, error, noFunciona) => {
         setEscuchando(false);
         detenerDictado.current = null;
+        // iPhone browser whose in-page dictation doesn't work: from now on its 🎤 goes to the keyboard's dictation.
+        if (noFunciona && soporte.ios) {
+          setTecladoPreferido(true);
+          try {
+            localStorage.setItem(CLAVE_TECLADO, "1");
+          } catch {}
+          porTeclado.current = true;
+          setPista("En este navegador el micrófono de la app no funciona: toca la caja de texto, pulsa el 🎤 del teclado y envía; te responderé en voz alta. A partir de ahora el 🎤 de la app te lleva directo al teclado.");
+          return;
+        }
         if (error) setAvisoVoz(error);
         else if (dicho) void preguntar(dicho, true);
         else setAvisoVoz("No he entendido nada: pulsa el micrófono y vuelve a probar");
