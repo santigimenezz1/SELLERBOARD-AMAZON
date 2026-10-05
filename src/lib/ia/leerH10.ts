@@ -1,0 +1,217 @@
+import "server-only";
+
+import Anthropic from "@anthropic-ai/sdk";
+import { limpiarEnv } from "@/lib/env";
+import type { MapaPalabras, MapaXray } from "@/lib/datos/h10Csv";
+import { esCodigoPais, esHerramienta, type CodigoPais, type HerramientaH10 } from "@/lib/datos/h10Tipos";
+
+/*
+ * Claude reads Helium 10 files for the «Análisis H10» studies:
+ * - a CSV export: from its header and a few rows it says which tool and country it is and which column is which
+ *   (the figures are then read from the file itself, see h10Csv.ts);
+ * - a screenshot: it reads the data straight from the image.
+ * Answers follow a JSON schema (structured outputs).
+ */
+
+const apiKey = limpiarEnv(process.env.ANTHROPIC_API_KEY);
+let cliente: Anthropic | null = null;
+const conectar = () => {
+  if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY en las variables de entorno para leer los archivos con IA");
+  cliente ??= new Anthropic({ apiKey });
+  return cliente;
+};
+
+export type Pista = { codigoPais: CodigoPais | null; herramienta: HerramientaH10 | null };
+
+const HERRAMIENTAS = ["xray", "cerebro", "magnet", "resenas", "calculadora", "otro"];
+const PAISES = ["ES", "DE", "FR", "IT", "GB", "desconocido"];
+// The API allows at most 16 nullable fields per schema: CSV column names use "" for «not there» instead of null.
+const columnaCsv = { type: "string", description: "Nombre exacto de la cabecera, o cadena vacía si no existe" };
+const numeroONulo = { type: ["number", "null"] };
+
+const COMUN = `Eres un experto en Helium 10 y Amazon. Identificas archivos de Helium 10 de un vendedor que estudia productos en Amazon Europa.
+Herramientas:
+- xray: análisis de una búsqueda: tabla de productos con Price, Sales/ASIN Sales, Revenue/ASIN Revenue, Reviews, BSR; cabecera con Search Volume, Total Revenue, Average Price…
+- cerebro: palabras clave de uno o varios ASIN: Keyword Phrase, Search Volume, CPR, Title Density, Organic Rank y una columna de posición por ASIN.
+- magnet: variantes de una palabra clave: Keyword Phrase, Magnet IQ Score, Search Volume, Competing Products…
+- resenas: reseñas de clientes de un producto.
+- calculadora: calculadora de beneficios / Revenue Calculator de Amazon (tarifas, precio, beneficio).
+- otro: cualquier otra cosa.
+País: por la moneda y el idioma (£ o amazon.co.uk → GB; € con alemán → DE, francés → FR, italiano → IT, español → ES). Si no se puede saber, «desconocido».
+Si el usuario indica país o herramienta, úsalos.`;
+
+function pistaTexto(p: Pista, nombre: string): string {
+  return `Nombre del archivo: «${nombre}».${p.herramienta ? ` El usuario dice que es de: ${p.herramienta}.` : ""}${p.codigoPais ? ` El usuario dice que el país es: ${p.codigoPais}.` : ""}`;
+}
+
+async function pedir<T>(system: string, contenido: Anthropic.Beta.BetaContentBlockParam[], schema: Record<string, unknown>): Promise<T> {
+  const r = await conectar().beta.messages.create({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: { effort: "medium", format: { type: "json_schema", schema } },
+    system,
+    messages: [{ role: "user", content: contenido }],
+  });
+  if (r.stop_reason === "refusal") throw new Error("La IA no quiso leer este archivo");
+  if (r.stop_reason === "max_tokens") throw new Error("El archivo tiene demasiados datos para leerlo de una vez");
+  const t = r.content.find((b) => b.type === "text")?.text;
+  if (!t) throw new Error("La IA no devolvió datos");
+  return JSON.parse(t) as T;
+}
+
+const normalizar = (codigo: string, herramienta: string, pista: Pista) => ({
+  codigoPais: pista.codigoPais ?? (esCodigoPais(codigo) ? codigo : null),
+  herramienta: pista.herramienta ?? (esHerramienta(herramienta) ? herramienta : "otro"),
+});
+
+// ---------- CSV ----------
+
+export type CsvReconocido = {
+  herramienta: HerramientaH10;
+  codigoPais: CodigoPais | null;
+  moneda: "EUR" | "GBP";
+  palabraClave: string;
+  xray: MapaXray;
+  palabras: MapaPalabras;
+};
+
+const ESQUEMA_CSV = {
+  type: "object",
+  properties: {
+    herramienta: { type: "string", enum: HERRAMIENTAS },
+    codigoPais: { type: "string", enum: PAISES },
+    moneda: { type: "string", enum: ["EUR", "GBP"] },
+    palabraClave: { type: "string", description: "La búsqueda analizada si se deduce (p. ej. del nombre del archivo); si no, cadena vacía" },
+    xray: {
+      type: "object",
+      description: "Solo si es xray: el nombre EXACTO de la cabecera de cada dato, o cadena vacía si no existe",
+      properties: Object.fromEntries(["titulo", "asin", "marca", "precio", "ventas", "facturacion", "resenas", "valoracion", "bsr", "tarifaFba", "tamano", "peso"].map((k) => [k, columnaCsv])),
+      required: ["titulo", "asin", "marca", "precio", "ventas", "facturacion", "resenas", "valoracion", "bsr", "tarifaFba", "tamano", "peso"],
+      additionalProperties: false,
+    },
+    palabras: {
+      type: "object",
+      description: "Solo si es cerebro o magnet: el nombre EXACTO de la cabecera de cada dato, o cadena vacía",
+      properties: {
+        ...Object.fromEntries(["palabra", "busquedas", "tendencia", "competidores", "cpr", "densidad", "puja"].map((k) => [k, columnaCsv])),
+        posiciones: { type: "array", items: { type: "string" }, description: "Cabeceras con la posición orgánica de cada competidor (en Cerebro, una por ASIN)" },
+      },
+      required: ["palabra", "busquedas", "tendencia", "competidores", "cpr", "densidad", "puja", "posiciones"],
+      additionalProperties: false,
+    },
+  },
+  required: ["herramienta", "codigoPais", "moneda", "palabraClave", "xray", "palabras"],
+  additionalProperties: false,
+};
+
+/** Which tool and country a CSV export is, and which header holds each field. */
+export async function reconocerCsv(nombre: string, filas: string[][], pista: Pista): Promise<CsvReconocido> {
+  const muestra = filas.slice(0, 6).map((f) => f.map((c) => c.slice(0, 80)).join(" | ")).join("\n");
+  const r = await pedir<Omit<CsvReconocido, "codigoPais" | "herramienta"> & { codigoPais: string; herramienta: string }>(
+    `${COMUN}\nTe paso la cabecera y las primeras filas de una exportación CSV. Di qué es y en qué columna está cada dato (copia el nombre de la cabecera tal cual).`,
+    [{ type: "text", text: `${pistaTexto(pista, nombre)}\n\nPrimeras filas (separadas por |):\n${muestra}` }],
+    ESQUEMA_CSV,
+  );
+  const nulos = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v === "" ? null : v])) as T;
+  return { ...r, xray: nulos(r.xray), palabras: nulos(r.palabras), ...normalizar(r.codigoPais, r.herramienta, pista) };
+}
+
+// ---------- Screenshots ----------
+
+export type CapturaLeida = {
+  herramienta: HerramientaH10;
+  codigoPais: CodigoPais | null;
+  moneda: "EUR" | "GBP";
+  palabraClave: string;
+  cabecera: {
+    busquedas: number | null;
+    facturacionTotal: number | null;
+    facturacionMedia: number | null;
+    precioMedio: number | null;
+    bsrMedio: number | null;
+    resenasMedias: number | null;
+    top10Mas5000: number | null;
+    top10Menos75: number | null;
+    asins: number | null;
+  };
+  competidores: { puesto: number; titulo: string; marca: string; precio: number; ventas: number | null; facturacion: number; resenas: number; variacionResenas: number; etiquetas: string[] }[];
+  palabras: { texto: string; busquedas: number; tendencia: number | null; competidores: number | null; cpr: number | null; densidadTitulos: number | null; pujaPpc: number | null }[];
+  descripcion: string;
+};
+
+const ESQUEMA_CAPTURA = {
+  type: "object",
+  properties: {
+    herramienta: { type: "string", enum: HERRAMIENTAS },
+    codigoPais: { type: "string", enum: PAISES },
+    moneda: { type: "string", enum: ["EUR", "GBP"] },
+    palabraClave: { type: "string", description: "La búsqueda o el producto analizado; cadena vacía si no aparece" },
+    cabecera: {
+      type: "object",
+      description: "Solo xray: las métricas de la cabecera (null si no aparecen)",
+      properties: Object.fromEntries(["busquedas", "facturacionTotal", "facturacionMedia", "precioMedio", "bsrMedio", "resenasMedias", "top10Mas5000", "top10Menos75", "asins"].map((k) => [k, numeroONulo])),
+      required: ["busquedas", "facturacionTotal", "facturacionMedia", "precioMedio", "bsrMedio", "resenasMedias", "top10Mas5000", "top10Menos75", "asins"],
+      additionalProperties: false,
+    },
+    competidores: {
+      type: "array",
+      description: "Solo xray: cada fila visible de la tabla",
+      items: {
+        type: "object",
+        properties: {
+          puesto: { type: "number", description: "Número de la columna #" },
+          titulo: { type: "string" },
+          marca: { type: "string", description: "La marca, normalmente la primera palabra del título si es un nombre comercial; «Genérico» si no hay" },
+          precio: { type: "number" },
+          ventas: { type: ["number", "null"], description: "ASIN Sales si existe la columna" },
+          facturacion: { type: "number", description: "ASIN Revenue" },
+          resenas: { type: "number" },
+          variacionResenas: { type: "number", description: "El número entre paréntesis junto a las reseñas (+12 → 12, -24 → -24); 0 si no hay" },
+          etiquetas: { type: "array", items: { type: "string" }, description: "Insignias como «AC» o «ABA #1»" },
+        },
+        required: ["puesto", "titulo", "marca", "precio", "ventas", "facturacion", "resenas", "variacionResenas", "etiquetas"],
+        additionalProperties: false,
+      },
+    },
+    palabras: {
+      type: "array",
+      description: "Solo cerebro o magnet: cada palabra clave visible",
+      items: {
+        type: "object",
+        properties: {
+          texto: { type: "string" },
+          busquedas: { type: "number" },
+          tendencia: numeroONulo,
+          competidores: numeroONulo,
+          cpr: numeroONulo,
+          densidadTitulos: numeroONulo,
+          pujaPpc: numeroONulo,
+        },
+        required: ["texto", "busquedas", "tendencia", "competidores", "cpr", "densidadTitulos", "pujaPpc"],
+        additionalProperties: false,
+      },
+    },
+    descripcion: { type: "string", description: "Una frase en español de lo que muestra la captura" },
+  },
+  required: ["herramienta", "codigoPais", "moneda", "palabraClave", "cabecera", "competidores", "palabras", "descripcion"],
+  additionalProperties: false,
+};
+
+export const TIPOS_IMAGEN = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+type TipoImagen = (typeof TIPOS_IMAGEN)[number];
+export const esImagen = (t: string): t is TipoImagen => (TIPOS_IMAGEN as readonly string[]).includes(t);
+
+/** Reads a Helium 10 screenshot: which tool and country, and the data it shows. */
+export async function leerCaptura(datos: Buffer, tipo: TipoImagen, nombre: string, pista: Pista): Promise<CapturaLeida> {
+  const r = await pedir<Omit<CapturaLeida, "codigoPais" | "herramienta"> & { codigoPais: string; herramienta: string }>(
+    `${COMUN}\nLee la captura de pantalla. Copia los números tal cual se ven (como números, sin símbolos; 1.234,56 € → 1234.56). Solo lo visible: no inventes filas. Rellena solo la parte que corresponde a la herramienta; las demás, vacías.`,
+    [
+      { type: "image", source: { type: "base64", media_type: tipo, data: datos.toString("base64") } },
+      { type: "text", text: pistaTexto(pista, nombre) },
+    ],
+    ESQUEMA_CAPTURA,
+  );
+  return { ...r, ...normalizar(r.codigoPais, r.herramienta, pista) };
+}
