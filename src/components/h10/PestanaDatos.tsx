@@ -28,7 +28,7 @@ const LISTA: ItemLista[] = [
   { id: "magnet", herramienta: "magnet", texto: "Magnet de la búsqueda", necesidad: "Muy recomendable", ambito: "pais", ayuda: "Magnet de la búsqueda principal, en CSV" },
   { id: "resenas", herramienta: "resenas", texto: "Reseñas de los competidores", necesidad: "Recomendable", ambito: "pais", ayuda: "De los 3–5 líderes: CSV de Helium 10 o capturas de Amazon" },
   { id: "calculadora", herramienta: "calculadora", texto: "Calculadora de Amazon", necesidad: "Imprescindible en 1 país", ambito: "pais", ayuda: "Calculadora de ingresos con el ASIN del líder (captura), o «Traer datos de Amazon» en Competidores, que trae las tarifas de los 5 países solo" },
-  { id: "historial", herramienta: "historial", texto: "Historial de ventas (12 meses)", necesidad: "Recomendable", ambito: "principal", ayuda: "Gráficas de ventas, precio y BSR de los 2–3 líderes, en Xray (captura)" },
+  { id: "historial", herramienta: "historial", texto: "Historial de ventas (12 meses)", necesidad: "Recomendable", ambito: "pais", ayuda: "Gráficas de ventas, precio y BSR de los 2–3 líderes, en Xray (captura). Imprescindible en tu país principal; en los demás, para ver si la temporada coincide" },
   { id: "ficha", herramienta: "ficha", texto: "Fichas de los competidores", necesidad: "Recomendable", ambito: "principal", ayuda: "Capturas de la página en Amazon de los 3–5 líderes (fotos, título, viñetas)" },
   { id: "restricciones", herramienta: "restricciones", texto: "¿Puedes vender en la categoría?", necesidad: "Recomendable", ambito: "principal", ayuda: "Seller Central → Añadir un producto → busca el ASIN del líder (captura)" },
   { id: "proveedor", herramienta: "proveedor", texto: "Precio y cantidad mínima del proveedor", necesidad: "Imprescindible", ambito: "producto", ayuda: "Presupuesto o anuncio del proveedor. También vale con guardar tus costes en «Rentabilidad»" },
@@ -165,7 +165,8 @@ export function PestanaDatos({
               <option value="">Automática</option>
               {HERRAMIENTAS_H10.map((h) => (
                 <option key={h.id} value={h.id}>
-                  {h.nombre}
+                  {/* Secondary searches are Xrays too: the list tells them apart by their keyword. */}
+                  {h.id === "xray" ? "Xray (búsqueda principal o secundaria)" : h.nombre}
                 </option>
               ))}
             </select>
