@@ -15,6 +15,9 @@ const SIMULTANEOS = 3;
 const CLAVE_ABIERTOS = "tickets.mesesAbiertos";
 const campo = "h-9 w-full rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60";
 
+/** Tickets the AI couldn't read or that have no date: listed apart, at the end, until they're fixed. */
+const porRevisar = (t: Ticket) => t.lectura === "error" || !t.fecha;
+
 /** The ticket's date, or the upload day while it has none. */
 const diaDe = (t: Ticket) => t.fecha ?? t.subidoEn.slice(0, 10);
 const nombreMes = (mes: string) => {
@@ -76,8 +79,10 @@ export function VistaTickets({ tickets, iaConfigurada }: { tickets: Ticket[]; ia
     .filter((t) => !q || `${t.comercio} ${t.concepto} ${t.nota}`.toLowerCase().includes(q))
     .sort((a, b) => diaDe(b).localeCompare(diaDe(a)) || b.subidoEn.localeCompare(a.subidoEn));
   const meses = new Map<string, Ticket[]>();
-  for (const t of visibles) meses.set(diaDe(t).slice(0, 7), [...(meses.get(diaDe(t).slice(0, 7)) ?? []), t]);
-  const porRevisar = tickets.filter((t) => t.lectura === "error" || !t.fecha).length;
+  for (const t of visibles.filter((t) => !porRevisar(t))) meses.set(diaDe(t).slice(0, 7), [...(meses.get(diaDe(t).slice(0, 7)) ?? []), t]);
+  const aRevisar = visibles.filter(porRevisar);
+  const cuantosRevisar = tickets.filter(porRevisar).length;
+  const [revisarAbierto, setRevisarAbierto] = useState(true);
 
   // Months start folded; the ones opened are remembered in this browser. While searching every month opens, so no
   // match stays hidden.
@@ -164,7 +169,7 @@ export function VistaTickets({ tickets, iaConfigurada }: { tickets: Ticket[]; ia
         <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-white" style={{ background: "#2c90b6" }}>
           <h2 className="text-[15px] leading-tight font-semibold">
             Tickets
-            {porRevisar > 0 && <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium">{porRevisar} por revisar</span>}
+            {cuantosRevisar > 0 && <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium">{cuantosRevisar} por revisar</span>}
           </h2>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <select
@@ -255,6 +260,33 @@ export function VistaTickets({ tickets, iaConfigurada }: { tickets: Ticket[]; ia
                 </div>
               </section>
             ))}
+            {aRevisar.length > 0 && (
+              <section>
+                <h3 className="bg-warning/10 text-sm font-semibold text-ink-100">
+                  <button
+                    onClick={() => setRevisarAbierto(!revisarAbierto)}
+                    aria-expanded={revisarAbierto}
+                    aria-controls="tickets-revisar"
+                    title={revisarAbierto ? "Plegar" : "Desplegar"}
+                    className="flex w-full items-center gap-2.5 py-2 pr-4 pl-4 text-left hover:text-white"
+                  >
+                    <svg viewBox="0 0 24 24" className={`size-4 shrink-0 text-ink-400 transition-transform ${revisarAbierto ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M9 6l6 6-6 6" />
+                    </svg>
+                    <span className="min-w-0 flex-1 truncate">Revisar</span>
+                    <span className="rounded-full bg-warning px-2 py-0.5 text-xs font-semibold text-ink-950">{aRevisar.length}</span>
+                  </button>
+                </h3>
+                <div id="tickets-revisar" hidden={!revisarAbierto}>
+                  <p className="border-t border-white/[0.04] px-4 pt-2.5 pb-1 text-[11px] text-ink-500">Sin fecha o sin leer: pon la fecha con «Editar» (o «Volver a leer con IA») y pasarán a su mes.</p>
+                  <ul className="divide-y divide-white/[0.05]">
+                    {aRevisar.map((t) => (
+                      <FilaTicket key={t.id} t={t} onCambio={() => router.refresh()} />
+                    ))}
+                  </ul>
+                </div>
+              </section>
+            )}
           </div>
         )}
         <p className="border-t border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-[11px] text-ink-500">
