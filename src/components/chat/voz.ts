@@ -1,7 +1,8 @@
 /*
- * Voice for the chat, with what the browser already has (free, no extra service):
+ * Voice for the chat:
  * - Dictation: the Web Speech API's SpeechRecognition (Chrome, Edge, Safari; not Firefox).
- * - Reading answers aloud: speechSynthesis, with the best Spanish voice the device has.
+ * - Reading answers aloud: ElevenLabs' realistic voice when it's set up; otherwise, or if it fails, speechSynthesis
+ *   with the best Spanish voice the device has.
  */
 
 // The recognition API isn't in TypeScript's DOM types yet: just the part used here.
@@ -196,12 +197,12 @@ export const SIN_VOZ_ESPANOLA =
   "Tu dispositivo no tiene ninguna voz en español, así que no leo la respuesta en voz alta. En Windows: Configuración → Hora e idioma → Voz → Agregar voces → Español (España). O usa Chrome o Edge, que traen voces en español.";
 
 /**
- * Reads `texto` aloud in Spanish, sentence by sentence (long utterances get cut off in some browsers). Never with
- * a voice of another language: without a Spanish one it doesn't speak and `alTerminar` gets SIN_VOZ_ESPANOLA.
- * `alTerminar` runs when it ends or is stopped.
+ * Reads `texto` aloud with the device's voice, sentence by sentence (long utterances get cut off in some browsers).
+ * Never with a voice of another language: without a Spanish one it doesn't speak and `alTerminar` gets
+ * SIN_VOZ_ESPANOLA. `alTerminar` runs when it ends or is stopped.
  */
-export async function hablar(texto: string, alTerminar: (error?: string) => void): Promise<void> {
-  if (!vozDisponible() || !texto) return alTerminar();
+async function hablarDispositivo(texto: string, alTerminar: (error?: string) => void): Promise<void> {
+  if (!vozDisponible()) return alTerminar();
   speechSynthesis.cancel();
   const voz = await vozEspanola();
   if (!voz) return alTerminar(SIN_VOZ_ESPANOLA);
@@ -223,15 +224,95 @@ export async function hablar(texto: string, alTerminar: (error?: string) => void
   });
 }
 
+// The realistic voice: ElevenLabs, made on the server (/api/chat/voz, where the key stays) and played here.
+
+/** Longer answers (read with the switch on) go with the device's voice: ElevenLabs charges per character. */
+const MAX_VOZ_REALISTA = 1500;
+/** Waiting longer than this for the audio: the device's voice instead. */
+const ESPERA_AUDIO_MS = 12_000;
+/** 10 ms of silence: played in a tap, it unlocks the player on iPhone for the rest of the visit. */
+const SILENCIO = "data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==";
+
+let reproductor: HTMLAudioElement | null = null;
+const elReproductor = () => (reproductor ??= new Audio());
+/** The MP3 of each text already heard: repeating an answer doesn't spend credits again. */
+const audios = new Map<string, string>();
+/** ElevenLabs can't be used in this visit (not set up, plan, credits): the device's voice straight away. */
+let sinVozRealista = false;
+/** Goes up with every `hablar` and `callar`: audio that arrives after being stopped or replaced isn't played. */
+let turno = 0;
+let pendiente: AbortController | null = null;
+
+/** The text's MP3 from the server (object URL), or why not; `definitivo`: don't try again in this visit. */
+async function audioRealista(texto: string, senal: AbortSignal): Promise<{ url: string } | { error: string; definitivo: boolean }> {
+  const ya = audios.get(texto);
+  if (ya) return { url: ya };
+  const r = await fetch("/api/chat/voz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }), signal: senal });
+  if (!r.ok) {
+    const b = (await r.json().catch(() => ({}))) as { error?: string; definitivo?: boolean };
+    // Not set up (501): no warning, the device's voice is simply what there is.
+    return { error: r.status === 501 ? "" : (b.error ?? `error ${r.status}`), definitivo: r.status === 501 || !!b.definitivo };
+  }
+  const url = URL.createObjectURL(await r.blob());
+  audios.set(texto, url);
+  return { url };
+}
+
 /**
- * Safari on iPhone only lets a page speak after speech was started by a tap. The answer arrives seconds later, so
- * call this in the tap that sends the question: a silent utterance unlocks speech for the rest of the visit.
+ * Reads `texto` aloud: with ElevenLabs' realistic voice when it works, else with the device's. `alTerminar` runs
+ * once when it ends (with the reason if it can't speak at all), not when stopped with `callar`. `alAvisar` gets,
+ * once a visit, why the realistic voice can't be used.
+ */
+export async function hablar(texto: string, alTerminar: (error?: string) => void, alAvisar?: (aviso: string) => void): Promise<void> {
+  callar();
+  const mio = turno;
+  if (!texto) return alTerminar();
+  if (!sinVozRealista && texto.length <= MAX_VOZ_REALISTA) {
+    const control = (pendiente = new AbortController());
+    const limite = setTimeout(() => control.abort(), ESPERA_AUDIO_MS);
+    const audio = await audioRealista(texto, control.signal).catch(() => null);
+    clearTimeout(limite);
+    if (mio !== turno) return;
+    if (audio && "url" in audio) {
+      const a = elReproductor();
+      a.src = audio.url;
+      // Safari on iPhone refuses when no tap unlocked the player: then the device's voice.
+      if (await a.play().then(() => true, () => false)) {
+        a.onended = a.onerror = () => {
+          if (mio === turno) alTerminar();
+        };
+        return;
+      }
+      if (mio !== turno) return;
+    } else if (audio?.definitivo) {
+      sinVozRealista = true;
+      if (audio.error) alAvisar?.(audio.error);
+    }
+  }
+  return hablarDispositivo(texto, alTerminar);
+}
+
+/**
+ * Safari on iPhone only lets a page make sound that a tap started, and the answer arrives seconds later: call this
+ * in the tap that sends the question. A moment of silence unlocks the player and a silent utterance the device's
+ * voice, for the rest of the visit.
  */
 export function desbloquearVoz(): void {
+  const a = elReproductor();
+  a.src = SILENCIO;
+  void a.play().catch(() => {});
   if (!vozDisponible()) return;
   const u = new SpeechSynthesisUtterance(" ");
   u.volume = 0;
   speechSynthesis.speak(u);
+}
+
+/**
+ * The same in the microphone's tap, without any sound (sound right then can close the microphone on iPhone):
+ * loading the player inside a tap is enough for Safari to let it play later.
+ */
+export function desbloquearSinSonido(): void {
+  elReproductor().load();
 }
 
 /** Chrome loads its voices lazily: asking early has them ready for the first answer. */
@@ -239,7 +320,11 @@ export function prepararVoces(): void {
   if (vozDisponible()) speechSynthesis.getVoices();
 }
 
-/** Stops speech, only if something is being said: on iPhone touching speech right before dictating can close the microphone. */
+/** Stops speaking. Only touches what is sounding: on iPhone touching speech right before dictating can close the microphone. */
 export function callar(): void {
+  turno++;
+  pendiente?.abort();
+  pendiente = null;
+  if (reproductor && !reproductor.paused) reproductor.pause();
   if (vozDisponible() && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
 }

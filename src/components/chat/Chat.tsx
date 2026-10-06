@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { EventoChat } from "@/lib/ia/chat";
 import { Markdown } from "./Markdown";
 import { Spinner } from "@/components/Spinner";
-import { callar, desbloquearVoz, dictadoDisponible, escuchar, esIOS, hablar, prepararVoces, textoParaVoz, vozDisponible } from "./voz";
+import { callar, desbloquearSinSonido, desbloquearVoz, dictadoDisponible, escuchar, esIOS, hablar, prepararVoces, textoParaVoz, vozDisponible } from "./voz";
 
 /** Where this browser remembers whether answers are read aloud. */
 const CLAVE_VOZ = "chat.voz";
@@ -151,14 +151,19 @@ export function Chat() {
   const leer = (indice: number, texto: string) => {
     setHablando(true);
     setLeyendo(indice);
-    void hablar(textoParaVoz(texto), (error) => {
-      setHablando(false);
-      setLeyendo(null);
-      if (error) {
-        setAvisoVoz(error);
-        setMensajes((ms) => ms.map((m, i) => (i === indice ? { ...m, verTexto: true } : m)));
-      }
-    });
+    void hablar(
+      textoParaVoz(texto),
+      (error) => {
+        setHablando(false);
+        setLeyendo(null);
+        if (error) {
+          setAvisoVoz(error);
+          setMensajes((ms) => ms.map((m, i) => (i === indice ? { ...m, verTexto: true } : m)));
+        }
+      },
+      // Why the realistic voice isn't available (plan, credits…): said once, the device's voice answers meanwhile.
+      (aviso) => setPista(aviso),
+    );
   };
   const repetir = (indice: number) => {
     pararVoz();
@@ -177,6 +182,8 @@ export function Chat() {
     }
     if (escuchando) return detenerDictado.current?.();
     pararVoz();
+    // The answer will be spoken: this tap is the one that lets Safari on iPhone play it.
+    if (soporte.voz) desbloquearSinSonido();
     setAvisoVoz(null);
     setEscuchando(true);
     detenerDictado.current = escuchar(
