@@ -27,10 +27,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <header className="sticky top-0 z-30 border-b border-white/[0.05] bg-ink-950/70 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-6">
-              <Logo />
-              <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} />
-            </div>
+            <Logo />
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               {/* TEMPORARY: Firestore usage while testing the free-plan consumption. Hidden: next to the full menu it no
                   longer fits in the header (max 1280 px). Uncomment it and its import to show it again. */}
@@ -40,8 +37,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
               <MenuMovil estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} email={user.email ?? null} />
             </div>
           </div>
-          {/* Tablets: the full menu on its own row, when it doesn't fit next to the logo. */}
-          <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} fila />
+          {/* From tablets up: the full menu on its own row under the logo. */}
+          <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} />
         </div>
       </header>
       <RefrescoAutomatico />

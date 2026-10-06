@@ -127,12 +127,23 @@ function Fila({ s, fecha, hoy, onCambio }: { s: Suscripcion; fecha: string; hoy:
             {s.metodo && ` · ${s.metodo}`}
             {s.nota && ` · ${s.nota}`}
           </p>
+          {/* Phones: the next payment goes under the name (its column doesn't fit). */}
+          <p className="mt-0.5 text-[11px] sm:hidden">
+            {s.activa ? (
+              <>
+                <span className="text-ink-200">{formatDiaLargo(fecha)}</span>{" "}
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${cerca ? "bg-accent-500/15 text-accent-300" : "bg-white/[0.05] text-ink-400"}`}>{cuando(dias)}</span>
+              </>
+            ) : (
+              <span className="text-ink-500">Cancelada</span>
+            )}
+          </p>
         </div>
         <div className="shrink-0 text-right">
           <p className="tabular text-sm font-semibold text-ink-100">{formatMoneda(s.importe, s.moneda)}</p>
           <p className="text-[11px] text-ink-500">{textoPeriodo(s.periodicidad)}</p>
         </div>
-        <div className="w-28 shrink-0 text-right sm:w-36">
+        <div className="hidden w-36 shrink-0 text-right sm:block">
           {s.activa ? (
             <>
               <p className="text-xs text-ink-200">{formatDiaLargo(fecha)}</p>

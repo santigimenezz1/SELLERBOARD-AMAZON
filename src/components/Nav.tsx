@@ -43,13 +43,13 @@ function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
 }
 
 /**
- * The full menu, from tablet width up (phones use <MenuMovil>). `fila`: on its own row under the logo, for
- * tablets where it doesn't fit next to it; otherwise inline next to the logo, on wider screens.
+ * The full menu, from tablet width up (phones use <MenuMovil>), on its own row under the logo: with every section it
+ * no longer fits next to the logo and «Cerrar sesión» even at the widest page (about 1,050 px of links).
  */
-export function Nav({ estadoCuenta, avisosSuscripciones, fila = false }: { estadoCuenta: Estado; avisosSuscripciones: number; fila?: boolean }) {
+export function Nav({ estadoCuenta, avisosSuscripciones }: { estadoCuenta: Estado; avisosSuscripciones: number }) {
   const ruta = usePathname();
   return (
-    <nav className={fila ? "-mx-2 hidden items-center overflow-x-auto pb-2 md:max-[1400px]:flex" : "hidden items-center gap-1 min-[1400px]:flex"}>
+    <nav className="-mx-2 hidden items-center gap-0.5 overflow-x-auto pb-2 md:flex">
       {ENLACES.map((e) => {
         const activo = esActivo(e.href, ruta);
         return (
@@ -57,7 +57,7 @@ export function Nav({ estadoCuenta, avisosSuscripciones, fila = false }: { estad
             key={e.href}
             href={e.href}
             aria-current={activo ? "page" : undefined}
-            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg py-1.5 transition-colors ${fila ? "px-1.5 text-[13px]" : "px-2.5 text-sm"} ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-[13px] transition-colors xl:px-2.5 xl:text-sm ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
           >
             <Punto href={e.href} estadoCuenta={estadoCuenta} />
             <PuntoSuscripciones href={e.href} avisos={avisosSuscripciones} />
