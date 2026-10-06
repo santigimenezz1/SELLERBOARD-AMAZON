@@ -17,11 +17,18 @@ const ENLACES = [
   { href: "/analisis-h10", texto: "Análisis H10" },
   { href: "/documentos", texto: "Documentos" },
   { href: "/tickets", texto: "Tickets" },
+  { href: "/suscripciones", texto: "Suscripciones" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
 
 type Estado = "ok" | "mal" | null;
 const esActivo = (href: string, ruta: string) => (href === "/" ? ruta === "/" : ruta.startsWith(href));
+
+/** Orange dot of «Suscripciones» while a payment is within its warning days. */
+function PuntoSuscripciones({ href, avisos }: { href: string; avisos: number }) {
+  if (href !== "/suscripciones" || !avisos) return null;
+  return <span aria-hidden title={avisos === 1 ? "1 pago próximo" : `${avisos} pagos próximos`} className="size-1.5 shrink-0 rounded-full bg-accent-500" />;
+}
 
 /** Green or red dot of «Estado de la cuenta»: every country at 200+ points, or any below. */
 function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
@@ -39,7 +46,7 @@ function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
  * The full menu, from tablet width up (phones use <MenuMovil>). `fila`: on its own row under the logo, for
  * tablets where it doesn't fit next to it; otherwise inline next to the logo, on wider screens.
  */
-export function Nav({ estadoCuenta, fila = false }: { estadoCuenta: Estado; fila?: boolean }) {
+export function Nav({ estadoCuenta, avisosSuscripciones, fila = false }: { estadoCuenta: Estado; avisosSuscripciones: number; fila?: boolean }) {
   const ruta = usePathname();
   return (
     <nav className={fila ? "-mx-2 hidden items-center overflow-x-auto pb-2 md:max-[1400px]:flex" : "hidden items-center gap-1 min-[1400px]:flex"}>
@@ -53,6 +60,7 @@ export function Nav({ estadoCuenta, fila = false }: { estadoCuenta: Estado; fila
             className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg py-1.5 transition-colors ${fila ? "px-1.5 text-[13px]" : "px-2.5 text-sm"} ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
           >
             <Punto href={e.href} estadoCuenta={estadoCuenta} />
+            <PuntoSuscripciones href={e.href} avisos={avisosSuscripciones} />
             {e.texto}
           </Link>
         );
@@ -62,7 +70,7 @@ export function Nav({ estadoCuenta, fila = false }: { estadoCuenta: Estado; fila
 }
 
 /** Hamburger button and the menu it opens under the header, on phones only (under 768 px). */
-export function MenuMovil({ estadoCuenta, email }: { estadoCuenta: Estado; email: string | null }) {
+export function MenuMovil({ estadoCuenta, avisosSuscripciones, email }: { estadoCuenta: Estado; avisosSuscripciones: number; email: string | null }) {
   const ruta = usePathname();
   const [abierto, setAbierto] = useState(false);
   const [rutaAbierta, setRutaAbierta] = useState(ruta);
@@ -113,6 +121,7 @@ export function MenuMovil({ estadoCuenta, email }: { estadoCuenta: Estado; email
                       className={`flex items-center gap-2.5 rounded-lg px-3 py-3 text-[15px] transition-colors ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-300 hover:bg-white/[0.04] hover:text-ink-100"}`}
                     >
                       <Punto href={e.href} estadoCuenta={estadoCuenta} />
+            <PuntoSuscripciones href={e.href} avisos={avisosSuscripciones} />
                       {e.texto}
                     </Link>
                   </li>

@@ -4,6 +4,9 @@ import { LogoutButton } from "@/components/LogoutButton";
 import { MenuMovil, Nav } from "@/components/Nav";
 // import { ContadorConsumo } from "@/components/ContadorConsumo";
 import { resumenEstadoCuenta } from "@/lib/datos/estadoCuenta";
+import { listarSuscripciones } from "@/lib/datos/suscripciones";
+import { porVencer } from "@/lib/datos/suscripcionesCalc";
+import { diaMadrid } from "@/lib/datos/fechas";
 import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
 import { Chat } from "@/components/chat/Chat";
 
@@ -16,6 +19,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   // Colours the «Estado de la cuenta» menu item (from memory after the first load).
   const estadoCuenta = await resumenEstadoCuenta().catch(() => null);
+  // Orange dot on «Suscripciones» while a payment is close (from memory after the first load).
+  const avisosSuscripciones = porVencer(await listarSuscripciones().catch(() => []), diaMadrid(new Date())).length;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
@@ -24,7 +29,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <div className="flex h-16 items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-6">
               <Logo />
-              <Nav estadoCuenta={estadoCuenta} />
+              <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} />
             </div>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               {/* TEMPORARY: Firestore usage while testing the free-plan consumption. Hidden: next to the full menu it no
@@ -32,11 +37,11 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
               {/* <ContadorConsumo /> */}
               <LogoutButton />
               {/* Phones only: a hamburger opens the menu. */}
-              <MenuMovil estadoCuenta={estadoCuenta} email={user.email ?? null} />
+              <MenuMovil estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} email={user.email ?? null} />
             </div>
           </div>
           {/* Tablets: the full menu on its own row, when it doesn't fit next to the logo. */}
-          <Nav estadoCuenta={estadoCuenta} fila />
+          <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} fila />
         </div>
       </header>
       <RefrescoAutomatico />
