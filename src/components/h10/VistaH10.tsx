@@ -41,7 +41,7 @@ function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => voi
   );
 }
 
-/** «Análisis H10»: the stored Helium 10 studies (plus two sample ones), each with its data and analysis. */
+/** «Análisis H10»: the stored Helium 10 studies, each with its data and analysis. */
 export function VistaH10({
   estudios,
   palabras,
@@ -63,8 +63,20 @@ export function VistaH10({
   const router = useRouter();
   const [elegido, setElegido] = useState<string | null>(null);
   const estudio = estudios.find((e) => e.id === elegido) ?? estudios[0];
-  // The open tab of each study; a stored one opens on «Datos», a sample one on «Mercado».
+  // The open tab of each study: «Datos» until it has an Xray, then «Mercado».
   const [pestanas, setPestanas] = useState<Record<string, Pestana>>({});
+  if (!estudio)
+    return (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <NuevoEstudio
+          onCreado={(id) => {
+            setElegido(id);
+            router.refresh();
+          }}
+        />
+        <p className="self-center text-sm text-ink-400 sm:col-span-1 lg:col-span-2">Aún no hay estudios. Crea uno por producto y sube sus archivos de Helium 10.</p>
+      </div>
+    );
   const pestana = pestanas[estudio.id] ?? (estudio.ejemplo || estudio.mercados.length ? "mercado" : "datos");
   const irA = (p: Pestana) => setPestanas({ ...pestanas, [estudio.id]: p });
   const resumen = estudio.mercados.length ? resumirEstudio(estudio) : null;
