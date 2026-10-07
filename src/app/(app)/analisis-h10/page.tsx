@@ -13,7 +13,6 @@ export default async function AnalisisH10Page() {
       <VistaH10
         estudios={guardados.map((g) => g.estudio)}
         palabras={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.palabras]))}
-        resenas={{}}
         archivos={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.archivos]))}
         costesPropios={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.costesPropios]))}
         paresAmazon={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.paresAmazon]))}

@@ -19,7 +19,7 @@ import { actualizarInventarioPaises } from "@/lib/datos/inventarioPaises";
 import { actualizarEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { lanzarSeguimientoH10 } from "@/lib/datos/estudiosH10";
 import { sincronizarGmail } from "@/lib/gmail";
-import { actualizarGastos } from "@/lib/datos/gastos";
+import { actualizarAlmacenajePendiente, actualizarGastos } from "@/lib/datos/gastos";
 import { actualizarIngresos, guardarCompensaciones } from "@/lib/datos/ingresos";
 import { actualizarSaldos } from "@/lib/datos/saldos";
 import { lanzarCargaPalabras, mercadosPendientes } from "@/lib/datos/palabrasClave";
@@ -379,6 +379,12 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         await actualizarGastos(3);
       } catch (e) {
         errores.push(`Gastos (liquidaciones): ${mensaje(e)}`);
+      }
+      // Storage billed in settlement periods still open (their report only comes when they close)
+      try {
+        await actualizarAlmacenajePendiente();
+      } catch (e) {
+        errores.push(`Gastos (almacenaje pendiente): ${mensaje(e)}`);
       }
 
       // 10c. Payouts to the bank (one light call; the doc is only rewritten when a payout changed)

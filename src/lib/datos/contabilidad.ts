@@ -196,13 +196,13 @@ export async function obtenerContabilidad(ahora = new Date()): Promise<MesContab
   for (const l of gastosDatos.lineas) if (l.categoria !== "agl" && l.categoria !== "devoluciones") meses.get(l.mes)?.gastos.push(l);
 
   // Storage of each month not billed yet: the fixed provisional amount, split between Europe and the UK like the
-  // latest storage actually billed.
+  // latest storage actually billed. It stays until the real charge shows up, at most to the end of the month after.
   const ultimoAlmacen = [...meses.values()].reverse().map((m) => m.gastos.filter((l) => l.categoria === "almacenamiento")).find((ls) => ls.length) ?? [];
   const totalUltimo = ultimoAlmacen.reduce((s, l) => s + l.eur, 0);
   const parteUK = totalUltimo > 0 ? ultimoAlmacen.filter((l) => l.region === "uk").reduce((s, l) => s + l.eur, 0) / totalUltimo : 0;
   for (const m of meses.values()) {
     const cobro = `${mesSiguiente(m.mes)}-${String(DIA_ALMACENAMIENTO).padStart(2, "0")}`;
-    if (hoy > cobro || m.gastos.some((l) => l.categoria === "almacenamiento")) continue;
+    if (hoy >= `${mesSiguiente(mesSiguiente(m.mes))}-01` || m.gastos.some((l) => l.categoria === "almacenamiento")) continue;
     for (const [r, parte] of [["eu", 1 - parteUK], ["uk", parteUK]] as const)
       if (parte > 0) m.gastosEstimados.push({ categoria: "almacenamiento", region: r, eur: r2(ALMACENAMIENTO_PROVISIONAL * parte), cobro });
   }

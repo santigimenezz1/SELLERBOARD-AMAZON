@@ -265,6 +265,50 @@ Un valor por mes, del primero al último, sin saltarse ninguno ni inventar meses
   return { palabraClave: r.palabraClave, meses, codigoPais: pista.codigoPais ?? (esCodigoPais(r.codigoPais) ? r.codigoPais : null) };
 }
 
+// ---------- Competitors' review topics, grouped ----------
+
+/** One topic of one competitor, numbered so the AI can refer to it. */
+export type TemaParaAgrupar = { n: number; pais: string; producto: string; tipo: "queja" | "elogio"; tema: string; menciones: number; ejemplos: string[] };
+
+const ESQUEMA_AGRUPAR = {
+  type: "object",
+  properties: {
+    temas: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          texto: { type: "string", description: "El tema en español, corto (2–6 palabras), p. ej. «Montaje complicado» o «Buena calidad general»" },
+          tipo: { type: "string", enum: ["queja", "elogio"] },
+          mejora: { type: "string", description: "Solo quejas: qué debería hacer tu producto para evitarla, en una frase concreta. Para elogios, cadena vacía" },
+          fuentes: { type: "array", items: { type: "integer" }, description: "Los números (n) de los temas de los competidores que reúne" },
+        },
+        required: ["texto", "tipo", "mejora", "fuentes"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["temas"],
+  additionalProperties: false,
+};
+
+/**
+ * Puts together the review topics Helium 10 found in each competitor (in German, French, English…) into common themes
+ * in Spanish, with what your product should do about each complaint.
+ */
+export async function agruparTemasResenas(producto: string, temas: TemaParaAgrupar[]): Promise<{ texto: string; tipo: "queja" | "elogio"; mejora: string; fuentes: number[] }[]> {
+  const lista = temas
+    .map((t) => `${t.n}. [${t.tipo}] ${t.pais} · ${t.producto} · «${t.tema}» (${t.menciones} menciones)${t.ejemplos.length ? ` · ejemplos: ${t.ejemplos.map((e) => `«${e}»`).join(" ")}` : ""}`)
+    .join("\n");
+  const r = await pedir<{ temas: { texto: string; tipo: "queja" | "elogio"; mejora: string; fuentes: number[] }[] }>(
+    `Eres experto en producto y en Amazon. Un vendedor estudia lanzar «${producto}» y tiene el análisis de reseñas que Helium 10 hizo de sus competidores en varios países (temas en alemán, francés, inglés, español…).
+Agrupa los temas que hablan de lo mismo en temas comunes, escritos en español y cortos. Las quejas y los elogios van siempre en temas distintos. Cada tema de la lista va en exactamente un tema común (usa su número en «fuentes»). Para cada queja, «mejora» dice qué debería hacer el producto del vendedor para evitarla, en una frase concreta y práctica (material, medidas, montaje, embalaje, instrucciones…).`,
+    [{ type: "text", text: lista }],
+    ESQUEMA_AGRUPAR,
+  );
+  return r.temas;
+}
+
 // ---------- Amazon's revenue calculator ----------
 
 export type CalculadoraLeida = {

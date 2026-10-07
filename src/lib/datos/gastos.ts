@@ -1,7 +1,7 @@
 import "server-only";
 
 import { adminDb } from "@/lib/firebase/admin";
-import { eventosFinancieros, filasLiquidacion, liquidacionesDisponibles, type ItemEvento } from "@/lib/amazon/apis";
+import { cargosDeGrupo, eventosFinancieros, filasLiquidacion, gruposFinancieros, liquidacionesDisponibles, type ItemEvento } from "@/lib/amazon/apis";
 import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
 import { contarEscrituras, contarLecturas } from "./consumo";
 
@@ -13,6 +13,9 @@ import { contarEscrituras, contarLecturas } from "./consumo";
  *   per region), which Amazon keeps for 90 days: the sync saves each new one.
  * - Months before the first settlement we have come from the financial
  *   events, month by month (those fees carry no date of their own).
+ * - Storage billed in a settlement period still open (its report only comes
+ *   when it closes, ~2 weeks later) is read from that period's events and
+ *   kept as a provisional line until the settlement line replaces it.
  *
  * One doc, `config/gastos`, kept in memory.
  */
@@ -43,6 +46,8 @@ type Doc = {
   cubiertoDesde: string | null;
   /** Month-level lines from financial events, for months the settlements don't cover. */
   historico: LineaGasto[];
+  /** Storage charged in settlement periods not closed yet, dated the day the sync first saw it. */
+  pendientes: Record<string, LineaGasto>;
   actualizadoEn: string | null;
 };
 
@@ -57,7 +62,7 @@ async function leer(): Promise<Doc> {
   contarLecturas(1);
   // Saved by older code: start over.
   if (snap.get("version") !== VERSION) {
-    g.__gastosV3 = { liquidadas: {}, leidas: [], cubiertoDesde: null, historico: [], actualizadoEn: null };
+    g.__gastosV3 = { liquidadas: {}, leidas: [], cubiertoDesde: null, historico: [], pendientes: {}, actualizadoEn: null };
     return g.__gastosV3;
   }
   g.__gastosV3 = {
@@ -65,6 +70,7 @@ async function leer(): Promise<Doc> {
     leidas: (snap.get("leidas") as string[] | undefined) ?? [],
     cubiertoDesde: (snap.get("cubiertoDesde") as string | undefined) ?? null,
     historico: (snap.get("historico") as LineaGasto[] | undefined) ?? [],
+    pendientes: (snap.get("pendientes") as Doc["pendientes"] | undefined) ?? {},
     actualizadoEn: (snap.get("actualizadoEn") as string | undefined) ?? null,
   };
   return g.__gastosV3;
@@ -183,6 +189,55 @@ export async function actualizarGastos(max = 5): Promise<number> {
   return nuevas.length - hechas;
 }
 
+/** Provisional lines a settlement already brought (same kind and amount, posted around then) or too old to wait for. */
+function pendientesVigentes(doc: Doc): Record<string, LineaGasto> {
+  const usadas = new Set<string>();
+  const limite = new Date(Date.now() - 60 * 24 * 3600_000).toISOString().slice(0, 10);
+  const res: Record<string, LineaGasto> = {};
+  for (const [id, p] of Object.entries(doc.pendientes)) {
+    if (!p.fecha || p.fecha < limite) continue;
+    const desde = new Date(new Date(p.fecha).getTime() - 7 * 24 * 3600_000).toISOString().slice(0, 10);
+    const liquidada = Object.entries(doc.liquidadas).find(
+      ([k, l]) => !usadas.has(k) && l.categoria === p.categoria && l.moneda === p.moneda && !!l.fecha && l.fecha >= desde && Math.abs(l.importe - p.importe) <= Math.max(0.05, p.importe * 0.01),
+    );
+    if (liquidada) usadas.add(liquidada[0]);
+    else res[id] = p;
+  }
+  return res;
+}
+
+/**
+ * Sync stage: storage charged in the settlement periods still open. Amazon bills it on the 5th–7th, but its
+ * settlement report only comes when the period closes; until then it's a provisional line, so the month shows
+ * the real charge instead of an estimate.
+ */
+export async function actualizarAlmacenajePendiente(): Promise<void> {
+  const doc = await leer();
+  const hoy = new Date().toISOString().slice(0, 10);
+  const pendientes = pendientesVigentes(doc);
+  const abiertos = (await gruposFinancieros(new Date(Date.now() - 40 * 24 * 3600_000))).filter(
+    (gr) => gr.ProcessingStatus === "Open" && gr.FinancialEventGroupId && Number(gr.OriginalTotal?.CurrencyAmount) !== 0,
+  );
+  for (const gr of abiertos) {
+    const vistos = new Map<string, number>();
+    for (const c of await cargosDeGrupo(gr.FinancialEventGroupId!))
+      for (const f of c.FeeList ?? []) {
+        const tipo = f.FeeType ?? "";
+        const importe = Math.round(-(Number(f.FeeAmount?.CurrencyAmount) || 0) * 100) / 100;
+        if (categoria(tipo) !== "almacenamiento" || importe <= 0) continue;
+        const moneda = f.FeeAmount?.CurrencyCode ?? "EUR";
+        const base = `${gr.FinancialEventGroupId}|${tipo}|${moneda}|${importe}`;
+        const n = (vistos.get(base) ?? 0) + 1;
+        vistos.set(base, n);
+        const id = `${base}|${n}`;
+        if (pendientes[id] || doc.pendientes[id]) continue;
+        const eur = Math.round(importe * (moneda === "EUR" ? 1 : await eurPorUnidad(moneda, new Date())) * 100) / 100;
+        pendientes[id] = { fecha: hoy, mes: hoy.slice(0, 7), categoria: "almacenamiento", region: moneda === "GBP" ? "uk" : "eu", concepto: "FBA Inventory Storage Fee (pendiente de liquidar)", importe, moneda, eur };
+      }
+  }
+  if (JSON.stringify(pendientes) !== JSON.stringify(doc.pendientes)) await guardar({ ...doc, pendientes });
+}
+
 /**
  * One-off: month-level charges from the financial events for the months before the first settlement we have
  * (their fees carry no date, so each month is asked on its own).
@@ -263,7 +318,7 @@ function mesDevengo(l: LineaGasto): string {
 export async function obtenerGastos() {
   const doc = await leer();
   const corte = mesCompleto(doc.cubiertoDesde);
-  const lineas = [...doc.historico.filter((l) => !corte || l.mes < corte), ...Object.values(doc.liquidadas).filter((l) => !corte || l.mes >= corte)].map((l) => ({
+  const lineas = [...doc.historico.filter((l) => !corte || l.mes < corte), ...Object.values(doc.liquidadas).filter((l) => !corte || l.mes >= corte), ...Object.values(pendientesVigentes(doc))].map((l) => ({
     ...l,
     mesCobro: l.fecha?.slice(0, 7) ?? l.mes,
     mes: mesDevengo(l),

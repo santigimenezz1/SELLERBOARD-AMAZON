@@ -8,7 +8,7 @@ import { DatosAmazon } from "./DatosAmazon";
 import { TamanoMercado } from "./TamanoMercado";
 import { PestanaRentabilidad } from "./PestanaRentabilidad";
 import { cajaCompleta, rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
-import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado, ResenasEstudio } from "@/lib/datos/h10Tipos";
+import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado } from "@/lib/datos/h10Tipos";
 import { analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
 import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
@@ -51,14 +51,12 @@ function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => voi
 export function VistaH10({
   estudios,
   palabras,
-  resenas,
   archivos,
   costesPropios,
   paresAmazon,
 }: {
   estudios: EstudioH10[];
   palabras: Record<string, Record<string, PalabrasMercado>>;
-  resenas: Record<string, ResenasEstudio>;
   /** Uploaded files of each stored study. */
   archivos: Record<string, ArchivoH10[]>;
   /** Stored studies whose owner already saved their own costs. */
@@ -95,7 +93,7 @@ export function VistaH10({
       {/* Studies */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {estudios.map((e) => (
-          <TarjetaEstudio key={e.id} e={e} resenas={resenas[e.id]} activo={e.id === estudio.id} archivos={archivos[e.id]?.length ?? 0} onElegir={() => setElegido(e.id)} />
+          <TarjetaEstudio key={e.id} e={e} activo={e.id === estudio.id} archivos={archivos[e.id]?.length ?? 0} onElegir={() => setElegido(e.id)} />
         ))}
         <NuevoEstudio
           onCreado={(id) => {
@@ -143,7 +141,6 @@ export function VistaH10({
             key={estudio.id}
             estudio={estudio}
             resumen={resumen}
-            resenas={resenas[estudio.id]}
             tamano={<TamanoMercado key={`tamano-${estudio.id}`} estudio={estudio} onIrADatos={datosAqui} />}
           />
         ) : <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />)}
@@ -160,10 +157,10 @@ export function VistaH10({
           <SinDatos texto="Para ver las palabras clave, sube el Cerebro o el Magnet (CSV o captura) de algún país." onIrADatos={datosAqui} />
         ))}
       {pestana === "resenas" &&
-        (resenas[estudio.id] ? (
-          <PestanaResenas key={estudio.id} datos={resenas[estudio.id]} />
+        (estudio.resenasH10?.length ? (
+          <PestanaResenas key={estudio.id} estudio={estudio} />
         ) : (
-          <SinDatos texto="El análisis de reseñas con IA llega en la fase 3. Mientras tanto, sube las reseñas de los competidores en «Datos»: quedan guardadas y se analizarán entonces." onIrADatos={datosAqui} />
+          <SinDatos texto="Sube en «Datos» el «Review Analysis» de Helium 10 (Excel) de los competidores, uno por producto y país: aquí verás de qué se quejan, qué valoran y qué mejorar." onIrADatos={datosAqui} />
         ))}
       {pestana === "rentabilidad" &&
         CON_RENTABILIDAD &&
@@ -175,11 +172,11 @@ export function VistaH10({
       {pestana === "conclusiones" &&
         (resumen ? (
           <div className="flex flex-col gap-4">
-            <Informe conRentabilidad={CON_RENTABILIDAD} informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], resenas[estudio.id] ? analizarResenas(resenas[estudio.id]) : null, CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)} />
-            <Tarjeta titulo="Todas las conclusiones" subtitulo="Por ahora salen de reglas fijas; en la fase 3 las redactará la IA con todos los datos del estudio.">
+            <Informe conRentabilidad={CON_RENTABILIDAD} informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], analizarResenas(estudio), CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)} />
+            <Tarjeta titulo="Todas las conclusiones" subtitulo="Salen de los datos del estudio: Xray, búsquedas, palabras clave y reseñas.">
               <div className="text-sm leading-relaxed text-ink-300">
                 <Markdown
-                  texto={[...resumen.conclusiones, ...conclusionesPalabras(resumen.mejor.mercado.codigoPais, palabrasEstudio), ...conclusionesResenas(resenas[estudio.id])]
+                  texto={[...resumen.conclusiones, ...conclusionesPalabras(resumen.mejor.mercado.codigoPais, palabrasEstudio), ...conclusionesResenas(estudio)]
                     .map((c) => `- ${c}`)
                     .join("\n")}
                 />
@@ -194,9 +191,9 @@ export function VistaH10({
 }
 
 /** A study in the list: the product's score (every country together) and the money at stake, or what's missing. */
-function TarjetaEstudio({ e, resenas, activo, archivos, onElegir }: { e: EstudioH10; resenas?: ResenasEstudio; activo: boolean; archivos: number; onElegir: () => void }) {
+function TarjetaEstudio({ e, activo, archivos, onElegir }: { e: EstudioH10; activo: boolean; archivos: number; onElegir: () => void }) {
   const r = e.mercados.length ? resumirEstudio(e) : null;
-  const nota = r ? notaProducto(r, resenas ? analizarResenas(resenas) : null).nota : null;
+  const nota = r ? notaProducto(r, analizarResenas(e)).nota : null;
   return (
     <button
       onClick={onElegir}
@@ -358,8 +355,8 @@ function CabeceraEstudio({ estudio, onBorrado }: { estudio: EstudioH10; onBorrad
 }
 
 /** `tamano`: the market's size month by month, shown right under the headline figures. */
-function PestanaMercado({ estudio, resumen, resenas, tamano }: { estudio: EstudioH10; resumen: ReturnType<typeof resumirEstudio>; resenas?: ResenasEstudio; tamano: React.ReactNode }) {
-  const nota = notaProducto(resumen, resenas ? analizarResenas(resenas) : null).nota;
+function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; resumen: ReturnType<typeof resumirEstudio>; tamano: React.ReactNode }) {
+  const nota = notaProducto(resumen, analizarResenas(estudio)).nota;
   const conHistorial = resumen.analisis.filter((x) => x.temporada).length;
   const [paisPrecio, setPaisPrecio] = useState(resumen.mejor.mercado.codigoPais);
   const mercadoPrecio = estudio.mercados.find((m) => m.codigoPais === paisPrecio) ?? resumen.mejor.mercado;
@@ -653,13 +650,15 @@ function Informe({ informe, conRentabilidad }: { informe: ReturnType<typeof info
 }
 
 /** Review lines for the conclusions: what customers complain about and how good the competition is. */
-function conclusionesResenas(datos: ResenasEstudio | undefined): string[] {
-  if (!datos) return [];
-  const a = analizarResenas(datos);
+function conclusionesResenas(estudio: EstudioH10): string[] {
+  const a = analizarResenas(estudio);
+  if (!a) return [];
+  const prod = (n: number) => `${n} ${n === 1 ? "producto" : "productos"}`;
   const [q1, q2] = a.quejas;
+  const e1 = a.elogios[0];
   return [
-    q1 ? `La queja más repetida de la competencia: **«${q1.texto.toLowerCase()}»** (${q1.porcentaje} % de las reseñas)${q2 ? `, seguida de «${q2.texto.toLowerCase()}» (${q2.porcentaje} %)` : ""}.` : "",
-    `La competencia tiene ${a.valoracionMedia.toLocaleString("es-ES")} ★ de media y un ${a.negativas} % de reseñas de 1–2 estrellas${a.negativas >= 12 ? ": clientes insatisfechos, hueco para un producto mejor" : ""}.`,
+    q1 ? `La queja más repetida de la competencia: **«${q1.texto.toLowerCase()}»** (en ${prod(q1.productos)})${q2 ? `, seguida de «${q2.texto.toLowerCase()}» (en ${prod(q2.productos)})` : ""}.` : "",
+    e1 ? `Lo que más valoran los clientes: **«${e1.texto.toLowerCase()}»** (en ${prod(e1.productos)}): tu producto también tiene que cumplirlo.` : "",
   ].filter(Boolean);
 }
 

@@ -64,6 +64,9 @@ export type EstudioH10 = {
   asinsManuales?: string[];
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
   busquedas?: Partial<Record<CodigoPais, HistorialBusquedas>>;
+  /** Each competitor's Helium 10 «Review Analysis», and the themes the AI put together from all of them. */
+  resenasH10?: ResenasCompetidorH10[];
+  resenasAgrupadas?: ResenasAgrupadas;
   /** Older Xrays of each country (without their competitors): more months to work out revenue per search. */
   xraysAnteriores?: Partial<Record<CodigoPais, MercadoXray[]>>;
   /** A built-in sample study (not stored, can't be changed). */
@@ -181,28 +184,40 @@ export type PalabrasMercado = { rivales: string[]; palabras: PalabraClave[] };
 
 // ---------- Reviews ----------
 
-export type TemaResena = {
-  id: string;
+/** One topic of Helium 10's «Review Analysis» of a product: how often its reviews mention it and some snippets. */
+export type TemaH10 = {
+  tema: string;
+  menciones: number;
+  /** Its share of the product's topics of the same kind (praise or complaint), in %. */
+  porcentaje: number;
+  /** Share of the whole category's reviews that mention it, in % (null when not given). */
+  categoria: number | null;
+  ejemplos: string[];
+};
+
+/** Helium 10's «Review Analysis» of one competitor (an Excel per ASIN): its praised and criticised topics. */
+export type ResenasH10 = {
+  asin: string | null;
+  positivos: TemaH10[];
+  negativos: TemaH10[];
+  /** How much each topic lifts (+) or sinks (−) the product's star rating. */
+  impacto: { tema: string; valor: number }[];
+};
+
+/** A theme the AI put together from the topics of every competitor and country, in Spanish. */
+export type TemaAgrupado = {
   texto: string;
   tipo: "queja" | "elogio";
   /** For complaints: what your product should do about it. */
-  mejora?: string;
+  mejora: string;
+  /** The competitors' topics it gathers: file (archivoId) and the topic as Helium 10 wrote it. */
+  fuentes: { archivoId: string; tema: string; tipo: "queja" | "elogio" }[];
 };
 
-export type Resena = { estrellas: 1 | 2 | 3 | 4 | 5; fecha: string; texto: string; temas: string[] };
+export type ResenasAgrupadas = { temas: TemaAgrupado[]; generadoEn: string; archivos: string[] };
 
-export type ResenasCompetidor = {
-  marca: string;
-  codigoPais: string;
-  producto: string;
-  valoracion: number;
-  totalResenas: number;
-  /** Share of reviews with 5, 4, 3, 2 and 1 stars, in %. */
-  distribucion: [number, number, number, number, number];
-  resenas: Resena[];
-};
-
-export type ResenasEstudio = { temas: TemaResena[]; competidores: ResenasCompetidor[] };
+/** One competitor's review analysis as the page needs it (with its country, brand and file). */
+export type ResenasCompetidorH10 = ResenasH10 & { archivoId: string; codigoPais: CodigoPais; marca: string | null; producto: string | null };
 
 // ---------- Uploaded files ----------
 

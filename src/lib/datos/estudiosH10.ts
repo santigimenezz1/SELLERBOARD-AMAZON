@@ -7,7 +7,8 @@ import { contarEscrituras, contarLecturas } from "./consumo";
 import { diaMadrid } from "./fechas";
 import { EUR_POR_GBP, nombrePais } from "./h10Analisis";
 import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, type FilaPalabra } from "./h10Csv";
-import { esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista } from "@/lib/ia/leerH10";
+import { agruparTemasResenas, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
+import { resenasDesdeExcel } from "./h10Excel";
 import { mensajeError } from "@/lib/ia/errores";
 import { fichasCompetidores, ofertasCompetidor, preciosCompetidores, tarifasCompetidor } from "@/lib/amazon/apis";
 import { marketplaceConocido } from "./marketplacesConocidos";
@@ -28,6 +29,9 @@ import {
   PAISES_H10,
   type MercadoXray,
   type HistorialBusquedas,
+  type ResenasAgrupadas,
+  type ResenasCompetidorH10,
+  type ResenasH10,
   type PalabraClave,
   type PalabrasMercado,
 } from "./h10Tipos";
@@ -51,6 +55,7 @@ type EstudioGuardado = {
   archivos: ArchivoH10[];
   supuestos?: SupuestosRentabilidad;
   asinsManuales?: string[];
+  resenasAgrupadas?: ResenasAgrupadas;
 };
 type DatosArchivo = {
   herramienta: HerramientaH10;
@@ -59,6 +64,7 @@ type DatosArchivo = {
   palabras?: { columnasPosicion: string[]; filas: FilaPalabra[] };
   calculadora?: CalculadoraAmazon;
   historial?: HistorialBusquedas;
+  resenasH10?: ResenasH10;
 };
 /** `amazon`: competitors read from Amazon, by «country|ASIN» (stored in `estudiosH10/{id}/amazon/{country}_{ASIN}`). */
 type Entrada = { estudio: EstudioGuardado; datos: Map<string, DatosArchivo>; amazon: Map<string, SeguimientoAmazon> };
@@ -315,6 +321,22 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
       }
       return guardado(c.herramienta, c.codigoPais, `${nombreHerramienta(c.herramienta)}${c.codigoPais ? ` · ${c.codigoPais}` : ""} · ${c.descripcion}`);
     }
+    // Helium 10's «Review Analysis» Excel of a competitor: read straight from the file, no AI.
+    if (/\.xlsx$/i.test(archivo.name) && (pista.herramienta === "resenas" || /review/i.test(archivo.name))) {
+      const resenas = resenasDesdeExcel(new Uint8Array(datos), archivo.name);
+      if (resenas) {
+        if (!pista.codigoPais) return sinPais("resenas");
+        return {
+          meta: {
+            herramienta: "resenas",
+            codigoPais: pista.codigoPais,
+            estado: "procesado",
+            resumen: `Reseñas (Helium 10) · ${pista.codigoPais}${resenas.asin ? ` · ${resenas.asin}` : ""} · ${resenas.negativos.length} ${resenas.negativos.length === 1 ? "queja" : "quejas"}, ${resenas.positivos.length} ${resenas.positivos.length === 1 ? "elogio" : "elogios"}`,
+          },
+          datos: { herramienta: "resenas", codigoPais: pista.codigoPais, resenasH10: resenas },
+        };
+      }
+    }
     // PDFs, spreadsheets… kept as they are.
     const h = pista.herramienta ?? "otro";
     return guardado(h, pista.codigoPais, `${nombreHerramienta(h)}${/\.xlsx?$/i.test(archivo.name) ? " · Excel (para leerlo, expórtalo en CSV)" : ""}`);
@@ -490,6 +512,14 @@ function ensamblar({ estudio, datos, amazon }: Entrada): EstudioParaVista {
       calculadoras,
       busquedas,
       xraysAnteriores,
+      resenasH10: lista.flatMap(([archivoId, d]): ResenasCompetidorH10[] => {
+        if (!d.resenasH10 || !d.codigoPais) return [];
+        // The competitor's brand and name from any Xray that lists its ASIN (its own country first).
+        const todos = [mercados.get(d.codigoPais), ...mercados.values()].flatMap((m) => m?.competidores ?? []);
+        const c = d.resenasH10.asin ? todos.find((x) => x.asin === d.resenasH10!.asin) : undefined;
+        return [{ ...d.resenasH10, archivoId, codigoPais: d.codigoPais, marca: c?.marca ?? null, producto: c?.titulo ?? null }];
+      }),
+      resenasAgrupadas: estudio.resenasAgrupadas,
       supuestos: estudio.supuestos ?? SUPUESTOS_INICIALES,
       // The page only needs the last months of the follow-up.
       amazon: [...amazon.values()].map((v) => ({ ficha: v.ficha, puntos: v.puntos.slice(-PUNTOS_EN_PAGINA) })),
@@ -506,6 +536,45 @@ function ensamblar({ estudio, datos, amazon }: Entrada): EstudioParaVista {
 /** Every stored study, newest first, ready for the page. */
 export async function estudiosParaVista(): Promise<EstudioParaVista[]> {
   return [...(await cargar()).values()].map(ensamblar).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn));
+}
+
+// ---------- Competitors' reviews ----------
+
+/**
+ * Has the AI put together the review topics of every competitor (Helium 10's «Review Analysis» files) into common
+ * themes in Spanish, with what your product should do about each complaint. Kept with the study.
+ */
+export async function agruparResenas(id: string): Promise<ResenasAgrupadas> {
+  const e = await entrada(id);
+  const vista = ensamblar(e).estudio;
+  const competidores = vista.resenasH10 ?? [];
+  if (!competidores.length) throw new Error("Sube primero el «Review Analysis» de Helium 10 (Excel) de algún competidor");
+  const temas: (TemaParaAgrupar & { archivoId: string })[] = [];
+  for (const c of competidores)
+    for (const [tipo, lista] of [["queja", c.negativos], ["elogio", c.positivos]] as const)
+      for (const t of lista)
+        temas.push({ n: temas.length + 1, archivoId: c.archivoId, pais: c.codigoPais, producto: c.marca ?? c.asin ?? "competidor", tipo, tema: t.tema, menciones: t.menciones, ejemplos: t.ejemplos.slice(0, 2) });
+  if (!temas.length) throw new Error("Los análisis de reseñas subidos no traen temas");
+  const grupos = await agruparTemasResenas(e.estudio.nombre, temas);
+  const porNumero = new Map(temas.map((t) => [t.n, t]));
+  const resultado: ResenasAgrupadas = {
+    temas: grupos
+      .map((g) => ({
+        texto: g.texto.trim(),
+        tipo: g.tipo,
+        mejora: g.tipo === "queja" ? g.mejora.trim() : "",
+        fuentes: g.fuentes.flatMap((n) => {
+          const t = porNumero.get(n);
+          return t ? [{ archivoId: t.archivoId, tema: t.tema, tipo: t.tipo }] : [];
+        }),
+      }))
+      .filter((g) => g.texto && g.fuentes.length),
+    generadoEn: new Date().toISOString(),
+    archivos: competidores.map((c) => c.archivoId),
+  };
+  e.estudio = { ...e.estudio, resenasAgrupadas: resultado };
+  await guardarEstudio(e.estudio);
+  return resultado;
 }
 
 // ---------- Competitors read straight from Amazon ----------

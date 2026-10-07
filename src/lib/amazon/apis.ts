@@ -167,6 +167,21 @@ export async function gruposFinancieros(desde: Date): Promise<GrupoFinanciero[]>
   return res;
 }
 
+/** Account-level fees (storage, subscription…) of a settlement period, including one still open. */
+export async function cargosDeGrupo(grupoId: string): Promise<EventoServicio[]> {
+  const res: EventoServicio[] = [];
+  let NextToken: string | undefined;
+  do {
+    const r = await spGet<{ payload?: { FinancialEvents?: { ServiceFeeEventList?: EventoServicio[] }; NextToken?: string } }>(
+      `/finances/v0/financialEventGroups/${encodeURIComponent(grupoId)}/financialEvents`,
+      { MaxResultsPerPage: 100, NextToken },
+    );
+    res.push(...(r.payload?.FinancialEvents?.ServiceFeeEventList ?? []));
+    NextToken = r.payload?.NextToken || undefined;
+  } while (NextToken);
+  return res;
+}
+
 /** Marketplace names ("Amazon.es"…) of the first page of events of a settlement period. */
 export async function mercadosDeGrupo(grupoId: string): Promise<string[]> {
   const r = await spGet<{ payload?: { FinancialEvents?: Record<string, { MarketplaceName?: string }[] | undefined> } }>(

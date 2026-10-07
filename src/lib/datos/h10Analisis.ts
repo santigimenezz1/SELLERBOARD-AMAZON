@@ -1,4 +1,4 @@
-import type { EstudioH10, HistorialBusquedas, MercadoXray, PalabraClave, PalabrasMercado, ResenasCompetidor, ResenasEstudio, TemaResena } from "./h10Tipos";
+import type { CodigoPais, EstudioH10, HistorialBusquedas, MercadoXray, PalabraClave, PalabrasMercado, ResenasCompetidorH10 } from "./h10Tipos";
 import { temporada, type Temporada } from "./h10Temporada";
 
 /*
@@ -133,9 +133,11 @@ export function notaEstudio(e: EstudioH10, analisis: AnalisisMercado[], resenas:
       return x === null ? [] : [[x, a.baseEur]];
     }));
   const hueco = bloqueHueco(pesar((a) => a.valoracionLideres), pesar((a) => a.resenasLideres) ?? 0);
-  if (resenas && resenas.negativas >= 12) {
-    hueco.nota = redondear(acotar(hueco.nota + 1), 1);
-    hueco.texto += ` El ${resenas.negativas} % de las reseñas de la competencia son de 1–2 ★: +1 (clientes descontentos, hueco para un producto mejor).`;
+  // A complaint repeated across several competitors is room for a better product; one-off complaints don't count.
+  const repetida = resenas?.quejas.find((q) => q.productos >= 3);
+  if (repetida) {
+    hueco.nota = redondear(acotar(hueco.nota + 0.5), 1);
+    hueco.texto += ` La queja «${repetida.texto.toLowerCase()}» se repite en ${repetida.productos} productos de la competencia: +0,5 (hueco para hacerlo mejor).`;
   }
   const marcas = marcasDelEstudio(e);
   const totalMarcas = analisis.reduce((s, a) => s + a.mercado.competidores.reduce((t, x) => t + aEur(x.facturacion, a.mercado), 0), 0);
@@ -231,7 +233,7 @@ export function resumirEstudio(e: EstudioH10): ResumenEstudio {
   const lider = [...mejor.mercado.competidores].sort((a, b) => b.facturacion - a.facturacion)[0];
 
   const conclusiones = [
-    `**${nombrePais(mejor.mercado.codigoPais)} es el mejor mercado** (oportunidad ${nota(mejor.oportunidad)}/10): ${mejor.temporada ? `unos ${euros(mejor.baseEur)} al mes de media en el año (el Xray, de un solo mes, daba ${euros(mejor.facturacionEur)})` : `${euros(mejor.facturacionEur)} al mes`}${mejor.mercado.busquedas !== null ? ` y ${entero(mejor.mercado.busquedas)} búsquedas` : ""} para «${mejor.mercado.palabraClave}».${mejor.avisos.length ? " **Ojo:** revisa los avisos sobre sus datos antes de decidir." : ""}`,
+    `**${nombrePais(mejor.mercado.codigoPais)} es el mejor mercado** (oportunidad ${nota(mejor.oportunidad)}/10): ${mejor.temporada ? `unos ${euros(mejor.baseEur)} al mes de media en el año (el Xray, de un solo mes, daba ${euros(mejor.facturacionEur)})` : `${euros(mejor.facturacionEur)} al mes`}${mejor.mercado.busquedas !== null ? ` y ${entero(mejor.mercado.busquedas)} búsquedas` : ""}${/\p{L}/u.test(mejor.mercado.palabraClave) ? ` para «${mejor.mercado.palabraClave}»` : ""}.${mejor.avisos.length ? " **Ojo:** revisa los avisos sobre sus datos antes de decidir." : ""}`,
     precioRecomendado
       ? `Allí el dinero se concentra entre **${precioRecomendado.desde} y ${precioRecomendado.hasta === Infinity ? "más" : precioRecomendado.hasta} €**; el precio medio es ${euros(mejor.precioMedioEur)}.`
       : "",
@@ -240,7 +242,7 @@ export function resumirEstudio(e: EstudioH10): ResumenEstudio {
       ? `Mercado concentrado: los 3 primeros se llevan el ${Math.round(mejor.cuotaTop3 * 100)} % de lo que facturan los competidores visibles.`
       : `Mercado repartido: los 3 primeros se llevan solo el ${Math.round(mejor.cuotaTop3 * 100)} %, hay sitio para nuevos.`,
     ...analisis
-      .slice(1)
+      .filter((a) => a !== mejor)
       .map((a) =>
         a.oportunidad >= 6
           ? `${nombrePais(a.mercado.codigoPais)} también es interesante (${nota(a.oportunidad)}/10, ${euros(a.baseEur)} al mes).`
@@ -314,45 +316,97 @@ export function posicionesDeRivales(m: PalabrasMercado): PosicionRival[] {
 
 // ---------- Reviews and final report (phase 3) ----------
 
-export type TemaContado = TemaResena & { menciones: number; porcentaje: number; marcas: string[] };
-
-export type AnalisisResenas = {
-  analizadas: number;
-  /** Average rating of the competitors, weighted by how many reviews each has. */
-  valoracionMedia: number;
-  /** Share of 1–2 star reviews across the competitors, in %. */
-  negativas: number;
-  quejas: TemaContado[];
-  elogios: TemaContado[];
-  porCompetidor: (ResenasCompetidor & { negativas: number; quejaPrincipal: string | null })[];
+/** A review theme across the competitors: how often it comes up, in how many products and countries, and examples. */
+export type TemaResenas = {
+  texto: string;
+  tipo: "queja" | "elogio";
+  /** For complaints: what your product should do about it (only once the AI has grouped the themes). */
+  mejora: string;
+  menciones: number;
+  /** Competitor products (ASIN × country) whose reviews mention it. */
+  productos: number;
+  marcas: string[];
+  paises: CodigoPais[];
+  /** Average effect on the star rating Helium 10 gives it (+ lifts, − sinks), null when not given. */
+  impacto: number | null;
+  ejemplos: { texto: string; marca: string; pais: CodigoPais }[];
+  /** The topics as Helium 10 wrote them. */
+  originales: string[];
 };
 
-/** How often each theme comes up in the reviews, the competitors' ratings and their main complaint. */
-export function analizarResenas(e: ResenasEstudio): AnalisisResenas {
-  const todas = e.competidores.flatMap((c) => c.resenas.map((r) => ({ ...r, marca: c.marca })));
-  const contar = (tipo: TemaResena["tipo"]) =>
-    e.temas
-      .filter((t) => t.tipo === tipo)
-      .map((t) => {
-        const con = todas.filter((r) => r.temas.includes(t.id));
-        return { ...t, menciones: con.length, porcentaje: todas.length ? Math.round((con.length / todas.length) * 100) : 0, marcas: [...new Set(con.map((r) => r.marca))] };
-      })
-      .filter((t) => t.menciones > 0)
-      .sort((a, b) => b.menciones - a.menciones);
-  const total = e.competidores.reduce((s, c) => s + c.totalResenas, 0);
-  const texto = new Map(e.temas.map((t) => [t.id, t.texto]));
+export type CompetidorResenas = ResenasCompetidorH10 & { quejaPrincipal: string | null; elogioPrincipal: string | null };
+
+export type AnalisisResenas = {
+  competidores: CompetidorResenas[];
+  quejas: TemaResenas[];
+  elogios: TemaResenas[];
+  /** Whether the themes come from the AI's grouping (in Spanish, with improvements) or straight from Helium 10. */
+  agrupado: boolean;
+  /** Review files uploaded after the last grouping: «Analizar con IA» again to take them in. */
+  sinAgrupar: number;
+};
+
+/**
+ * The competitors' reviews from Helium 10's «Review Analysis» files: the AI's common themes when there are, else each
+ * Helium 10 topic on its own. A product uploaded twice (same ASIN and country) counts once.
+ */
+export function analizarResenas(e: EstudioH10): AnalisisResenas | null {
+  const vistos = new Set<string>();
+  const competidores = (e.resenasH10 ?? []).filter((c) => {
+    const clave = `${c.codigoPais}-${c.asin ?? c.archivoId}`;
+    if (vistos.has(clave)) return false;
+    vistos.add(clave);
+    return true;
+  });
+  if (!competidores.length) return null;
+  const nombre = (c: ResenasCompetidorH10) => c.marca ?? c.asin ?? "Competidor";
+  const temaDe = (c: ResenasCompetidorH10, tipo: "queja" | "elogio", tema: string) => (tipo === "queja" ? c.negativos : c.positivos).find((t) => t.tema === tema);
+  const agrupado = e.resenasAgrupadas;
+  // Each group gathers topics of some files; the topics no group took (files uploaded later) go on their own.
+  const grupos: { texto: string; tipo: "queja" | "elogio"; mejora: string; fuentes: { c: ResenasCompetidorH10; tema: string }[] }[] = [];
+  const usados = new Set<string>();
+  for (const g of agrupado?.temas ?? []) {
+    const fuentes = g.fuentes.flatMap((f) => {
+      const c = competidores.find((x) => x.archivoId === f.archivoId);
+      if (!c || !temaDe(c, f.tipo, f.tema)) return [];
+      usados.add(`${c.archivoId}|${f.tipo}|${f.tema}`);
+      return [{ c, tema: f.tema }];
+    });
+    if (fuentes.length) grupos.push({ texto: g.texto, tipo: g.tipo, mejora: g.mejora, fuentes });
+  }
+  for (const c of competidores)
+    for (const tipo of ["queja", "elogio"] as const)
+      for (const t of tipo === "queja" ? c.negativos : c.positivos) {
+        if (usados.has(`${c.archivoId}|${tipo}|${t.tema}`)) continue;
+        const g = grupos.find((x) => !x.mejora && x.tipo === tipo && x.texto.toLowerCase() === t.tema.toLowerCase());
+        if (g) g.fuentes.push({ c, tema: t.tema });
+        else grupos.push({ texto: t.tema, tipo, mejora: "", fuentes: [{ c, tema: t.tema }] });
+      }
+  const temas = grupos.map((g): TemaResenas => {
+    // A topic can be both praised and criticised (e.g. assembly): a complaint takes only what sinks the rating.
+    const impactos = g.fuentes.flatMap(({ c, tema }) => c.impacto.filter((i) => i.tema === tema && (g.tipo === "queja" ? i.valor < 0 : i.valor > 0)).map((i) => i.valor));
+    return {
+      texto: g.texto,
+      tipo: g.tipo,
+      mejora: g.mejora,
+      menciones: g.fuentes.reduce((s, { c, tema }) => s + (temaDe(c, g.tipo, tema)?.menciones ?? 0), 0),
+      productos: new Set(g.fuentes.map(({ c }) => `${c.codigoPais}-${c.asin ?? c.archivoId}`)).size,
+      marcas: [...new Set(g.fuentes.map(({ c }) => nombre(c)))],
+      paises: [...new Set(g.fuentes.map(({ c }) => c.codigoPais))],
+      impacto: impactos.length ? redondear(impactos.reduce((s, x) => s + x, 0) / impactos.length, 2) : null,
+      ejemplos: g.fuentes.flatMap(({ c, tema }) => (temaDe(c, g.tipo, tema)?.ejemplos ?? []).map((texto) => ({ texto, marca: nombre(c), pais: c.codigoPais }))),
+      originales: [...new Set(g.fuentes.map(({ tema }) => tema))],
+    };
+  });
+  const orden = (a: TemaResenas, b: TemaResenas) => b.productos - a.productos || b.menciones - a.menciones;
+  const principal = (c: ResenasCompetidorH10, tipo: "queja" | "elogio") =>
+    temas.filter((t) => t.tipo === tipo && grupos[temas.indexOf(t)].fuentes.some((f) => f.c === c)).sort(orden)[0]?.texto ?? null;
   return {
-    analizadas: todas.length,
-    valoracionMedia: redondear(e.competidores.reduce((s, c) => s + c.valoracion * c.totalResenas, 0) / Math.max(total, 1), 1),
-    negativas: Math.round(e.competidores.reduce((s, c) => s + (c.distribucion[3] + c.distribucion[4]) * c.totalResenas, 0) / Math.max(total, 1)),
-    quejas: contar("queja"),
-    elogios: contar("elogio"),
-    porCompetidor: e.competidores.map((c) => {
-      const quejas = new Map<string, number>();
-      for (const r of c.resenas) for (const t of r.temas) if (e.temas.find((x) => x.id === t)?.tipo === "queja") quejas.set(t, (quejas.get(t) ?? 0) + 1);
-      const principal = [...quejas].sort((a, b) => b[1] - a[1])[0];
-      return { ...c, negativas: c.distribucion[3] + c.distribucion[4], quejaPrincipal: principal ? (texto.get(principal[0]) ?? null) : null };
-    }),
+    competidores: competidores.map((c) => ({ ...c, quejaPrincipal: principal(c, "queja"), elogioPrincipal: principal(c, "elogio") })),
+    quejas: temas.filter((t) => t.tipo === "queja").sort(orden),
+    elogios: temas.filter((t) => t.tipo === "elogio").sort(orden),
+    agrupado: !!agrupado,
+    sinAgrupar: competidores.filter((c) => !agrupado?.archivos.includes(c.archivoId)).length,
   };
 }
 
@@ -409,6 +463,7 @@ export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado 
   const lider = [...m.mercado.competidores].sort((a, b) => b.facturacion - a.facturacion)[0];
   const mejoras = resenas?.quejas.filter((q) => q.mejora).slice(0, 3) ?? [];
   const precio = resumen.precioRecomendado;
+  const siguiente = [...resumen.analisis].filter((a) => a !== m).sort((a, b) => b.baseEur - a.baseEur)[0];
 
   return {
     nota: puntuacion,
@@ -430,7 +485,7 @@ export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado 
                 : `Ganarías unos ${euros(rentabilidad.beneficio)} por unidad (${Math.round(rentabilidad.margen * 100)} % de margen). Con un 5 % del mercado, ${euros(rentabilidad.beneficioMes5)} al mes; inversión de ${euros(rentabilidad.inversion5)}${rentabilidad.meses5 !== null ? ` que recuperas en unos ${nota(rentabilidad.meses5)} meses` : ""}.`,
           }
         : null,
-      { titulo: "Dónde", texto: `${pais} primero: ${euros(m.baseEur)} al mes${m.temporada ? " de media en el año" : ""}. ${resumen.analisis.length > 1 ? `Después, ${nombrePais(resumen.analisis[1].mercado.codigoPais)}.` : ""}` },
+      { titulo: "Dónde", texto: `${pais} primero: ${euros(m.baseEur)} al mes${m.temporada ? " de media en el año" : ""}. ${siguiente ? `Después, ${nombrePais(siguiente.mercado.codigoPais)}.` : ""}` },
       precio
         ? { titulo: "Precio", texto: `Entre ${precio.desde} y ${precio.hasta === Infinity ? "más" : precio.hasta} €, donde más se vende en ${pais}${lider ? ` (el líder, ${lider.marca}, está en ${lider.precio.toLocaleString("es-ES")} ${m.mercado.moneda === "GBP" ? "£" : "€"})` : ""}.` }
         : null,
@@ -440,7 +495,10 @@ export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado 
             texto:
               mejoras
                 // After the first, each one goes on in lower case: «…; varillas de fibra…».
-                .map((q, i) => `${i ? q.mejora!.charAt(0).toLowerCase() + q.mejora!.slice(1) : q.mejora} (el ${q.porcentaje} % de las reseñas se queja de que «${q.texto.toLowerCase()}»)`)
+                .map((q, i) => {
+                  const x = q.mejora.replace(/\.\s*$/, "");
+                  return `${i ? x.charAt(0).toLowerCase() + x.slice(1) : x} (${q.productos === 1 ? "lo critican en 1 producto" : `lo critican en ${q.productos} productos`}: «${q.texto.toLowerCase()}»)`;
+                })
                 .join("; ") + ".",
           }
         : null,
