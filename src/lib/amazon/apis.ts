@@ -228,6 +228,46 @@ export async function imagenesCatalogo(asins: string[], marketplaceId: string): 
   });
 }
 
+export type MiembroFamilia = { asin: string; titulo: string | null; color: string | null; talla: string | null; imagen: string | null };
+type ItemFamilia = Omit<ItemCatalogo, "summaries"> & {
+  summaries?: { marketplaceId: string; itemName?: string; color?: string; size?: string }[];
+  relationships?: { marketplaceId: string; relationships?: { type?: string; parentAsins?: string[]; childAsins?: string[]; variationTheme?: { attributes?: string[] } }[] }[];
+};
+
+async function itemsFamilia(asins: string[], marketplaceId: string): Promise<ItemFamilia[]> {
+  if (!asins.length) return [];
+  const res = await spGet<{ items?: ItemFamilia[] }>("/catalog/2022-04-01/items", {
+    identifiers: asins.slice(0, 20),
+    identifiersType: "ASIN",
+    marketplaceIds: marketplaceId,
+    includedData: ["relationships", "summaries", "images"],
+    pageSize: 20,
+  });
+  return res.items ?? [];
+}
+
+const miembro = (it: ItemFamilia, marketplaceId: string): MiembroFamilia => {
+  const s = it.summaries?.find((x) => x.marketplaceId === marketplaceId) ?? it.summaries?.[0];
+  const imagenes = it.images?.find((g) => g.marketplaceId === marketplaceId)?.images ?? it.images?.[0]?.images ?? [];
+  const principal = imagenes.filter((i) => i.variant === "MAIN").sort((a, b) => b.width - a.width)[0] ?? imagenes[0];
+  return { asin: it.asin, titulo: s?.itemName ?? null, color: s?.color ?? null, talla: s?.size ?? null, imagen: principal?.link ?? null };
+};
+
+/**
+ * A listing's variation family: its parent (null when it has no variations) and the children (colours, sizes…),
+ * up to 20, plus the attributes the variations differ in (`tema`, e.g. ["color"]).
+ */
+export async function familiaCatalogo(asin: string, marketplaceId: string): Promise<{ listing: MiembroFamilia; variantes: MiembroFamilia[]; tema: string[] } | null> {
+  const [item] = await itemsFamilia([asin], marketplaceId);
+  if (!item) return null;
+  const relaciones = (it: ItemFamilia) => it.relationships?.find((r) => r.marketplaceId === marketplaceId)?.relationships ?? it.relationships?.[0]?.relationships ?? [];
+  const padreAsin = relaciones(item).find((r) => r.parentAsins?.length)?.parentAsins?.[0];
+  const padre = padreAsin ? ((await itemsFamilia([padreAsin], marketplaceId))[0] ?? item) : item;
+  const variacion = relaciones(padre).find((r) => r.childAsins?.length);
+  const hijos = await itemsFamilia(variacion?.childAsins ?? [], marketplaceId);
+  return { listing: miembro(padre, marketplaceId), variantes: hijos.map((h) => miembro(h, marketplaceId)), tema: variacion?.variationTheme?.attributes ?? [] };
+}
+
 // ---------- FBA Inventory v1 ----------
 
 export type ResumenInventario = {

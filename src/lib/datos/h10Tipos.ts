@@ -62,8 +62,23 @@ export type EstudioH10 = {
   amazon?: SeguimientoAmazon[];
   /** ASINs added by hand to the Amazon follow-up (they're fetched in every country). */
   asinsManuales?: string[];
+  /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
+  busquedas?: Partial<Record<CodigoPais, HistorialBusquedas>>;
+  /** Older Xrays of each country (without their competitors): more months to work out revenue per search. */
+  xraysAnteriores?: Partial<Record<CodigoPais, MercadoXray[]>>;
   /** A built-in sample study (not stored, can't be changed). */
   ejemplo?: boolean;
+};
+
+/** A keyword's searches month by month, read from Helium 10's «Search Volume» chart (3 or 5 years). */
+export type HistorialBusquedas = {
+  codigoPais: CodigoPais;
+  palabraClave: string;
+  /** Oldest first; `mes` is YYYY-MM. */
+  meses: { mes: string; busquedas: number }[];
+  /** The chart's weekly points (YYYY-MM-DD), when it came as CSV: they match an Xray's exact 30 days. */
+  semanas?: { dia: string; busquedas: number }[];
+  fecha: string;
 };
 
 // ---------- Profitability ----------
@@ -198,6 +213,7 @@ export type HerramientaH10 =
   | "magnet"
   | "resenas"
   | "historial"
+  | "busquedas"
   | "calculadora"
   | "ficha"
   | "restricciones"
@@ -212,6 +228,7 @@ export const HERRAMIENTAS_H10: { id: HerramientaH10; nombre: string; ayuda: stri
   { id: "magnet", nombre: "Magnet", ayuda: "Helium 10: variantes de la búsqueda con su volumen" },
   { id: "resenas", nombre: "Reseñas", ayuda: "Reseñas de los competidores (Helium 10 o capturas de Amazon)" },
   { id: "historial", nombre: "Historial de ventas", ayuda: "Helium 10: gráficas de ventas, precio y BSR de 12 meses" },
+  { id: "busquedas", nombre: "Historial de búsquedas", ayuda: "Helium 10: gráfico «Search Volume» de la palabra clave, de 3 o 5 años" },
   { id: "calculadora", nombre: "Calculadora Amazon", ayuda: "Calculadora de ingresos de Amazon con el ASIN del competidor cargado" },
   { id: "ficha", nombre: "Ficha de competidor", ayuda: "Captura de la página de un competidor en Amazon (fotos, título, viñetas)" },
   { id: "restricciones", nombre: "Restricciones de categoría", ayuda: "Seller Central → Añadir un producto: si la categoría pide aprobación" },

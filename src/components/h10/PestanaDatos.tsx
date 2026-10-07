@@ -24,6 +24,7 @@ type ItemLista = { id: string; herramienta: HerramientaH10; texto: string; neces
 const LISTA: ItemLista[] = [
   { id: "xray", herramienta: "xray", texto: "Xray de la búsqueda principal", necesidad: "Imprescindible", ambito: "pais", ayuda: "Helium 10 → Xray → Export (CSV)" },
   { id: "xray2", herramienta: "xray", texto: "Xray de búsquedas secundarias", necesidad: "Recomendable", ambito: "pais", ayuda: "Xray de 1–2 búsquedas más (por ejemplo «fußball trainingsgerät»), en CSV" },
+  { id: "busquedas", herramienta: "busquedas", texto: "Historial de búsquedas (3 años)", necesidad: "Muy recomendable", ambito: "pais", ayuda: "Xray → minigráfica junto a «Search Volume» → «3 Years» (captura): para estimar todo el año" },
   { id: "cerebro", herramienta: "cerebro", texto: "Cerebro de los competidores", necesidad: "Muy recomendable", ambito: "pais", ayuda: "Cerebro con los 3–5 ASIN líderes a la vez, en CSV" },
   { id: "resenas", herramienta: "resenas", texto: "Reseñas de los competidores", necesidad: "Recomendable", ambito: "pais", ayuda: "De los 3–5 líderes: CSV de Helium 10 o capturas de Amazon" },
   { id: "calculadora", herramienta: "calculadora", texto: "Calculadora de Amazon", necesidad: "Imprescindible en 1 país", ambito: "pais", ayuda: "Calculadora de ingresos con el ASIN del líder (captura), o «Traer datos de Amazon» en Competidores, que trae las tarifas de los 5 países solo" },
@@ -35,6 +36,9 @@ const LISTA: ItemLista[] = [
   { id: "medidas", herramienta: "medidas", texto: "Medidas y peso de tu caja", necesidad: "Recomendable", ambito: "producto", ayuda: "Ficha técnica del proveedor, o ponlas en «Tu caja» en «Rentabilidad» (elige la tarifa FBA del competidor más parecido)" },
   { id: "certificados", herramienta: "certificados", texto: "Certificados (CE, EN 71…)", necesidad: "Recomendable", ambito: "producto", ayuda: "Del proveedor. EN 71 si es un juguete" },
 ];
+/** Only needed for profitability, hidden for now (see CON_RENTABILIDAD in VistaH10). */
+const SOLO_RENTABILIDAD = new Set(["calculadora", "proveedor", "envio", "medidas"]);
+const LISTA_VISIBLE = LISTA.filter((it) => !SOLO_RENTABILIDAD.has(it.id));
 const GRUPOS: { ambito: Ambito; titulo: string }[] = [
   { ambito: "pais", titulo: "En cada país" },
   { ambito: "principal", titulo: "Una vez, en tu país principal" },
@@ -134,7 +138,7 @@ export function PestanaDatos({
     if (it.id === "calculadora" && pais && tarifasAuto.includes(pais)) return n + 1;
     return n || (((it.id === "proveedor" || it.id === "envio") && costesPropios) || (it.id === "medidas" && cajaPropia) ? 1 : 0);
   };
-  const casillas = LISTA.flatMap((it) => (it.ambito === "pais" ? columnas.map((p) => cuantos(it, p) > 0) : [cuantos(it) > 0]));
+  const casillas = LISTA_VISIBLE.flatMap((it) => (it.ambito === "pais" ? columnas.map((p) => cuantos(it, p) > 0) : [cuantos(it) > 0]));
   const hechas = casillas.filter(Boolean).length;
   /** A missing box picks its country and file type above, ready to upload. */
   const preparar = (it: ItemLista, pais?: string) => {
@@ -249,7 +253,7 @@ export function PestanaDatos({
                     {g.titulo}
                   </td>
                 </tr>
-                {LISTA.filter((it) => it.ambito === g.ambito).map((it) => (
+                {LISTA_VISIBLE.filter((it) => it.ambito === g.ambito).map((it) => (
                   <tr key={it.id} className="border-b border-white/[0.05]">
                     <td className="px-2 py-2" title={it.ayuda}>
                       <span className="font-medium text-ink-100">{it.texto}</span>
@@ -317,6 +321,17 @@ function FilaArchivo({ estudioId, a, onCambio }: { estudioId: string; a: Archivo
     setOcupado(false);
     onCambio();
   };
+  const [releyendo, setReleyendo] = useState(false);
+  const [fallo, setFallo] = useState<string | null>(null);
+  const releer = async () => {
+    setReleyendo(true);
+    setFallo(null);
+    const r = await fetch(url, { method: "POST" }).catch(() => null);
+    const b = (await r?.json().catch(() => ({}))) as { error?: string } | undefined;
+    setReleyendo(false);
+    if (!r?.ok) return setFallo(b?.error ?? "No se pudo leer");
+    onCambio();
+  };
   return (
     <li className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
       <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${ESTADOS[a.estado].clase}`}>{ESTADOS[a.estado].texto}</span>
@@ -325,9 +340,12 @@ function FilaArchivo({ estudioId, a, onCambio }: { estudioId: string; a: Archivo
         <a href={url} target="_blank" rel="noopener" className="block truncate font-medium text-ink-100 hover:underline" title={a.nombre}>
           {a.resumen}
         </a>
-        <span className={`block truncate text-[11px] ${a.error ? "text-danger" : "text-ink-500"}`}>{a.error ?? `${a.nombre} · ${tamano(a.tamano)} · ${fecha(a.subidoEn)}`}</span>
+        <span className={`block truncate text-[11px] ${a.error || fallo ? "text-danger" : "text-ink-500"}`}>{fallo ?? a.error ?? `${a.nombre} · ${tamano(a.tamano)} · ${fecha(a.subidoEn)}`}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1 text-xs">
+        <button onClick={() => void releer()} disabled={releyendo} title="Leerlo otra vez con la IA (por ejemplo, un CSV subido antes de una mejora)" className="rounded-md px-2 py-1.5 text-ink-300 hover:bg-white/[0.05] hover:text-ink-100 disabled:opacity-50">
+          {releyendo ? "Leyendo…" : "Volver a leer"}
+        </button>
         <a href={`${url}?descargar=1`} className="rounded-md px-2 py-1.5 text-ink-300 hover:bg-white/[0.05] hover:text-ink-100">
           Descargar
         </a>

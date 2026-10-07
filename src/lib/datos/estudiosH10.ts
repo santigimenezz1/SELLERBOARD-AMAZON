@@ -6,8 +6,8 @@ import { bucket } from "./documentos";
 import { contarEscrituras, contarLecturas } from "./consumo";
 import { diaMadrid } from "./fechas";
 import { EUR_POR_GBP, nombrePais } from "./h10Analisis";
-import { leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, type FilaPalabra } from "./h10Csv";
-import { esImagen, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista } from "@/lib/ia/leerH10";
+import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, type FilaPalabra } from "./h10Csv";
+import { esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista } from "@/lib/ia/leerH10";
 import { mensajeError } from "@/lib/ia/errores";
 import { fichasCompetidores, ofertasCompetidor, preciosCompetidores, tarifasCompetidor } from "@/lib/amazon/apis";
 import { marketplaceConocido } from "./marketplacesConocidos";
@@ -27,6 +27,7 @@ import {
   type SeguimientoAmazon,
   PAISES_H10,
   type MercadoXray,
+  type HistorialBusquedas,
   type PalabraClave,
   type PalabrasMercado,
 } from "./h10Tipos";
@@ -57,6 +58,7 @@ type DatosArchivo = {
   mercado?: MercadoXray;
   palabras?: { columnasPosicion: string[]; filas: FilaPalabra[] };
   calculadora?: CalculadoraAmazon;
+  historial?: HistorialBusquedas;
 };
 /** `amazon`: competitors read from Amazon, by «country|ASIN» (stored in `estudiosH10/{id}/amazon/{country}_{ASIN}`). */
 type Entrada = { estudio: EstudioGuardado; datos: Map<string, DatosArchivo>; amazon: Map<string, SeguimientoAmazon> };
@@ -219,6 +221,21 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
     if (esCsv) {
       const filas = leerCsv(datos.toString("utf8"));
       if (filas.length < 2) throw new Error("El CSV está vacío");
+      // Helium 10's «Search Volume» chart as CSV: exact weekly figures, no AI needed.
+      const semanas = historialDesdeCsv(filas);
+      if (semanas) {
+        if (!pista.codigoPais) return sinPais("busquedas");
+        const historial: HistorialBusquedas = { codigoPais: pista.codigoPais, palabraClave: "", meses: semanas.meses, semanas: semanas.semanas, fecha };
+        return {
+          meta: {
+            herramienta: "busquedas",
+            codigoPais: pista.codigoPais,
+            estado: "procesado",
+            resumen: `Historial de búsquedas (CSV) · ${pista.codigoPais} · ${semanas.meses.length} meses (${semanas.meses[0].mes} a ${semanas.meses.at(-1)!.mes})`,
+          },
+          datos: { herramienta: "busquedas", codigoPais: pista.codigoPais, historial },
+        };
+      }
       const r = await reconocerCsv(archivo.name, filas, pista);
       if (r.herramienta === "xray") {
         if (!r.codigoPais) return sinPais("xray");
@@ -252,9 +269,25 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
           datos: { herramienta: "calculadora" as const, codigoPais: k.codigoPais, calculadora: leida },
         };
       };
+      // Helium 10's «Search Volume» chart: the searches month by month.
+      const busquedas = async () => {
+        if (!esImagen(tipo)) return guardado("busquedas", pista.codigoPais, "Historial de búsquedas (PDF: súbelo como captura para leerlo)");
+        const b = await leerBusquedas(datos, tipo, archivo.name, pista, fecha);
+        if (!b.codigoPais) return sinPais("busquedas");
+        if (b.meses.length < 3) throw new Error("No se ven bien los meses del gráfico: súbelo más grande, con el eje de fechas a la vista");
+        const historial: HistorialBusquedas = { ...b, codigoPais: b.codigoPais, fecha };
+        const { mes: desde } = b.meses[0];
+        const { mes: hasta } = b.meses.at(-1)!;
+        return {
+          meta: { herramienta: "busquedas" as const, codigoPais: b.codigoPais, estado: "procesado" as const, resumen: `Historial de búsquedas · ${b.codigoPais}${b.palabraClave ? ` · ${b.palabraClave}` : ""} · ${b.meses.length} meses (${desde} a ${hasta})` },
+          datos: { herramienta: "busquedas" as const, codigoPais: b.codigoPais, historial },
+        };
+      };
       if (pista.herramienta === "calculadora") return await calculadora();
+      if (pista.herramienta === "busquedas") return await busquedas();
       const c = await leerCaptura(datos, esPdf ? "application/pdf" : (tipo as Parameters<typeof leerCaptura>[1]), archivo.name, pista);
       if (c.herramienta === "calculadora") return await calculadora();
+      if (c.herramienta === "busquedas") return await busquedas();
       if (c.herramienta === "xray" && c.competidores.length) {
         if (!c.codigoPais) return sinPais("xray");
         const mercado = mercadoDesdeCaptura(c, c.codigoPais, fecha);
@@ -317,6 +350,29 @@ export async function subirArchivo(id: string, archivo: File, pista: Pista): Pro
   return nuevo;
 }
 
+/**
+ * Reads a stored file again (as it was uploaded: same country and kind), replacing what was read from it. Useful
+ * when the reading improves, e.g. for CSVs read before the app took the «ASIN Revenue» column.
+ */
+export async function releerArchivo(id: string, archivoId: string): Promise<ArchivoH10> {
+  const e = await entrada(id);
+  const a = e.estudio.archivos.find((x) => x.id === archivoId);
+  if (!a) throw new Error("Archivo no encontrado");
+  const [datos] = await bucket().file(ruta(id, a)).download();
+  const archivo = new File([new Uint8Array(datos)], a.nombre, { type: a.tipo });
+  const r = await procesar(archivo, datos, { codigoPais: a.codigoPais, herramienta: a.herramienta === "otro" ? null : a.herramienta }, a.subidoEn.slice(0, 10));
+  const nuevo: ArchivoH10 = { ...a, ...r.meta };
+  if (!r.meta.error) delete nuevo.error;
+  if (r.datos) {
+    await col().doc(id).collection("datos").doc(a.id).set(JSON.parse(JSON.stringify(r.datos)));
+    contarEscrituras(1);
+    e.datos.set(a.id, r.datos);
+  }
+  e.estudio = { ...e.estudio, archivos: e.estudio.archivos.map((x) => (x.id === a.id ? nuevo : x)), actualizadoEn: new Date().toISOString() };
+  await guardarEstudio(e.estudio);
+  return nuevo;
+}
+
 /** Deletes a file and the data read from it. */
 export async function borrarArchivo(id: string, archivoId: string): Promise<void> {
   const e = await entrada(id);
@@ -364,8 +420,17 @@ function ensamblar({ estudio, datos, amazon }: Entrada): EstudioParaVista {
   const calculadoras: Partial<Record<CodigoPais, CalculadoraAmazon>> = {};
   for (const [, d] of lista) if (d.calculadora && d.codigoPais && !calculadoras[d.codigoPais]) calculadoras[d.codigoPais] = d.calculadora;
 
+  const busquedas: Partial<Record<CodigoPais, HistorialBusquedas>> = {};
+  for (const [, d] of lista) if (d.historial && d.codigoPais && !busquedas[d.codigoPais]) busquedas[d.codigoPais] = d.historial;
+
   const mercados = new Map<CodigoPais, MercadoXray>();
-  for (const [, d] of lista) if (d.mercado && d.codigoPais && !mercados.has(d.codigoPais)) mercados.set(d.codigoPais, structuredClone(d.mercado));
+  const xraysAnteriores: Partial<Record<CodigoPais, MercadoXray[]>> = {};
+  for (const [, d] of lista) {
+    if (!d.mercado || !d.codigoPais) continue;
+    if (!mercados.has(d.codigoPais)) mercados.set(d.codigoPais, structuredClone(d.mercado));
+    // Older Xrays of the same country: only their totals, for revenue per search.
+    else (xraysAnteriores[d.codigoPais] ??= []).push({ ...d.mercado, competidores: [] });
+  }
 
   const palabras: Record<string, PalabrasMercado> = {};
   const paises = new Set(lista.filter(([, d]) => d.palabras && d.codigoPais).map(([, d]) => d.codigoPais!));
@@ -423,6 +488,8 @@ function ensamblar({ estudio, datos, amazon }: Entrada): EstudioParaVista {
       descripcion: estudio.descripcion,
       mercados: [...mercados.values()],
       calculadoras,
+      busquedas,
+      xraysAnteriores,
       supuestos: estudio.supuestos ?? SUPUESTOS_INICIALES,
       // The page only needs the last months of the follow-up.
       amazon: [...amazon.values()].map((v) => ({ ficha: v.ficha, puntos: v.puntos.slice(-PUNTOS_EN_PAGINA) })),

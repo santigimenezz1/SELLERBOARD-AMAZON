@@ -6,6 +6,31 @@ import type { CodigoPais, CompetidorXray, MercadoXray } from "./h10Tipos";
  */
 
 /** CSV text → rows of cells. Handles quotes, «;», «,» or tab separators and a leading BOM. */
+/**
+ * Helium 10's «Search Volume» chart exported as CSV (Time; Search Volume, one point a week): the searches of each
+ * month as the average of its weeks. Null when the file isn't that export.
+ */
+export function historialDesdeCsv(filas: string[][]): { meses: { mes: string; busquedas: number }[]; semanas: { dia: string; busquedas: number }[] } | null {
+  const [cabecera, ...datos] = filas;
+  const iFecha = cabecera.findIndex((c) => /^(time|date|fecha)$/i.test(c.trim()));
+  const iBusquedas = cabecera.findIndex((c) => /search volume|volumen de b/i.test(c));
+  if (iFecha < 0 || iBusquedas < 0 || cabecera.length > 4) return null;
+  const porMes = new Map<string, number[]>();
+  const semanas: { dia: string; busquedas: number }[] = [];
+  for (const f of datos) {
+    const mes = f[iFecha]?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const v = Number(String(f[iBusquedas] ?? "").replace(/[.\s]/g, "").replace(",", "."));
+    if (!mes || !Number.isFinite(v)) continue;
+    porMes.set(`${mes[1]}-${mes[2]}`, [...(porMes.get(`${mes[1]}-${mes[2]}`) ?? []), v]);
+    semanas.push({ dia: `${mes[1]}-${mes[2]}-${mes[3]}`, busquedas: v });
+  }
+  if (porMes.size < 3) return null;
+  return {
+    meses: [...porMes].sort((a, b) => a[0].localeCompare(b[0])).map(([mes, v]) => ({ mes, busquedas: Math.round(v.reduce((s, x) => s + x, 0) / v.length) })),
+    semanas: semanas.sort((a, b) => a.dia.localeCompare(b.dia)),
+  };
+}
+
 export function leerCsv(texto: string): string[][] {
   texto = texto.replace(/^﻿/, "");
   const fin = texto.indexOf("\n");

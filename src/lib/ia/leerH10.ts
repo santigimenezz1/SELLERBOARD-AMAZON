@@ -36,6 +36,7 @@ Herramientas:
 - magnet: variantes de una palabra clave: Keyword Phrase, Magnet IQ Score, Search Volume, Competing Products…
 - resenas: reseñas de clientes de un producto.
 - historial: gráficas de Helium 10 con la evolución de ventas, precio o BSR de un producto a lo largo de los meses.
+- busquedas: el gráfico «Search Volume» de Helium 10: la evolución de las búsquedas de una palabra clave a lo largo de meses o años.
 - calculadora: calculadora de beneficios / Revenue Calculator de Amazon (tarifas, precio, beneficio).
 - ficha: la página de un producto en Amazon (fotos, título, viñetas, descripción, A+).
 - restricciones: Seller Central al añadir un producto: si la categoría o la marca necesita aprobación.
@@ -51,13 +52,13 @@ function pistaTexto(p: Pista, nombre: string): string {
   return `Nombre del archivo: «${nombre}».${p.herramienta ? ` El usuario dice que es de: ${p.herramienta}.` : ""}${p.codigoPais ? ` El usuario dice que el país es: ${p.codigoPais}.` : ""}`;
 }
 
-async function pedir<T>(system: string, contenido: Anthropic.Beta.BetaContentBlockParam[], schema: Record<string, unknown>): Promise<T> {
+async function pedir<T>(system: string, contenido: Anthropic.Beta.BetaContentBlockParam[], schema: Record<string, unknown>, esfuerzo: "medium" | "high" = "medium"): Promise<T> {
   const r = await conectar().beta.messages.create({
     model: "claude-opus-5-5",
     max_tokens: 16000,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
-    output_config: { effort: "medium", format: { type: "json_schema", schema } },
+    output_config: { effort: esfuerzo, format: { type: "json_schema", schema } },
     system,
     messages: [{ role: "user", content: contenido }],
   });
@@ -94,7 +95,13 @@ const ESQUEMA_CSV = {
     xray: {
       type: "object",
       description: "Solo si es xray: el nombre EXACTO de la cabecera de cada dato, o cadena vacía si no existe",
-      properties: Object.fromEntries(["titulo", "asin", "marca", "precio", "ventas", "facturacion", "resenas", "valoracion", "bsr", "tarifaFba", "tamano", "peso"].map((k) => [k, columnaCsv])),
+      properties: {
+        ...Object.fromEntries(["titulo", "asin", "marca", "precio", "resenas", "valoracion", "bsr", "tarifaFba", "tamano", "peso"].map((k) => [k, columnaCsv])),
+        // The parent-level columns repeat the whole listing family's figures on every variant: adding them up
+        // counts the same sales several times (Helium 10's own «Total Revenue» does).
+        ventas: { ...columnaCsv, description: "La columna «ASIN Sales» (ventas de esa variante). NUNCA «Parent Level Sales». Cadena vacía si no existe" },
+        facturacion: { ...columnaCsv, description: "La columna «ASIN Revenue» (facturación de esa variante). NUNCA «Parent Level Revenue». Solo si no existe ASIN Revenue, «Revenue». Cadena vacía si no hay" },
+      },
       required: ["titulo", "asin", "marca", "precio", "ventas", "facturacion", "resenas", "valoracion", "bsr", "tarifaFba", "tamano", "peso"],
       additionalProperties: false,
     },
@@ -205,6 +212,58 @@ const ESQUEMA_CAPTURA = {
   required: ["herramienta", "codigoPais", "moneda", "palabraClave", "cabecera", "competidores", "palabras", "descripcion"],
   additionalProperties: false,
 };
+
+// ---------- Helium 10's «Search Volume» chart ----------
+
+export type BusquedasLeidas = { codigoPais: CodigoPais | null; palabraClave: string; meses: { mes: string; busquedas: number }[] };
+
+const ESQUEMA_BUSQUEDAS = {
+  type: "object",
+  properties: {
+    codigoPais: { type: "string", enum: PAISES },
+    palabraClave: { type: "string", description: "La palabra clave si aparece; si no, cadena vacía" },
+    meses: {
+      type: "array",
+      description: "Un valor por mes, del primer mes que se ve al último, sin saltarse ninguno",
+      items: {
+        type: "object",
+        properties: {
+          mes: { type: "string", description: "AAAA-MM" },
+          busquedas: { type: "number", description: "Búsquedas de ese mes: la media de los puntos de la línea dentro de ese mes, leída con la escala del eje Y" },
+        },
+        required: ["mes", "busquedas"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["codigoPais", "palabraClave", "meses"],
+  additionalProperties: false,
+};
+
+/**
+ * Reads Helium 10's «Search Volume» chart: the keyword's searches month by month. `hoy` (YYYY-MM-DD) places the
+ * last point, since the axis shows only months like «1/24».
+ */
+export async function leerBusquedas(datos: Buffer, tipo: TipoImagen, nombre: string, pista: Pista, hoy: string): Promise<BusquedasLeidas> {
+  const r = await pedir<Omit<BusquedasLeidas, "codigoPais"> & { codigoPais: string }>(
+    `Lees el gráfico «Search Volume» de Helium 10: la evolución de las búsquedas mensuales de una palabra clave en Amazon.
+Cómo situar los meses, paso a paso:
+1. Localiza la posición horizontal de cada marca del eje X («1/24» = 1 de enero de 2024, «7/24» = 1 de julio de 2024, «1/25»…). Entre dos marcas seguidas hay 6 meses: cada mes ocupa una sexta parte de esa distancia, empezando en la marca.
+2. El último punto de la línea es el mes actual (hoy es ${hoy}); el primero, el mes que caiga en su posición.
+3. Para cada mes, mira solo el tramo de la línea dentro de ese mes y da la media de sus puntos con la escala del eje Y.
+4. Comprueba los picos: un pico justo a la IZQUIERDA de «1/25» es de diciembre de 2024, no de enero ni de noviembre. Vuelve a revisar que cada pico y cada valle quedan en el mes de su posición.
+Un valor por mes, del primero al último, sin saltarse ninguno ni inventar meses fuera del gráfico.`,
+    [
+      { type: "image", source: { type: "base64", media_type: tipo, data: datos.toString("base64") } },
+      { type: "text", text: pistaTexto(pista, nombre) },
+    ],
+    ESQUEMA_BUSQUEDAS,
+    // Placing each month on a chart takes careful reading.
+    "high",
+  );
+  const meses = r.meses.filter((m) => /^\d{4}-\d{2}$/.test(m.mes) && Number.isFinite(m.busquedas)).map((m) => ({ mes: m.mes, busquedas: Math.max(0, Math.round(m.busquedas)) }));
+  return { palabraClave: r.palabraClave, meses, codigoPais: pista.codigoPais ?? (esCodigoPais(r.codigoPais) ? r.codigoPais : null) };
+}
 
 // ---------- Amazon's revenue calculator ----------
 

@@ -1,4 +1,5 @@
-import type { EstudioH10, MercadoXray, PalabraClave, PalabrasMercado, ResenasCompetidor, ResenasEstudio, TemaResena } from "./h10Tipos";
+import type { EstudioH10, HistorialBusquedas, MercadoXray, PalabraClave, PalabrasMercado, ResenasCompetidor, ResenasEstudio, TemaResena } from "./h10Tipos";
+import { temporada, type Temporada } from "./h10Temporada";
 
 /*
  * The figures and conclusions of a Helium 10 study, from its Xray captures. Pure functions: everything in euros
@@ -11,47 +12,158 @@ const aEur = (v: number, m: MercadoXray) => (m.moneda === "GBP" ? v * EUR_POR_GB
 const redondear = (v: number, d = 0) => Math.round(v * 10 ** d) / 10 ** d;
 const acotar = (v: number) => Math.min(10, Math.max(1, v));
 
+/** One part of the score: 1–10 (higher, better) and why, with the study's own figures. */
+export type Bloque = { nota: number; texto: string };
+
+/**
+ * The score's parts and weights. Reviews hardly count: with Vine and a 4.7 rating a newcomer competes with leaders
+ * of 500 reviews, so only markets of thousands of reviews lose points.
+ */
+export const PESOS = { tamano: 0.4, hueco: 0.25, reparto: 0.15, tendencia: 0.2 } as const;
+export const NOMBRES_BLOQUE = { tamano: "Tamaño", hueco: "Hueco para entrar", reparto: "Reparto", tendencia: "Tendencia" } as const;
+export type Bloques = Record<keyof typeof PESOS, Bloque>;
+
 export type AnalisisMercado = {
   mercado: MercadoXray;
+  /** What the Xray's products make in the month it was taken. */
   facturacionEur: number;
+  /**
+   * The monthly revenue the market is judged by: the year's average when the keyword's search history is there (an
+   * Xray taken in a weak or strong month would mislead), else the Xray's month.
+   */
+  baseEur: number;
+  temporada: Temporada | null;
   precioMedioEur: number;
   /** Share of the visible competitors' revenue taken by the top 3. */
   cuotaTop3: number;
-  /** 1 (easy) – 10 (very hard). */
-  dificultad: number;
-  /** 1 – 10: money at stake against how hard it is to get in. */
+  /** Revenue-weighted rating of the 5 best sellers (CSV exports only), and their reviews. */
+  valoracionLideres: number | null;
+  resenasLideres: number;
+  /** The brand making most here and its share of the visible revenue. */
+  marcaLider: { marca: string; cuota: number } | null;
+  bloques: Bloques;
+  /** 1–10: this country alone, with the same blocks and weights as the study's score. */
   oportunidad: number;
   avisos: string[];
 };
 
-/**
- * Difficulty: reviews you'd have to compete with (log scale: 50 → ~3, 1,000 → ~9), eased when small sellers already
- * make money (top 10 under 75 reviews) and raised when the top 3 take most of the market.
- */
-function dificultad(m: MercadoXray, cuotaTop3: number): number {
-  const resenas = (Math.log10(Math.max(m.resenasMedias, 10)) / Math.log10(2000)) * 10;
-  return redondear(acotar(resenas - m.top10Menos75 * 0.6 + (cuotaTop3 - 0.5) * 4), 1);
+/** Market size (log scale: 20,000 € a month → 4,3; 100,000 € → 6,6; 500,000 € → 8,9). */
+const tamanoMercado = (eur: number) => acotar((Math.log10(Math.max(eur, 1000)) - 3) * 3.3);
+/** Leaders' rating: 4,0 ★ → 9,8 (easy to do better); 4,5 → 6; 4,8 → 3,8 (hard to stand out). */
+const notaValoracion = (v: number) => acotar(6 + (4.5 - v) * 7.5);
+/** One brand's share of the revenue: 20 % → 10; 40 % → 7,6; 60 % → 5,2; 80 % → 2,8. */
+const notaReparto = (cuota: number) => acotar(10 - Math.max(0, cuota - 0.2) * 12);
+/** Searches year on year: −20 % → 4; same → 6; +34 % → 9,4. Without history, 6 (neutral). */
+const notaTendencia = (crecimiento: number | null) => (crecimiento === null ? 6 : acotar(6 + crecimiento * 10));
+const mediaPonderada = (pares: [number, number][]) => {
+  const peso = pares.reduce((s, [, p]) => s + p, 0);
+  return peso ? pares.reduce((s, [v, p]) => s + v * p, 0) / peso : null;
+};
+const ponderar = (b: Bloques) => redondear(acotar((Object.keys(PESOS) as (keyof typeof PESOS)[]).reduce((s, k) => s + b[k].nota * PESOS[k], 0)), 1);
+
+/** The «hueco» block: whether a 4.7-rated product stands out against the leaders; only thousands of reviews take points. */
+function bloqueHueco(valoracion: number | null, resenas: number): Bloque {
+  const penal = resenas > 5000 ? 3 : resenas > 2000 ? 2 : 0;
+  const notaBase = valoracion === null ? 6 : notaValoracion(valoracion);
+  const sobreValoracion =
+    valoracion === null
+      ? "Sin valoraciones de los líderes (vienen en el Xray en CSV): nota neutra."
+      : `Los que más venden tienen ${nota(redondear(valoracion, 1))} ★ de media: ${valoracion <= 4.4 ? "un producto de 4,7 ★ destaca y les puede quitar ventas" : valoracion >= 4.7 ? "cuesta diferenciarse por calidad" : "hay algo de margen para destacar con mejor calidad"}.`;
+  const sobreResenas = penal ? ` Tienen unas ${entero(resenas)} reseñas: −${penal}, difíciles de alcanzar.` : ` Sus reseñas (${entero(resenas)} de media) no son una barrera.`;
+  return { nota: redondear(acotar(notaBase - penal), 1), texto: sobreValoracion + sobreResenas };
 }
 
-/** Opportunity: size of the market (log scale: 20,000 € → ~4, 500,000 € → ~9) minus a share of the difficulty. */
-function oportunidad(facturacionEur: number, dif: number): number {
-  const tamano = (Math.log10(Math.max(facturacionEur, 1000)) - 3) * 3.3;
-  return redondear(acotar(tamano + 2.5 - dif * 0.45), 1);
-}
-
-export function analizarMercado(m: MercadoXray): AnalisisMercado {
+export function analizarMercado(m: MercadoXray, historial?: HistorialBusquedas, anteriores: MercadoXray[] = []): AnalisisMercado {
   const facturacionEur = aEur(m.facturacionTotal, m);
   const visibles = [...m.competidores].sort((a, b) => b.facturacion - a.facturacion);
   const totalVisible = visibles.reduce((s, x) => s + x.facturacion, 0);
   const cuotaTop3 = totalVisible > 0 ? visibles.slice(0, 3).reduce((s, x) => s + x.facturacion, 0) / totalVisible : 0;
-  const dif = dificultad(m, cuotaTop3);
+  const lideres = visibles.slice(0, 5);
+  const valoracionLideres = mediaPonderada(lideres.filter((x) => x.valoracion != null).map((x) => [x.valoracion!, x.facturacion]));
+  const resenasLideres = mediaPonderada(lideres.map((x) => [x.resenas, x.facturacion])) ?? 0;
+  const porMarca = new Map<string, number>();
+  for (const x of visibles) if (x.marca !== "Genérico") porMarca.set(x.marca, (porMarca.get(x.marca) ?? 0) + x.facturacion);
+  const primera = [...porMarca].sort((a, b) => b[1] - a[1])[0];
+  const marcaLider = primera && totalVisible ? { marca: primera[0], cuota: primera[1] / totalVisible } : null;
+  const t = historial ? temporada(m, historial, anteriores) : null;
+  const baseEur = t ? aEur(t.mediaMensual, m) : facturacionEur;
+  const bloques: Bloques = {
+    tamano: { nota: redondear(tamanoMercado(baseEur), 1), texto: `${euros(baseEur)} al mes${t ? " de media en el año" : " (el mes del Xray)"}.` },
+    hueco: bloqueHueco(valoracionLideres, resenasLideres),
+    reparto: {
+      nota: redondear(notaReparto(marcaLider?.cuota ?? 0), 1),
+      texto: marcaLider ? `${marcaLider.marca} se lleva el ${Math.round(marcaLider.cuota * 100)} % de lo que facturan los productos visibles.` : "Sin marcas dominantes.",
+    },
+    tendencia: {
+      nota: redondear(notaTendencia(t?.crecimiento ?? null), 1),
+      texto: t?.crecimiento != null ? `Búsquedas ${t.crecimiento >= 0 ? "+" : "−"}${Math.abs(Math.round(t.crecimiento * 100))} % frente al año anterior.` : "Sin historial de búsquedas de 2 años: nota neutra.",
+    },
+  };
   const avisos: string[] = [];
   if (m.busquedas === 0 && m.facturacionTotal > 10000)
     avisos.push("Helium 10 marca 0 búsquedas con mucha facturación: el dato de búsquedas de esta palabra clave no es fiable. Prueba con otra palabra clave.");
   const caidas = m.competidores.filter((x) => x.variacionResenas < -100);
   if (caidas.length)
     avisos.push(`${caidas.length} ${caidas.length === 1 ? "listing perdió" : "listings perdieron"} cientos de reseñas (p. ej. ${caidas[0].marca}): suele ser una variante separada del listing principal.`);
-  return { mercado: m, facturacionEur, precioMedioEur: aEur(m.precioMedio, m), cuotaTop3, dificultad: dif, oportunidad: oportunidad(facturacionEur, dif), avisos };
+  return {
+    mercado: m,
+    facturacionEur,
+    baseEur,
+    temporada: t,
+    precioMedioEur: aEur(m.precioMedio, m),
+    cuotaTop3,
+    valoracionLideres,
+    resenasLideres,
+    marcaLider,
+    bloques,
+    oportunidad: ponderar(bloques),
+    avisos,
+  };
+}
+
+/**
+ * The study's score: the product in every country together. Size adds the countries up; the other blocks are each
+ * country's, weighted by what it makes; the dominant brand is counted across all of them.
+ */
+export function notaEstudio(e: EstudioH10, analisis: AnalisisMercado[], resenas: AnalisisResenas | null): { nota: number; bloques: Bloques } {
+  const total = analisis.reduce((s, a) => s + a.baseEur, 0);
+  const pesar = (v: (a: AnalisisMercado) => number | null) =>
+    mediaPonderada(analisis.flatMap((a): [number, number][] => {
+      const x = v(a);
+      return x === null ? [] : [[x, a.baseEur]];
+    }));
+  const hueco = bloqueHueco(pesar((a) => a.valoracionLideres), pesar((a) => a.resenasLideres) ?? 0);
+  if (resenas && resenas.negativas >= 12) {
+    hueco.nota = redondear(acotar(hueco.nota + 1), 1);
+    hueco.texto += ` El ${resenas.negativas} % de las reseñas de la competencia son de 1–2 ★: +1 (clientes descontentos, hueco para un producto mejor).`;
+  }
+  const marcas = marcasDelEstudio(e);
+  const totalMarcas = analisis.reduce((s, a) => s + a.mercado.competidores.reduce((t, x) => t + aEur(x.facturacion, a.mercado), 0), 0);
+  const top = marcas[0];
+  const cuota = top && totalMarcas ? top.facturacionEur / totalMarcas : 0;
+  const crecimiento = pesar((a) => a.temporada?.crecimiento ?? null);
+  const conHistorial = analisis.filter((a) => a.temporada).length;
+  const bloques: Bloques = {
+    tamano: {
+      nota: redondear(tamanoMercado(total), 1),
+      texto: `${euros(total)} al mes entre ${analisis.length === 1 ? "el país" : `los ${analisis.length} países`} (${analisis.map((a) => `${a.mercado.codigoPais} ${euros(a.baseEur)}`).join(", ")})${
+        conHistorial ? `, ${conHistorial === analisis.length ? "todos" : `${conHistorial} de ${analisis.length}`} con la media del año` : ", cada uno con el mes de su Xray"
+      }.`,
+    },
+    hueco,
+    reparto: {
+      nota: redondear(notaReparto(cuota), 1),
+      texto: top ? `${top.marca} se lleva el ${Math.round(cuota * 100)} % de lo que facturan los productos visibles, en ${top.paises.length} ${top.paises.length === 1 ? "país" : "países"}.` : "Sin marcas dominantes.",
+    },
+    tendencia: {
+      nota: redondear(notaTendencia(crecimiento), 1),
+      texto:
+        crecimiento !== null
+          ? `Búsquedas ${crecimiento >= 0 ? "+" : "−"}${Math.abs(Math.round(crecimiento * 100))} % frente al año anterior (media de los países con historial).`
+          : "Sin historial de búsquedas de 2 años: nota neutra. Súbelo para saber si el mercado crece.",
+    },
+  };
+  return { nota: ponderar(bloques), bloques };
 }
 
 export type RangoPrecio = { desde: number; hasta: number; facturacionEur: number; competidores: number };
@@ -95,18 +207,22 @@ const euros = (v: number) => `${entero(v)} €`;
 const nota = (v: number) => v.toLocaleString("es-ES", { maximumFractionDigits: 1 });
 
 export type ResumenEstudio = {
+  estudio: EstudioH10;
   analisis: AnalisisMercado[];
   mejor: AnalisisMercado;
   mercadoTotalEur: number;
-  busquedasTotales: number;
+  /** Searches of the countries that have them; null when none does. */
+  busquedasTotales: number | null;
   precioRecomendado: { desde: number; hasta: number } | null;
   conclusiones: string[];
 };
 
 /** Everything the study page shows. The conclusions are rule-based in the preview; the real one has the AI write them. */
 export function resumirEstudio(e: EstudioH10): ResumenEstudio {
-  const analisis = e.mercados.map(analizarMercado).sort((a, b) => b.oportunidad - a.oportunidad);
-  const mejor = analisis[0];
+  const analisis = e.mercados.map((m) => analizarMercado(m, e.busquedas?.[m.codigoPais], e.xraysAnteriores?.[m.codigoPais])).sort((a, b) => b.oportunidad - a.oportunidad);
+  // The country to start with: the one that makes most among those scoring within half a point of the best (a tenth
+  // more in a small market doesn't beat twice the money).
+  const mejor = analisis.filter((a) => a.oportunidad >= analisis[0].oportunidad - 0.5).sort((a, b) => b.baseEur - a.baseEur)[0];
   const rangos = rangosDePrecio(mejor.mercado);
   const top = [...rangos].sort((a, b) => b.facturacionEur - a.facturacionEur)[0];
   const precioRecomendado = top ? { desde: top.desde, hasta: top.hasta } : null;
@@ -115,7 +231,7 @@ export function resumirEstudio(e: EstudioH10): ResumenEstudio {
   const lider = [...mejor.mercado.competidores].sort((a, b) => b.facturacion - a.facturacion)[0];
 
   const conclusiones = [
-    `**${nombrePais(mejor.mercado.codigoPais)} es el mejor mercado** (oportunidad ${nota(mejor.oportunidad)}/10): ${euros(mejor.facturacionEur)} al mes${mejor.mercado.busquedas !== null ? ` y ${entero(mejor.mercado.busquedas)} búsquedas` : ""} para «${mejor.mercado.palabraClave}».${mejor.avisos.length ? " **Ojo:** revisa los avisos sobre sus datos antes de decidir." : ""}`,
+    `**${nombrePais(mejor.mercado.codigoPais)} es el mejor mercado** (oportunidad ${nota(mejor.oportunidad)}/10): ${mejor.temporada ? `unos ${euros(mejor.baseEur)} al mes de media en el año (el Xray, de un solo mes, daba ${euros(mejor.facturacionEur)})` : `${euros(mejor.facturacionEur)} al mes`}${mejor.mercado.busquedas !== null ? ` y ${entero(mejor.mercado.busquedas)} búsquedas` : ""} para «${mejor.mercado.palabraClave}».${mejor.avisos.length ? " **Ojo:** revisa los avisos sobre sus datos antes de decidir." : ""}`,
     precioRecomendado
       ? `Allí el dinero se concentra entre **${precioRecomendado.desde} y ${precioRecomendado.hasta === Infinity ? "más" : precioRecomendado.hasta} €**; el precio medio es ${euros(mejor.precioMedioEur)}.`
       : "",
@@ -127,17 +243,18 @@ export function resumirEstudio(e: EstudioH10): ResumenEstudio {
       .slice(1)
       .map((a) =>
         a.oportunidad >= 6
-          ? `${nombrePais(a.mercado.codigoPais)} también es interesante (${nota(a.oportunidad)}/10, ${euros(a.facturacionEur)} al mes).`
-          : `${nombrePais(a.mercado.codigoPais)} es secundario (${nota(a.oportunidad)}/10): ${euros(a.facturacionEur)} al mes${a.dificultad >= 7 ? " y difícil de entrar" : ""}.`,
+          ? `${nombrePais(a.mercado.codigoPais)} también es interesante (${nota(a.oportunidad)}/10, ${euros(a.baseEur)} al mes).`
+          : `${nombrePais(a.mercado.codigoPais)} es secundario (${nota(a.oportunidad)}/10): ${euros(a.baseEur)} al mes.`,
       ),
     enMasPaises && enMasPaises.paises.length >= 3 ? `**${enMasPaises.marca}** está en ${enMasPaises.paises.length} países: es el competidor a estudiar primero.` : "",
   ].filter(Boolean);
 
   return {
+    estudio: e,
     analisis,
     mejor,
-    mercadoTotalEur: analisis.reduce((s, a) => s + a.facturacionEur, 0),
-    busquedasTotales: e.mercados.reduce((s, m) => s + (m.busquedas ?? 0), 0),
+    mercadoTotalEur: analisis.reduce((s, a) => s + a.baseEur, 0),
+    busquedasTotales: e.mercados.some((m) => m.busquedas !== null) ? e.mercados.reduce((s, m) => s + (m.busquedas ?? 0), 0) : null,
     precioRecomendado,
     conclusiones,
   };
@@ -239,8 +356,19 @@ export function analizarResenas(e: ResenasEstudio): AnalisisResenas {
   };
 }
 
+/**
+ * The product's score, every country together: the study's blocks, 0,8 less when the best market's data has
+ * warnings. The same figure everywhere it shows (study cards, Mercado, verdict).
+ */
+export function notaProducto(resumen: ResumenEstudio, resenas: AnalisisResenas | null): { nota: number; bloques: Bloques } {
+  const { nota: base, bloques } = notaEstudio(resumen.estudio, resumen.analisis, resenas);
+  return { nota: resumen.mejor.avisos.length ? redondear(acotar(base - 0.8), 1) : base, bloques };
+}
+
 export type InformeFinal = {
   nota: number;
+  /** How the score came out, step by step with this study's figures. */
+  desglose: string[];
   veredicto: "lanzar" | "validar" | "descartar";
   titular: string;
   puntos: { titulo: string; texto: string }[];
@@ -256,9 +384,8 @@ export type RentabilidadInforme = { beneficio: number; margen: number; beneficio
 export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado | undefined, resenas: AnalisisResenas | null, rentabilidad?: RentabilidadInforme): InformeFinal {
   const m = resumen.mejor;
   const pais = nombrePais(m.mercado.codigoPais);
-  let puntuacion = m.oportunidad;
-  if (resenas && resenas.negativas >= 12) puntuacion += 0.4;
-  if (m.avisos.length) puntuacion -= 0.8;
+  const { nota: base, bloques } = notaProducto(resumen, resenas);
+  let puntuacion = base;
   // A big market is worth nothing if each sale earns little: profit weighs in.
   if (rentabilidad) {
     if (rentabilidad.beneficio <= 0) puntuacion -= 4;
@@ -266,6 +393,10 @@ export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado 
     else if (rentabilidad.margen >= 0.25) puntuacion += 0.3;
   }
   puntuacion = redondear(acotar(puntuacion), 1);
+  const desglose = [
+    ...(Object.keys(PESOS) as (keyof typeof PESOS)[]).map((k) => `**${NOMBRES_BLOQUE[k]} ${nota(bloques[k].nota)}/10** (${Math.round(PESOS[k] * 100)} %): ${bloques[k].texto}`),
+    `**Nota final ${nota(puntuacion)}/10**${m.avisos.length ? " (−0,8 por datos dudosos)" : ""}. 7 o más: lanzar · 5–7: validar · menos de 5: descartar.`,
+  ];
   const veredicto = puntuacion >= 7 ? "lanzar" : puntuacion >= 5 ? "validar" : "descartar";
   const max = palabras ? Math.max(...palabras.palabras.map((p) => p.busquedas)) : 0;
   const clave = palabras
@@ -281,6 +412,7 @@ export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado 
 
   return {
     nota: puntuacion,
+    desglose,
     veredicto,
     titular:
       veredicto === "lanzar"
@@ -298,7 +430,7 @@ export function informeFinal(resumen: ResumenEstudio, palabras: PalabrasMercado 
                 : `Ganarías unos ${euros(rentabilidad.beneficio)} por unidad (${Math.round(rentabilidad.margen * 100)} % de margen). Con un 5 % del mercado, ${euros(rentabilidad.beneficioMes5)} al mes; inversión de ${euros(rentabilidad.inversion5)}${rentabilidad.meses5 !== null ? ` que recuperas en unos ${nota(rentabilidad.meses5)} meses` : ""}.`,
           }
         : null,
-      { titulo: "Dónde", texto: `${pais} primero: ${euros(m.facturacionEur)} al mes y dificultad ${nota(m.dificultad)}/10. ${resumen.analisis.length > 1 ? `Después, ${nombrePais(resumen.analisis[1].mercado.codigoPais)}.` : ""}` },
+      { titulo: "Dónde", texto: `${pais} primero: ${euros(m.baseEur)} al mes${m.temporada ? " de media en el año" : ""}. ${resumen.analisis.length > 1 ? `Después, ${nombrePais(resumen.analisis[1].mercado.codigoPais)}.` : ""}` },
       precio
         ? { titulo: "Precio", texto: `Entre ${precio.desde} y ${precio.hasta === Infinity ? "más" : precio.hasta} €, donde más se vende en ${pais}${lider ? ` (el líder, ${lider.marca}, está en ${lider.precio.toLocaleString("es-ES")} ${m.mercado.moneda === "GBP" ? "£" : "€"})` : ""}.` }
         : null,

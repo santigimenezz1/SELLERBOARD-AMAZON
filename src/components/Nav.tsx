@@ -18,6 +18,7 @@ const ENLACES = [
   { href: "/documentos", texto: "Documentos" },
   { href: "/tickets", texto: "Tickets" },
   { href: "/suscripciones", texto: "Suscripciones" },
+  { href: "/variantes", texto: "Variantes" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
 

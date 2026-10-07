@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
 import { PestanaDatos } from "./PestanaDatos";
 import { DatosAmazon } from "./DatosAmazon";
+import { TamanoMercado } from "./TamanoMercado";
 import { PestanaRentabilidad } from "./PestanaRentabilidad";
 import { cajaCompleta, rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
 import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado, ResenasEstudio } from "@/lib/datos/h10Tipos";
-import { analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
+import { analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
 import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
 import { Markdown } from "@/components/chat/Markdown";
@@ -26,6 +27,11 @@ const PESTANAS = [
   { id: "conclusiones", texto: "Conclusiones" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
+/**
+ * Profitability is hidden for now: the study judges the product only by its market data. Set to true to bring back
+ * its tab, the product files it asks for and its weight in the verdict.
+ */
+const CON_RENTABILIDAD = false;
 
 /** Empty tab of a study without that data yet. */
 function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => void }) {
@@ -89,7 +95,7 @@ export function VistaH10({
       {/* Studies */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {estudios.map((e) => (
-          <TarjetaEstudio key={e.id} e={e} activo={e.id === estudio.id} archivos={archivos[e.id]?.length ?? 0} onElegir={() => setElegido(e.id)} />
+          <TarjetaEstudio key={e.id} e={e} resenas={resenas[e.id]} activo={e.id === estudio.id} archivos={archivos[e.id]?.length ?? 0} onElegir={() => setElegido(e.id)} />
         ))}
         <NuevoEstudio
           onCreado={(id) => {
@@ -110,7 +116,7 @@ export function VistaH10({
 
       {/* Tabs */}
       <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.06]">
-        {PESTANAS.filter((p) => p.id !== "datos" || !estudio.ejemplo).map((p) => (
+        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
           <button
             key={p.id}
             onClick={() => irA(p.id)}
@@ -132,7 +138,15 @@ export function VistaH10({
           tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
         />}
       {pestana === "mercado" &&
-        (resumen ? <PestanaMercado key={estudio.id} estudio={estudio} resumen={resumen} /> : <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />)}
+        (resumen ? (
+          <PestanaMercado
+            key={estudio.id}
+            estudio={estudio}
+            resumen={resumen}
+            resenas={resenas[estudio.id]}
+            tamano={<TamanoMercado key={`tamano-${estudio.id}`} estudio={estudio} onIrADatos={datosAqui} />}
+          />
+        ) : <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />)}
       {pestana === "competidores" && (
         <div className="flex flex-col gap-4">
           {(!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon[estudio.id] ?? []} />}
@@ -152,6 +166,7 @@ export function VistaH10({
           <SinDatos texto="El análisis de reseñas con IA llega en la fase 3. Mientras tanto, sube las reseñas de los competidores en «Datos»: quedan guardadas y se analizarán entonces." onIrADatos={datosAqui} />
         ))}
       {pestana === "rentabilidad" &&
+        CON_RENTABILIDAD &&
         (resumen ? (
           <PestanaRentabilidad key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={resumen.mejor.mercado.codigoPais} />
         ) : (
@@ -160,7 +175,7 @@ export function VistaH10({
       {pestana === "conclusiones" &&
         (resumen ? (
           <div className="flex flex-col gap-4">
-            <Informe informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], resenas[estudio.id] ? analizarResenas(resenas[estudio.id]) : null, rentabilidadInforme(estudio, resumen, palabrasEstudio))} />
+            <Informe conRentabilidad={CON_RENTABILIDAD} informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], resenas[estudio.id] ? analizarResenas(resenas[estudio.id]) : null, CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)} />
             <Tarjeta titulo="Todas las conclusiones" subtitulo="Por ahora salen de reglas fijas; en la fase 3 las redactará la IA con todos los datos del estudio.">
               <div className="text-sm leading-relaxed text-ink-300">
                 <Markdown
@@ -178,9 +193,10 @@ export function VistaH10({
   );
 }
 
-/** A study in the list: its best country's score and the money at stake, or what's missing. */
-function TarjetaEstudio({ e, activo, archivos, onElegir }: { e: EstudioH10; activo: boolean; archivos: number; onElegir: () => void }) {
+/** A study in the list: the product's score (every country together) and the money at stake, or what's missing. */
+function TarjetaEstudio({ e, resenas, activo, archivos, onElegir }: { e: EstudioH10; resenas?: ResenasEstudio; activo: boolean; archivos: number; onElegir: () => void }) {
   const r = e.mercados.length ? resumirEstudio(e) : null;
+  const nota = r ? notaProducto(r, resenas ? analizarResenas(resenas) : null).nota : null;
   return (
     <button
       onClick={onElegir}
@@ -189,7 +205,7 @@ function TarjetaEstudio({ e, activo, archivos, onElegir }: { e: EstudioH10; acti
     >
       <span className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-semibold text-ink-100">{e.nombre}</span>
-        {r ? <Nota valor={r.mejor.oportunidad} /> : <span className="text-xs text-ink-500">sin datos</span>}
+        {nota !== null ? <Nota valor={nota} /> : <span className="text-xs text-ink-500">sin datos</span>}
       </span>
       <span className="flex items-center gap-2 text-xs text-ink-400">
         {e.ejemplo && <span className="rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-ink-300">EJEMPLO</span>}
@@ -341,7 +357,10 @@ function CabeceraEstudio({ estudio, onBorrado }: { estudio: EstudioH10; onBorrad
   );
 }
 
-function PestanaMercado({ estudio, resumen }: { estudio: EstudioH10; resumen: ReturnType<typeof resumirEstudio> }) {
+/** `tamano`: the market's size month by month, shown right under the headline figures. */
+function PestanaMercado({ estudio, resumen, resenas, tamano }: { estudio: EstudioH10; resumen: ReturnType<typeof resumirEstudio>; resenas?: ResenasEstudio; tamano: React.ReactNode }) {
+  const nota = notaProducto(resumen, resenas ? analizarResenas(resenas) : null).nota;
+  const conHistorial = resumen.analisis.filter((x) => x.temporada).length;
   const [paisPrecio, setPaisPrecio] = useState(resumen.mejor.mercado.codigoPais);
   const mercadoPrecio = estudio.mercados.find((m) => m.codigoPais === paisPrecio) ?? resumen.mejor.mercado;
   const avisos = resumen.analisis.flatMap((a) => a.avisos.map((t) => ({ pais: a.mercado.codigoPais, t })));
@@ -349,32 +368,74 @@ function PestanaMercado({ estudio, resumen }: { estudio: EstudioH10; resumen: Re
   return (
     <div className="flex flex-col gap-4">
       {/* Headline figures */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { t: "Mejor país", v: <Pais codigo={resumen.mejor.mercado.codigoPais} />, s: <Nota valor={resumen.mejor.oportunidad} /> },
-          { t: "Mercado total", v: `${euros(resumen.mercadoTotalEur)}`, s: "al mes, sumando los 4 países" },
-          { t: "Búsquedas", v: formatNumero(resumen.busquedasTotales), s: "al mes, palabra clave principal" },
-          {
-            t: "Precio con más ventas",
-            v: resumen.precioRecomendado ? `${resumen.precioRecomendado.desde}–${resumen.precioRecomendado.hasta === Infinity ? "+" : resumen.precioRecomendado.hasta} €` : "—",
-            s: `en ${nombrePais(resumen.mejor.mercado.codigoPais)}`,
-          },
-        ].map((x) => (
-          <div key={x.t} className="rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft">
-            <p className="text-xs text-ink-400">{x.t}</p>
-            <p className="tabular mt-1 text-2xl font-semibold tracking-tight text-ink-100">{x.v}</p>
-            <p className="mt-1 text-xs text-ink-400">{x.s}</p>
+      {/* The product: its final score and the market's size, a monthly average over the year in every country. */}
+      <section className="rounded-xl border border-white/[0.08] bg-ink-900/80 p-5 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs font-medium tracking-wide text-ink-400 uppercase">Producto</p>
+            <h2 className="mt-0.5 truncate text-2xl font-semibold tracking-tight text-ink-100">{estudio.nombre}</h2>
+            <p className={`mt-1 text-sm font-medium ${nota >= 7 ? "text-success" : nota >= 5 ? "text-warning" : "text-danger"}`}>
+              {nota >= 7 ? "✓ Lanzar" : nota >= 5 ? "◐ Validar primero" : "✕ Descartar"}
+            </p>
           </div>
-        ))}
-      </div>
+          <div className="text-right">
+            <p className="tabular text-4xl font-semibold text-ink-100">
+              {nota.toLocaleString("es-ES")}
+              <span className="text-lg text-ink-400">/10</span>
+            </p>
+            <p className="text-xs text-ink-400">nota final · todos los países</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-accent-500/30 bg-accent-500/[0.06] px-4 py-3">
+            <p className="text-xs text-ink-400">Mercado medio al mes</p>
+            <p className="tabular mt-0.5 text-3xl font-semibold text-ink-100">{euros(resumen.mercadoTotalEur)}</p>
+            <p className="mt-0.5 text-[11px] text-ink-400">
+              {conHistorial === resumen.analisis.length
+                ? "media de todo el año, sumando todos los países"
+                : `${conHistorial} de ${resumen.analisis.length} países con la media del año; ${resumen.analisis.filter((a) => !a.temporada).map((a) => a.mercado.codigoPais).join(", ")} con el mes de su Xray (sube su CSV de búsquedas)`}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-4 py-3">
+            <p className="text-xs text-ink-400">Mercado al año</p>
+            <p className="tabular mt-0.5 text-2xl font-semibold text-ink-100">{euros(resumen.mercadoTotalEur * 12)}</p>
+            <p className="mt-0.5 text-[11px] text-ink-400">estimado, todos los países</p>
+          </div>
+          <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-4 py-3">
+            <p className="text-xs text-ink-400">Precio con más ventas</p>
+            <p className="tabular mt-0.5 text-2xl font-semibold text-ink-100">
+              {resumen.precioRecomendado ? `${resumen.precioRecomendado.desde}–${resumen.precioRecomendado.hasta === Infinity ? "+" : resumen.precioRecomendado.hasta} €` : "—"}
+            </p>
+            <p className="mt-0.5 text-[11px] text-ink-400">en {nombrePais(resumen.mejor.mercado.codigoPais)}, el mercado principal</p>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[...resumen.analisis]
+            .sort((a, b) => b.baseEur - a.baseEur)
+            .map((a) => (
+              <span key={a.mercado.codigoPais} className="inline-flex items-center gap-2 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-xs text-ink-300">
+                <Pais codigo={a.mercado.codigoPais} corto />
+                <span className="tabular font-medium text-ink-100">{euros(a.baseEur)}/mes</span>
+                <span className="text-ink-500">{Math.round((a.baseEur / Math.max(1, resumen.mercadoTotalEur)) * 100)} %</span>
+                {(() => {
+                  // Where most of that country's money is.
+                  const r = [...rangosDePrecio(a.mercado)].sort((x, y) => y.facturacionEur - x.facturacionEur)[0];
+                  return r ? <span className="text-ink-400">· más ventas a {r.desde}–{r.hasta === Infinity ? "+" : r.hasta} €</span> : null;
+                })()}
+              </span>
+            ))}
+        </div>
+      </section>
+
+      {tamano}
 
       {/* Country comparison */}
       <Tarjeta titulo="Comparativa por país" subtitulo={`Ordenada por oportunidad. Libras pasadas a euros (1 £ = ${EUR_POR_GBP.toLocaleString("es-ES")} € de ejemplo).`}>
         <div className="-mx-4 overflow-x-auto px-4">
-          <table className="tabular w-full min-w-[860px] text-sm">
+          <table className="tabular w-full min-w-[960px] text-sm">
             <thead>
               <tr className="border-b border-white/[0.08] text-left text-xs text-ink-400">
-                {["País", "Palabra clave", "Búsquedas", "Facturación/mes", "Precio medio", "Reseñas medias", "Top 10 >5.000 €", "Top 10 <75 reseñas", "Cuota top 3", "Dificultad", "Oportunidad"].map((h, i) => (
+                {["País", "Palabra clave", "Búsquedas", "Facturación/mes", "Precio medio", "Reseñas medias", "Top 10 >5.000 €", "Cuota top 3", "Tamaño", "Hueco", "Reparto", "Tendencia", "Nota"].map((h, i) => (
                   <th key={h} className={`px-2 py-2 font-medium whitespace-nowrap ${i >= 2 ? "text-right" : ""}`}>
                     {h}
                   </th>
@@ -389,7 +450,7 @@ function PestanaMercado({ estudio, resumen }: { estudio: EstudioH10; resumen: Re
           </table>
         </div>
         <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-400">
-          <span className="font-medium text-ink-300">Oportunidad (más alta, mejor):</span>
+          <span className="font-medium text-ink-300">Nota (más alta, mejor):</span>
           <span>
             <Nota valor={8} /> 7–10, merece la pena
           </span>
@@ -399,13 +460,13 @@ function PestanaMercado({ estudio, resumen }: { estudio: EstudioH10; resumen: Re
           <span>
             <Nota valor={3} /> menos de 4,5, poco interesante
           </span>
-          <span className="font-medium text-ink-300">Dificultad: al revés, más baja es mejor.</span>
         </p>
         <details className="mt-2 text-xs text-ink-400">
-          <summary className="cursor-pointer hover:text-ink-200">¿Cómo se calculan dificultad y oportunidad?</summary>
+          <summary className="cursor-pointer hover:text-ink-200">¿Cómo se calcula la nota?</summary>
           <p className="mt-2 leading-relaxed">
-            <strong className="text-ink-200">Dificultad</strong> (1–10): sube con las reseñas medias que tendrías que alcanzar y cuando los 3 primeros se llevan casi todo; baja si en el top 10 hay vendedores con menos de 75 reseñas
-            facturando. <strong className="text-ink-200">Oportunidad</strong> (1–10): el dinero que mueve el mercado al mes, descontando parte de la dificultad.
+            Cuatro bloques de 1 a 10 (pasa el ratón por cada número para ver por qué): <strong className="text-ink-200">Tamaño</strong> (40 %), la facturación al mes, con la media del año si hay historial de búsquedas;{" "}
+            <strong className="text-ink-200">Hueco</strong> (25 %), si un producto de 4,7 ★ destaca frente a la valoración de los líderes (las reseñas solo restan con más de 2.000);{" "}
+            <strong className="text-ink-200">Reparto</strong> (15 %), si una marca acapara el mercado; <strong className="text-ink-200">Tendencia</strong> (20 %), si las búsquedas crecen frente al año anterior.
           </p>
         </details>
       </Tarjeta>
@@ -483,15 +544,19 @@ function FilaPais({ a }: { a: AnalisisMercado }) {
       <td className={`px-2 py-2.5 text-right ${m.busquedas === 0 ? "text-warning" : ""}`} title={m.busquedas === null ? "Sube el Magnet o el Cerebro de este país para tener las búsquedas" : undefined}>
         {m.busquedas !== null ? formatNumero(m.busquedas) : <span className="text-ink-600">—</span>}
       </td>
-      <td className="px-2 py-2.5 text-right font-medium text-ink-100">{euros(a.facturacionEur)}</td>
+      <td className="px-2 py-2.5 text-right font-medium text-ink-100" title={a.temporada ? `Media del año; el Xray de ${a.temporada.mesXray} daba ${euros(a.facturacionEur)}` : "El mes del Xray"}>
+        {euros(a.baseEur)}
+        {a.temporada && <span className="block text-[10px] font-normal text-ink-500">media del año</span>}
+      </td>
       <td className="px-2 py-2.5 text-right">{euros(a.precioMedioEur)}</td>
       <td className="px-2 py-2.5 text-right">{formatNumero(m.resenasMedias)}</td>
       <td className="px-2 py-2.5 text-right">{m.top10Mas5000}/10</td>
-      <td className="px-2 py-2.5 text-right">{m.top10Menos75}/10</td>
       <td className="px-2 py-2.5 text-right">{Math.round(a.cuotaTop3 * 100)} %</td>
-      <td className="px-2 py-2.5 text-right">
-        <Nota valor={a.dificultad} invertida />
-      </td>
+      {(["tamano", "hueco", "reparto", "tendencia"] as const).map((k) => (
+        <td key={k} className="px-2 py-2.5 text-right text-ink-300" title={a.bloques[k].texto}>
+          {a.bloques[k].nota.toLocaleString("es-ES")}
+        </td>
+      ))}
       <td className="px-2 py-2.5 text-right">
         <Nota valor={a.oportunidad} />
       </td>
@@ -545,7 +610,7 @@ function rentabilidadInforme(estudio: EstudioH10, resumen: NonNullable<ReturnTyp
 }
 
 /** The verdict card: launch / validate / drop, with the score and the reasons. */
-function Informe({ informe }: { informe: ReturnType<typeof informeFinal> }) {
+function Informe({ informe, conRentabilidad }: { informe: ReturnType<typeof informeFinal>; conRentabilidad: boolean }) {
   const estilo = {
     lanzar: { borde: "border-success/40", fondo: "bg-success/[0.06]", texto: "text-success", etiqueta: "✓ Lanzar" },
     validar: { borde: "border-warning/40", fondo: "bg-warning/[0.06]", texto: "text-warning", etiqueta: "◐ Validar primero" },
@@ -574,9 +639,15 @@ function Informe({ informe }: { informe: ReturnType<typeof informeFinal> }) {
           </div>
         ))}
       </dl>
-      <p className="mt-3 text-[11px] text-ink-500">
-        Nota final: la oportunidad del mejor país, +0,4 si los clientes de la competencia se quejan mucho (hay hueco para hacerlo mejor), −0,8 si hay datos dudosos, y la rentabilidad: −4 si pierdes dinero, −2 con menos de un 10 % de margen, +0,3 con un 25 % o más. 7 o más: lanzar · 5–7: validar · menos de 5: descartar.
-      </p>
+      <details className="mt-3 rounded-lg border border-white/[0.06] bg-ink-950/40 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-medium text-ink-300">¿Cómo sale la nota?</summary>
+        <div className="mt-2 text-xs leading-relaxed text-ink-300">
+          <Markdown texto={informe.desglose.map((d) => `- ${d}`).join("\n")} />
+        </div>
+        <p className="mt-2 text-[11px] text-ink-500">
+          Reglas fijas, no la IA.{conRentabilidad ? " La rentabilidad resta 4 si pierdes dinero, 2 con menos de un 10 % de margen y suma 0,3 con un 25 % o más." : " Solo con los datos del mercado: la rentabilidad se añadirá más adelante."}
+        </p>
+      </details>
     </section>
   );
 }
