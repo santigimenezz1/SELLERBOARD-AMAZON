@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { EstudioH10 } from "@/lib/datos/h10Tipos";
-import { analizarResenas, type TemaResenas } from "@/lib/datos/h10Analisis";
+import type { CodigoPais, EstudioH10, ResenasCompetidorH10 } from "@/lib/datos/h10Tipos";
+import Link from "next/link";
+import { analizarResenas, EUR_POR_GBP, nombrePais, type TemaResenas } from "@/lib/datos/h10Analisis";
+import { formatNumero } from "@/lib/format";
 import { Pais, Tarjeta } from "./comun";
-
-const AMAZON: Record<string, string> = { ES: "amazon.es", DE: "amazon.de", FR: "amazon.fr", IT: "amazon.it", GB: "amazon.co.uk" };
+import { QuejasEstrellas } from "./QuejasEstrellas";
 
 const estrellas = (v: number) => `${v > 0 ? "+" : "−"}${Math.abs(v).toLocaleString("es-ES", { maximumFractionDigits: 2 })} ★`;
 
@@ -43,7 +44,7 @@ function BotonAnalizar({ estudioId, texto }: { estudioId: string; texto: string 
 }
 
 /** One theme: how many products and countries mention it, its effect on the rating, and the reviews' own words. */
-function FilaTema({ t }: { t: TemaResenas }) {
+export function FilaTema({ t }: { t: TemaResenas }) {
   const queja = t.tipo === "queja";
   return (
     <li className="rounded-lg border border-white/[0.06] bg-ink-950/40 p-3">
@@ -52,11 +53,11 @@ function FilaTema({ t }: { t: TemaResenas }) {
           <span className="min-w-0">
             <span className="block font-medium text-ink-100">{t.texto}</span>
             <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-400">
-              <span className={`rounded px-1.5 py-0.5 font-medium ${queja ? "bg-danger/10 text-danger" : "bg-success/10 text-success"}`}>
-                {t.productos} {t.productos === 1 ? "producto" : "productos"}
+              <span className={`rounded px-1.5 py-0.5 font-semibold ${queja ? "bg-danger/10 text-danger" : "bg-success/10 text-success"}`} title={queja ? "Reseñas que se quejan de esto" : "Reseñas que lo valoran"}>
+                {t.menciones} {t.menciones === 1 ? "reseña" : "reseñas"}
               </span>
               <span>
-                {t.menciones} {t.menciones === 1 ? "mención" : "menciones"}
+                en {t.productos} {t.productos === 1 ? "producto" : "productos"}
               </span>
               <span className="flex flex-wrap gap-1.5">
                 {t.paises.map((p) => (
@@ -99,26 +100,125 @@ function FilaTema({ t }: { t: TemaResenas }) {
   );
 }
 
+/** Reviews each competitor has on Amazon (its Xray row in that country), or null when the Xray doesn't list it. */
+function resenasEnAmazon(estudio: EstudioH10, c: ResenasCompetidorH10): number | null {
+  if (!c.asin) return null;
+  return estudio.mercados.find((m) => m.codigoPais === c.codigoPais)?.competidores.find((x) => x.asin === c.asin)?.resenas ?? null;
+}
+
+/** Topic mentions Helium 10 counted in a competitor's reviews (praise and complaints). */
+const menciones = (c: ResenasCompetidorH10) => [...c.positivos, ...c.negativos].reduce((t, x) => t + x.menciones, 0);
+
+/** «Mejoras para tu producto» is hidden for now (it comes back later); true shows it again. */
+const CON_MEJORAS = false;
+
+/**
+ * The 10 strongest competitors (by revenue, in euros) of the country shown, or of every country: their rating and
+ * reviews, and a link to their own page with every review.
+ */
+function MasFuertes({ estudio, pais }: { estudio: EstudioH10; pais: CodigoPais | null }) {
+  const filas = estudio.mercados
+    .filter((m) => !pais || m.codigoPais === pais)
+    .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
+    .sort((a, b) => b.eur - a.eur)
+    .slice(0, 10);
+  if (!filas.length) return null;
+  const cargadas = (p: string, asin: string | null | undefined) => estudio.resenasCompletas?.find((r) => r.codigoPais === p && r.asin === asin);
+  return (
+    <Tarjeta titulo={`Los 10 competidores más fuertes ${pais ? `en ${nombrePais(pais)}` : "del nicho"}`} subtitulo="Los que más facturan · toca uno para ver todo su detalle y todas sus reseñas">
+      <div className="-mx-4 mt-2 overflow-x-auto px-4">
+        <table className="tabular w-full min-w-[760px] text-sm">
+          <thead>
+            <tr className="border-b border-white/[0.08] text-left text-xs text-ink-400">
+              <th className="px-2 py-2 font-medium">#</th>
+              <th className="px-2 py-2 font-medium">Producto</th>
+              <th className="px-2 py-2 font-medium">País</th>
+              <th className="px-2 py-2 text-right font-medium">Valoración</th>
+              <th className="px-2 py-2 text-right font-medium">Reseñas</th>
+              <th className="px-2 py-2 text-right font-medium">Facturación/mes</th>
+              <th className="px-2 py-2 text-right font-medium">Reseñas cargadas</th>
+              <th className="px-2 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map(({ m, c, eur }, i) => {
+              const r = cargadas(m.codigoPais, c.asin);
+              const enlace = c.asin ? `/analisis-h10/${estudio.id}/competidor/${m.codigoPais}/${c.asin}` : null;
+              return (
+                <tr key={`${m.codigoPais}-${c.asin ?? c.puesto}-${i}`} className="border-b border-white/[0.05] hover:bg-white/[0.03]">
+                  <td className="px-2 py-2.5 text-ink-500">{i + 1}</td>
+                  <td className="max-w-80 px-2 py-2.5">
+                    {enlace ? (
+                      <Link href={enlace} className="block truncate font-medium text-ink-100 hover:text-accent-300 hover:underline" title={c.titulo}>
+                        {c.marca}
+                      </Link>
+                    ) : (
+                      <span className="block truncate font-medium text-ink-100">{c.marca}</span>
+                    )}
+                    <span className="block truncate text-xs text-ink-500" title={c.titulo}>
+                      {c.titulo}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2.5">
+                    <Pais codigo={m.codigoPais} corto />
+                  </td>
+                  <td className="px-2 py-2.5 text-right whitespace-nowrap">
+                    {c.valoracion ? (
+                      <span className={c.valoracion >= 4.5 ? "text-success" : c.valoracion < 4 ? "text-danger" : "text-ink-100"}>
+                        <span className="text-accent-400">★</span> {c.valoracion.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                      </span>
+                    ) : (
+                      <span className="text-ink-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-medium text-ink-100">{formatNumero(c.resenas)}</td>
+                  <td className="px-2 py-2.5 text-right">{formatNumero(Math.round(eur))} €</td>
+                  <td className="px-2 py-2.5 text-right">{r ? <span className="text-success">{formatNumero(r.total)}</span> : <span className="text-ink-600">—</span>}</td>
+                  <td className="px-2 py-2.5 text-right">
+                    {enlace && (
+                      <Link href={enlace} className="text-xs font-medium whitespace-nowrap text-accent-300 hover:text-accent-400">
+                        Ver detalle →
+                      </Link>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Tarjeta>
+  );
+}
+
 /** «Reseñas»: what the competitors' customers complain about and praise (Helium 10's «Review Analysis»), and what to do about it. */
 export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
-  const a = analizarResenas(estudio);
-  if (!a) return null;
-  const paises = [...new Set(a.competidores.map((c) => c.codigoPais))];
+  /** Country shown (null: every country together). */
+  const [pais, setPais] = useState<CodigoPais | null>(null);
+  const todo = analizarResenas(estudio);
+  if (!todo) return null;
+  const a = (pais && analizarResenas({ ...estudio, resenasH10: (estudio.resenasH10 ?? []).filter((c) => c.codigoPais === pais) })) || todo;
+  const paises = [...new Set(todo.competidores.map((c) => c.codigoPais))];
   const mejoras = a.quejas.filter((q) => q.mejora);
   const fecha = estudio.resenasAgrupadas ? new Date(estudio.resenasAgrupadas.generadoEn).toLocaleDateString("es-ES") : null;
+  const enAmazon = (lista: ResenasCompetidorH10[]) => lista.reduce((t, c) => t + (resenasEnAmazon(estudio, c) ?? 0), 0);
+  const analizadas = (lista: ResenasCompetidorH10[]) => lista.reduce((t, c) => t + menciones(c), 0);
+  // Competitors with every review uploaded, in the country shown.
+  const completas = (estudio.resenasCompletas ?? []).filter((r) => !pais || r.codigoPais === pais);
+  const donde = pais ? `en ${nombrePais(pais)}` : "en todos los países";
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft sm:flex-row sm:items-center sm:justify-between">
         <p className="max-w-2xl text-sm text-ink-300">
-          {a.agrupado ? (
+          {todo.agrupado ? (
             <>
-              La IA juntó los temas de los {a.competidores.length} competidores (en todos los idiomas) en temas comunes en español
+              La IA juntó los temas de los {todo.competidores.length} competidores (en todos los idiomas) en temas comunes en español
               {fecha ? `, el ${fecha}` : ""}.
-              {a.sinAgrupar > 0 && (
+              {todo.sinAgrupar > 0 && (
                 <strong className="text-warning">
                   {" "}
-                  Hay {a.sinAgrupar} {a.sinAgrupar === 1 ? "archivo nuevo" : "archivos nuevos"} sin agrupar: vuelve a analizar.
+                  Hay {todo.sinAgrupar} {todo.sinAgrupar === 1 ? "archivo nuevo" : "archivos nuevos"} sin agrupar: vuelve a analizar.
                 </strong>
               )}
             </>
@@ -126,18 +226,37 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
             <>Ahora ves los temas tal como los da Helium 10, en el idioma de cada país. Con «Analizar con IA» se juntan en temas comunes en español y cada queja trae una mejora para tu producto.</>
           )}
         </p>
-        <BotonAnalizar estudioId={estudio.id} texto={a.agrupado ? "Volver a analizar" : "Analizar con IA"} />
+        <BotonAnalizar estudioId={estudio.id} texto={todo.agrupado ? "Volver a analizar" : "Analizar con IA"} />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Country picker: everything below shows that country only. */}
+      <div className="flex flex-wrap gap-1.5">
+        {[null, ...paises].map((p) => {
+          const n = p ? todo.competidores.filter((c) => c.codigoPais === p).length : todo.competidores.length;
+          return (
+            <button
+              key={p ?? "todos"}
+              onClick={() => setPais(p)}
+              aria-pressed={pais === p}
+              className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm transition-colors ${pais === p ? "border-accent-500/60 bg-accent-500/10 font-medium text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
+            >
+              {p ? <Pais codigo={p} /> : "Todos los países"}
+              <span className="tabular text-xs text-ink-500">{n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          { t: "Competidores", v: String(a.competidores.length), s: `en ${paises.length} ${paises.length === 1 ? "país" : "países"}` },
+          { t: "Competidores", v: String(a.competidores.length), s: pais ? nombrePais(pais) : `en ${paises.length} ${paises.length === 1 ? "país" : "países"}` },
+          { t: "Reseñas en Amazon", v: formatNumero(enAmazon(a.competidores)), s: `H10 analizó ${formatNumero(analizadas(a.competidores))} menciones` },
           { t: "Quejas distintas", v: String(a.quejas.length), s: `${a.elogios.length} elogios distintos` },
           { t: "Queja más repetida", v: a.quejas[0] ? `${a.quejas[0].productos} prod.` : "—", s: a.quejas[0]?.texto ?? "ninguna" },
           { t: "Lo más valorado", v: a.elogios[0] ? `${a.elogios[0].productos} prod.` : "—", s: a.elogios[0]?.texto ?? "" },
         ].map((x) => (
           <div key={x.t} className="rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft">
-            <p className="text-xs text-ink-400">{x.t}</p>
+            <p className="text-[13px] font-medium text-ink-200">{x.t}</p>
             <p className="tabular mt-1 text-2xl font-semibold tracking-tight text-ink-100">{x.v}</p>
             <p className="mt-1 truncate text-xs text-ink-400" title={x.s}>
               {x.s}
@@ -146,8 +265,8 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
         ))}
       </div>
 
-      {mejoras.length > 0 && (
-        <Tarjeta titulo="Mejoras para tu producto" subtitulo="Cada queja de la competencia, convertida en algo que tu producto puede hacer mejor (las más repetidas primero)">
+      {CON_MEJORAS && mejoras.length > 0 && (
+        <Tarjeta titulo={`Mejoras para tu producto ${donde}`} subtitulo="Cada queja de la competencia, convertida en algo que tu producto puede hacer mejor (las más repetidas primero)">
           <ol className="mt-3 flex flex-col gap-2.5">
             {mejoras.map((q, i) => (
               <li key={q.texto} className="flex gap-3 rounded-lg border border-white/[0.06] bg-ink-950/40 p-3">
@@ -164,8 +283,10 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
         </Tarjeta>
       )}
 
+      <MasFuertes estudio={estudio} pais={pais} />
+
       <div className="grid gap-4 lg:grid-cols-2">
-        <Tarjeta titulo="De qué se quejan" subtitulo="Ordenadas por en cuántos productos aparecen · toca una para ver ejemplos">
+        <Tarjeta titulo={`De qué se quejan ${donde}`} subtitulo="Ordenadas por en cuántos productos aparecen · toca una para ver ejemplos">
           {a.quejas.length ? (
             <ul className="mt-3 flex flex-col gap-2">
               {a.quejas.map((t) => (
@@ -176,7 +297,7 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
             <p className="mt-3 text-sm text-ink-400">Helium 10 no encontró quejas en estos productos.</p>
           )}
         </Tarjeta>
-        <Tarjeta titulo="Qué valoran" subtitulo="Lo que tu producto también tiene que cumplir">
+        <Tarjeta titulo={`Qué valoran ${donde}`} subtitulo="Lo que tu producto también tiene que cumplir">
           <ul className="mt-3 flex flex-col gap-2">
             {a.elogios.map((t) => (
               <FilaTema key={t.texto} t={t} />
@@ -185,43 +306,29 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
         </Tarjeta>
       </div>
 
-      <Tarjeta titulo="Competidores analizados" subtitulo="Un «Review Analysis» de Helium 10 por producto">
-        <div className="-mx-4 mt-2 overflow-x-auto px-4">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-white/[0.08] text-left text-xs text-ink-400">
-                <th className="px-2 py-2 font-medium">Marca</th>
-                <th className="px-2 py-2 font-medium">País</th>
-                <th className="px-2 py-2 font-medium">Queja principal</th>
-                <th className="px-2 py-2 font-medium">Lo que más gusta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {a.competidores.map((c) => (
-                <tr key={c.archivoId} className="border-b border-white/[0.05] align-top">
-                  <td className="px-2 py-2">
-                    <span className="font-medium text-ink-100">{c.marca ?? "—"}</span>
-                    {c.asin && (
-                      <a href={`https://www.${AMAZON[c.codigoPais] ?? "amazon.es"}/dp/${c.asin}`} target="_blank" rel="noreferrer" className="block text-xs text-ink-500 hover:text-accent-300" title={c.producto ?? undefined}>
-                        {c.asin} ↗
-                      </a>
-                    )}
-                  </td>
-                  <td className="px-2 py-2">
-                    <Pais codigo={c.codigoPais} corto />
-                  </td>
-                  <td className={`px-2 py-2 ${c.quejaPrincipal ? "text-ink-200" : "text-ink-500"}`}>{c.quejaPrincipal ?? "ninguna"}</td>
-                  <td className="px-2 py-2 text-ink-300">{c.elogioPrincipal ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Tarjeta
+        titulo={`Qué dicen en cada estrella ${donde}`}
+        subtitulo={`Las reseñas de ${completas.length === 1 ? "1 competidor" : `${completas.length} competidores`}, nota por nota de 1 a 5 estrellas: de qué se quejan y qué les gusta, y cuántas lo dicen`}
+      >
+        {completas.length > 0 ? (
+          <QuejasEstrellas
+            key={pais ?? "TODOS"}
+            estudioId={estudio.id}
+            objetivo={{ ambito: pais ?? "TODOS" }}
+            datos={estudio.estrellasAmbito?.[pais ?? "TODOS"] ?? null}
+            total={completas.reduce((t, r) => t + r.total, 0)}
+          />
+        ) : (
+        <p className="mt-3 rounded-lg border border-dashed border-white/[0.12] px-4 py-5 text-center text-sm text-ink-400">
+          Los Excel de «Review Analysis» no dicen cuántas estrellas tiene cada reseña. Para verlo, sube en «Datos» el CSV del <strong className="text-ink-200">Review Downloader</strong> de Helium 10 (extensión de
+          Chrome, en la página del producto en Amazon), uno por competidor.
+        </p>
+        )}
       </Tarjeta>
 
       <p className="text-xs text-ink-500">
-        Ojo: Helium 10 resume solo unas pocas reseñas de cada producto (casi todos los temas tienen 1–4 menciones). Tómalo como pistas de qué mejorar, no como estadística; por eso las
-        reseñas apenas cuentan en la nota (+0,5 como mucho, si una queja se repite en 3 productos o más).
+        «Reseñas en Amazon» son las que tiene cada producto según su Xray; «menciones analizadas», las que Helium 10 resumió en su «Review Analysis» (solo unas pocas por producto). Tómalo como pistas de qué
+        mejorar, no como estadística; por eso las reseñas apenas cuentan en la nota (+0,5 como mucho, si una queja se repite en 3 productos o más).
       </p>
     </div>
   );

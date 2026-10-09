@@ -67,6 +67,10 @@ export type EstudioH10 = {
   /** Each competitor's Helium 10 «Review Analysis», and the themes the AI put together from all of them. */
   resenasH10?: ResenasCompetidorH10[];
   resenasAgrupadas?: ResenasAgrupadas;
+  /** Competitors whose every review was uploaded (Review Downloader CSV): only the counts; the texts load on their page. */
+  resenasCompletas?: ResumenResenasCompletas[];
+  /** Star-by-star analysis of a whole country («DE»…) or of every country («TODOS»). */
+  estrellasAmbito?: Record<string, QuejasPorEstrellas>;
   /** Older Xrays of each country (without their competitors): more months to work out revenue per search. */
   xraysAnteriores?: Partial<Record<CodigoPais, MercadoXray[]>>;
   /** A built-in sample study (not stored, can't be changed). */
@@ -270,4 +274,28 @@ export type ArchivoH10 = {
   /** Xray only: the keyword it analyses (to tell the main search from the secondary ones). */
   palabraClave?: string;
   error?: string;
+};
+
+/** One review as Amazon shows it (Helium 10's «Review Downloader» CSV), in its original language. */
+export type ResenaCompleta = {
+  fecha: string | null;
+  estrellas: 1 | 2 | 3 | 4 | 5;
+  titulo: string;
+  texto: string;
+  verificada: boolean | null;
+  variante: string | null;
+  autor: string | null;
+  util: number | null;
+};
+
+/** A competitor whose reviews were all uploaded: how many and how many of each star (index 0 = 1 star). */
+export type ResumenResenasCompletas = { archivoId: string; codigoPais: CodigoPais; asin: string | null; total: number; porEstrellas: number[] };
+
+/** What the reviews of each star (1 to 5) of one competitor say (AI): complaints and praise, each with how many reviews say it. */
+export type QuejasPorEstrellas = {
+  generadoEn: string;
+  /** Reviews read (up to a limit per star). */
+  analizadas: number;
+  /** Per star: reviews there are, how many the AI read (older analyses: all) and what they say. */
+  grupos: { estrellas: 1 | 2 | 3 | 4 | 5; total: number; leidas?: number; temas: { texto: string; tipo?: "queja" | "elogio"; resenas: number; ejemplo: string | null }[] }[];
 };

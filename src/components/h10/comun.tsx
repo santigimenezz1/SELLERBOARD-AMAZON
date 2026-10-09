@@ -22,6 +22,16 @@ export function Nota({ valor, invertida = false }: { valor: number; invertida?: 
   );
 }
 
+/** A heading inside a card: what the block below shows, in big letters, and in one line how to read it. */
+export function Seccion({ titulo, texto }: { titulo: string; texto?: string }) {
+  return (
+    <div className="border-l-2 border-accent-500 pl-3">
+      <h3 className="text-base font-semibold text-ink-100">{titulo}</h3>
+      {texto && <p className="mt-0.5 text-xs text-ink-400">{texto}</p>}
+    </div>
+  );
+}
+
 export function Tarjeta({ id, titulo, subtitulo, children, className = "" }: { id?: string; titulo: string; subtitulo?: string; children: React.ReactNode; className?: string }) {
   return (
     <section id={id} className={`min-w-0 rounded-xl border border-white/[0.06] bg-ink-900/80 p-4 shadow-soft ${className}`}>

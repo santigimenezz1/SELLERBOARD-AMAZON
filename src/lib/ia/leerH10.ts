@@ -309,6 +309,57 @@ Agrupa los temas que hablan de lo mismo en temas comunes, escritos en español y
   return r.temas;
 }
 
+const ESQUEMA_ESTRELLAS = {
+  type: "object",
+  properties: {
+    grupos: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          estrellas: { type: "integer", description: "De 1 a 5" },
+          temas: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                texto: { type: "string", description: "En español, corto (2–7 palabras), p. ej. «La tapa gotea» o «Mantiene el frío todo el día»" },
+                tipo: { type: "string", enum: ["queja", "elogio"] },
+                resenas: { type: "array", items: { type: "integer" }, description: "Los números (n) de las reseñas de este grupo que lo dicen" },
+              },
+              required: ["texto", "tipo", "resenas"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["estrellas", "temas"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["grupos"],
+  additionalProperties: false,
+};
+
+/** A numbered review sent to the AI. */
+export type ResenaParaAnalizar = { n: number; estrellas: 1 | 2 | 3 | 4 | 5; titulo: string; texto: string };
+
+/**
+ * What the reviews of each star (1 to 5) of one competitor say, separately: complaints and praise in Spanish, each
+ * with the reviews that mention it (a review can be in several).
+ */
+export async function quejasPorEstrellas(producto: string, resenas: ResenaParaAnalizar[]): Promise<{ estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; resenas: number[] }[] }[]> {
+  const lista = resenas.map((r) => `${r.n}. [${r.estrellas}★] ${r.titulo ? `«${r.titulo}» ` : ""}${r.texto}`).join("\n");
+  const r = await pedir<{ grupos: { estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; resenas: number[] }[] }[] }>(
+    `Eres experto en producto y en Amazon. Estas son reseñas de un competidor («${producto}»), en su idioma original, con su nota de 1 a 5 estrellas.
+Para cada nota por separado (1, 2, 3, 4 y 5 estrellas), di qué dicen: agrupa las reseñas que dicen lo mismo en un tema corto en español, de el más repetido al menos. Cada tema es una queja o un elogio («tipo») y lleva los números (n) de las reseñas de esa nota que lo dicen; una reseña puede estar en varios temas. En 1–3 estrellas busca sobre todo las quejas; en 4–5, lo que más gusta y también las pegas pequeñas si las hay. No inventes nada que no esté en las reseñas. Como mucho 8 temas por nota.`,
+    [{ type: "text", text: lista }],
+    ESQUEMA_ESTRELLAS,
+    "high",
+  );
+  return r.grupos;
+}
+
 // ---------- Amazon's revenue calculator ----------
 
 export type CalculadoraLeida = {

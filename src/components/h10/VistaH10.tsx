@@ -12,6 +12,7 @@ import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado }
 import { analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
 import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
+import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Markdown } from "@/components/chat/Markdown";
 import { PestanaPalabras } from "./PestanaPalabras";
 import { PestanaResenas } from "./PestanaResenas";
@@ -32,6 +33,8 @@ type Pestana = (typeof PESTANAS)[number]["id"];
  * its tab, the product files it asks for and its weight in the verdict.
  */
 const CON_RENTABILIDAD = false;
+/** «Datos de Amazon» in Competidores is hidden too (the daily follow-up still runs); true brings the card back. */
+const CON_DATOS_AMAZON = false;
 
 /** Empty tab of a study without that data yet. */
 function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => void }) {
@@ -54,6 +57,7 @@ export function VistaH10({
   archivos,
   costesPropios,
   paresAmazon,
+  inicial,
 }: {
   estudios: EstudioH10[];
   palabras: Record<string, Record<string, PalabrasMercado>>;
@@ -63,12 +67,17 @@ export function VistaH10({
   costesPropios: Record<string, boolean>;
   /** Competitor ASINs × countries «Traer datos de Amazon» fetches, per stored study. */
   paresAmazon: Record<string, { asin: string; codigoPais: CodigoPais }[]>;
+  /** Study and tab to open first (from the URL). */
+  inicial?: { estudio?: string; pestana?: string };
 }) {
   const router = useRouter();
-  const [elegido, setElegido] = useState<string | null>(null);
+  const [elegido, setElegido] = useState<string | null>(inicial?.estudio && estudios.some((e) => e.id === inicial.estudio) ? inicial.estudio : null);
   const estudio = estudios.find((e) => e.id === elegido) ?? estudios[0];
   // The open tab of each study: «Datos» until it has an Xray, then «Mercado».
-  const [pestanas, setPestanas] = useState<Record<string, Pestana>>({});
+  const [pestanas, setPestanas] = useState<Record<string, Pestana>>(() => {
+    const p = PESTANAS.find((x) => x.id === inicial?.pestana)?.id;
+    return inicial?.estudio && p ? { [inicial.estudio]: p } : {};
+  });
   if (!estudio)
     return (
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,7 +155,7 @@ export function VistaH10({
         ) : <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />)}
       {pestana === "competidores" && (
         <div className="flex flex-col gap-4">
-          {(!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon[estudio.id] ?? []} />}
+          {CON_DATOS_AMAZON && (!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon[estudio.id] ?? []} />}
           {resumen ? <PestanaCompetidores key={estudio.id} estudio={estudio} palabras={palabrasEstudio} /> : <SinDatos texto="La tabla de competidores sale del Xray: súbelo en «Datos»." onIrADatos={datosAqui} />}
         </div>
       )}
@@ -468,45 +477,29 @@ function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; res
         </details>
       </Tarjeta>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Tarjeta titulo="Facturación al mes por país" subtitulo="Lo que facturan todos los productos de la búsqueda, en euros">
-          <Barras
-            filas={[...resumen.analisis]
-              .sort((a, b) => b.facturacionEur - a.facturacionEur)
-              .map((a) => ({
-                clave: a.mercado.codigoPais,
-                etiqueta: <Pais codigo={a.mercado.codigoPais} />,
-                valor: a.facturacionEur,
-                texto: euros(a.facturacionEur),
-                detalle: `${nombrePais(a.mercado.codigoPais)}: ${euros(a.facturacionEur)} al mes · ${a.mercado.busquedas !== null ? `${formatNumero(a.mercado.busquedas)} búsquedas · ` : ""}${a.mercado.asins} productos`,
-              }))}
-          />
-        </Tarjeta>
-
-        <Tarjeta titulo="¿A qué precio se vende más?" subtitulo="Facturación de los competidores visibles por rango de precio">
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            {estudio.mercados.map((m) => (
-              <button
-                key={m.codigoPais}
-                onClick={() => setPaisPrecio(m.codigoPais)}
-                aria-pressed={m.codigoPais === paisPrecio}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors ${m.codigoPais === paisPrecio ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
-              >
-                <Pais codigo={m.codigoPais} corto />
-              </button>
-            ))}
-          </div>
-          <Barras
-            filas={rangosDePrecio(mercadoPrecio).map((r) => ({
-              clave: String(r.desde),
-              etiqueta: r.hasta === Infinity ? `${r.desde} € o más` : `${r.desde}–${r.hasta} €`,
-              valor: r.facturacionEur,
-              texto: euros(r.facturacionEur),
-              detalle: `${r.competidores} ${r.competidores === 1 ? "producto" : "productos"} entre ${r.desde} y ${r.hasta === Infinity ? "más" : r.hasta} € facturan ${euros(r.facturacionEur)} al mes`,
-            }))}
-          />
-        </Tarjeta>
-      </div>
+      <Tarjeta titulo="¿A qué precio se vende más?" subtitulo="Facturación de los competidores visibles por rango de precio">
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {estudio.mercados.map((m) => (
+            <button
+              key={m.codigoPais}
+              onClick={() => setPaisPrecio(m.codigoPais)}
+              aria-pressed={m.codigoPais === paisPrecio}
+              className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors ${m.codigoPais === paisPrecio ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
+            >
+              <Pais codigo={m.codigoPais} corto />
+            </button>
+          ))}
+        </div>
+        <Barras
+          filas={rangosDePrecio(mercadoPrecio).map((r) => ({
+            clave: String(r.desde),
+            etiqueta: r.hasta === Infinity ? `${r.desde} € o más` : `${r.desde}–${r.hasta} €`,
+            valor: r.facturacionEur,
+            texto: euros(r.facturacionEur),
+            detalle: `${r.competidores} ${r.competidores === 1 ? "producto" : "productos"} entre ${r.desde} y ${r.hasta === Infinity ? "más" : r.hasta} € facturan ${euros(r.facturacionEur)} al mes`,
+          }))}
+        />
+      </Tarjeta>
 
       <Marcas estudio={estudio} />
 
@@ -562,9 +555,12 @@ function FilaPais({ a }: { a: AnalisisMercado }) {
 }
 
 function Marcas({ estudio }: { estudio: EstudioH10 }) {
-  const marcas = marcasDelEstudio(estudio).slice(0, 10);
+  const todas = marcasDelEstudio(estudio);
+  // Share of the whole market: what the brand makes against every brand of every country added up.
+  const total = todas.reduce((s, b) => s + b.facturacionEur, 0);
+  const marcas = todas.slice(0, 10);
   return (
-    <Tarjeta titulo="Marcas de la competencia" subtitulo="Ordenadas por lo que facturan al mes entre todos sus productos visibles, en qué países están y con cuántos listings">
+    <Tarjeta titulo="Marcas de la competencia" subtitulo="Ordenadas por lo que facturan al mes entre todos sus productos visibles, en qué países están, con cuántos listings y qué parte del mercado se llevan">
       <div className="-mx-4 overflow-x-auto px-4">
         <table className="tabular w-full min-w-[520px] text-sm">
           <thead>
@@ -577,6 +573,7 @@ function Marcas({ estudio }: { estudio: EstudioH10 }) {
               ))}
               <th className="px-2 py-2 text-right font-medium">Listings</th>
               <th className="px-2 py-2 text-right font-medium">Facturación/mes</th>
+              <th className="px-2 py-2 text-right font-medium" title="Parte de lo que factura todo el mercado (todas las marcas de todos los países)">% del mercado</th>
             </tr>
           </thead>
           <tbody>
@@ -590,6 +587,7 @@ function Marcas({ estudio }: { estudio: EstudioH10 }) {
                 ))}
                 <td className="px-2 py-2 text-right">{b.listings}</td>
                 <td className="px-2 py-2 text-right font-medium text-ink-100">{euros(b.facturacionEur)}</td>
+                <td className="px-2 py-2 text-right font-semibold text-success">{total ? `${(Math.round((b.facturacionEur / total) * 1000) / 10).toLocaleString("es-ES")} %` : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -688,9 +686,12 @@ function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palab
     .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
     .sort((a, b) => b.eur - a.eur);
   const moneda = (v: number, m: MercadoXray) => formatMoneda(v, m.moneda);
+  // Share of the market shown: every country together (in euros) under «Todos», else the chosen country. So the
+  // order by revenue and the share always agree.
+  const totalMercado = filas.reduce((t, f) => t + f.eur, 0);
 
   return (
-    <Tarjeta titulo="Competidores" subtitulo="Ordenados por facturación (en la versión real, todos los del CSV, con su ASIN). Las marcas con ▸ tienen ficha con sus palabras clave.">
+    <Tarjeta titulo="Competidores" subtitulo="Ordenados por facturación, de más a menos. «% del mercado»: lo que se lleva del total (con «Todos», de todos los países juntos; con un país, de ese país). Toca un producto para abrirlo en Amazon (↗). Las marcas con ▸ tienen ficha con sus palabras clave.">
       <div className="mb-3 flex flex-wrap gap-1.5">
         {[null, ...estudio.mercados.map((m) => m.codigoPais)].map((p) => (
           <button
@@ -704,7 +705,7 @@ function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palab
         ))}
       </div>
       <div className="-mx-4 overflow-x-auto px-4">
-        <table className="tabular w-full min-w-[820px] text-sm">
+        <table className="tabular w-full min-w-[980px] text-sm">
           <thead>
             <tr className="border-b border-white/[0.08] text-left text-xs text-ink-400">
               <th className="px-2 py-2 font-medium">País</th>
@@ -713,11 +714,13 @@ function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palab
               <th className="px-2 py-2 text-right font-medium">Precio</th>
               <th className="px-2 py-2 text-right font-medium">Ventas/mes</th>
               <th className="px-2 py-2 text-right font-medium">Facturación/mes</th>
+              <th className="px-2 py-2 text-right font-medium">Valoración</th>
               <th className="px-2 py-2 text-right font-medium">Reseñas</th>
+              <th className="px-2 py-2 text-right font-medium" title={pais ? `Parte de lo que factura el mercado de ${nombrePais(pais)}` : "Parte de lo que factura el mercado de todos los países juntos (en euros)"}>% del mercado</th>
             </tr>
           </thead>
           <tbody>
-            {filas.map(({ m, c }, i) => {
+            {filas.map(({ m, c, eur }, i) => {
               const clave = `${m.codigoPais}|${c.marca}`;
               const ficha = tieneFicha(m.codigoPais, c.marca);
               // The card opens under the brand's first (highest-earning) row in that country.
@@ -729,9 +732,16 @@ function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palab
                   <Pais codigo={m.codigoPais} corto />
                 </td>
                 <td className="max-w-72 px-2 py-2">
-                  <span className="block truncate text-ink-100" title={c.titulo}>
-                    {c.titulo}
-                  </span>
+                  <a
+                    href={enlaceAmazon(m.codigoPais, c.asin, c.titulo)}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`${c.titulo} — abrir en Amazon`}
+                    className="group flex items-center gap-1.5 text-ink-100 hover:text-accent-300"
+                  >
+                    <span className="truncate group-hover:underline">{c.titulo}</span>
+                    <span aria-hidden className="shrink-0 text-xs text-ink-500 group-hover:text-accent-300">↗</span>
+                  </a>
                   {c.etiquetas.length > 0 && (
                     <span className="mt-0.5 flex gap-1">
                       {c.etiquetas.map((t) => (
@@ -756,6 +766,16 @@ function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palab
                 <td className="px-2 py-2 text-right">{c.ventas !== null ? formatNumero(c.ventas) : <span className="text-ink-600">—</span>}</td>
                 <td className="px-2 py-2 text-right font-medium text-ink-100">{moneda(c.facturacion, m)}</td>
                 <td className="px-2 py-2 text-right whitespace-nowrap">
+                  {c.valoracion ? (
+                    // 4,5 or more: hard to beat · under 4: unhappy customers, room for a better product.
+                    <span className={c.valoracion >= 4.5 ? "text-success" : c.valoracion < 4 ? "text-danger" : "text-ink-100"} title={`${c.valoracion.toLocaleString("es-ES")} de 5 estrellas`}>
+                      <span className="text-accent-400">★</span> {c.valoracion.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                    </span>
+                  ) : (
+                    <span className="text-ink-600">—</span>
+                  )}
+                </td>
+                <td className="px-2 py-2 text-right whitespace-nowrap">
                   {formatNumero(c.resenas)}
                   {c.variacionResenas !== 0 && (
                     <span className={`ml-1 text-xs ${c.variacionResenas > 0 ? "text-success" : "text-danger"}`}>
@@ -764,10 +784,13 @@ function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palab
                     </span>
                   )}
                 </td>
+                <td className="px-2 py-2 text-right font-semibold whitespace-nowrap text-success">
+                  {totalMercado ? `${(Math.round((eur / totalMercado) * 1000) / 10).toLocaleString("es-ES")} %` : "—"}
+                </td>
               </tr>
               {ficha && primera && abierta === clave && (
                 <tr className="border-b border-white/[0.05] bg-ink-950/40">
-                  <td colSpan={7} className="px-3 py-3">
+                  <td colSpan={9} className="px-3 py-3">
                     <FichaCompetidor marca={c.marca} mercado={m} palabras={palabras[m.codigoPais]} />
                   </td>
                 </tr>

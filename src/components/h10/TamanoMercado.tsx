@@ -5,7 +5,7 @@ import type { CodigoPais, EstudioH10 } from "@/lib/datos/h10Tipos";
 import { EUR_POR_GBP, nombrePais } from "@/lib/datos/h10Analisis";
 import { temporada, type Temporada } from "@/lib/datos/h10Temporada";
 import { formatNumero } from "@/lib/format";
-import { Pais, Tarjeta } from "./comun";
+import { Pais, Seccion, Tarjeta } from "./comun";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const MESES_LARGOS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -233,7 +233,7 @@ function MesAMes({
   const paises = porPais ? [...porPais].map(([p, serie]) => ({ p, v: serie.get(mes) ?? 0 })).sort((x, y) => y.v - x.v) : [];
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-medium text-ink-300">Elige un mes</p>
+      <Seccion titulo="Mes a mes" texto="Toca un mes para ver cuánto facturó el mercado y qué parte aporta cada país" />
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6 lg:grid-cols-12">
         {meses.map((m) => {
           const v = s.get(m)!;
@@ -287,12 +287,12 @@ function MesAMes({
   );
 }
 
-function Cifra({ titulo, valor, detalle }: { titulo: string; valor: string; detalle: string }) {
+function Cifra({ titulo, valor, detalle }: { titulo: string; valor: React.ReactNode; detalle: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-3 py-2.5">
-      <p className="text-[11px] text-ink-400">{titulo}</p>
-      <p className="tabular mt-0.5 text-lg font-semibold text-ink-100">{valor}</p>
-      <p className="text-[11px] text-ink-500">{detalle}</p>
+    <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-3.5 py-3">
+      <p className="text-[13px] font-medium text-ink-200">{titulo}</p>
+      <p className="tabular mt-1 text-2xl font-semibold tracking-tight text-ink-100">{valor}</p>
+      <p className="mt-0.5 text-xs text-ink-400">{detalle}</p>
     </div>
   );
 }
@@ -346,17 +346,31 @@ export function TamanoMercado({ estudio, onIrADatos }: { estudio: EstudioH10; on
           const c = cifras(s);
           const anios = [...new Set([...s.keys()].map((m) => Number(m.slice(0, 4))))].sort().slice(-3);
           return (
-            <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-4">
+              <Seccion titulo="Resumen del último año" texto="Lo que mueve el mercado al mes y al año, su temporada y si crece" />
               <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 <Cifra titulo="Media al mes" valor={euros(c.media)} detalle="último año" />
                 <Cifra titulo="Total del último año" valor={euros(c.total)} detalle={`${nombreMes(c.desde)} a ${nombreMes(c.hasta)}`} />
-                <Cifra titulo="Mes más fuerte · más flojo" valor={`${MESES[Number(c.fuerte.slice(5, 7)) - 1]} · ${MESES[Number(c.flojo.slice(5, 7)) - 1]}`} detalle={`${corto(s.get(c.fuerte)!)} frente a ${corto(s.get(c.flojo)!)}`} />
+                <Cifra
+                  titulo="Mes más fuerte · más flojo"
+                  valor={
+                    <>
+                      <span className="text-success">{MESES[Number(c.fuerte.slice(5, 7)) - 1]}</span> · <span className="text-danger">{MESES[Number(c.flojo.slice(5, 7)) - 1]}</span>
+                    </>
+                  }
+                  detalle={
+                    <>
+                      <span className="text-success">{corto(s.get(c.fuerte)!)}</span> frente a <span className="text-danger">{corto(s.get(c.flojo)!)}</span>
+                    </>
+                  }
+                />
                 <Cifra
                   titulo="Frente al año anterior"
                   valor={c.crecimiento === null ? "—" : `${c.crecimiento >= 0 ? "+" : "−"}${Math.abs(Math.round(c.crecimiento * 100))} %`}
                   detalle={c.crecimiento === null ? "hace falta más historial" : c.crecimiento >= 0.05 ? "el mercado crece" : c.crecimiento <= -0.05 ? "el mercado baja" : "estable"}
                 />
               </div>
+              <div className="mt-2" />
               <MesAMes
                 s={s}
                 b={vista === "todos" ? busquedasTodos : busquedasPais.get(vista)}
@@ -365,8 +379,11 @@ export function TamanoMercado({ estudio, onIrADatos }: { estudio: EstudioH10; on
                 elegido={mesElegido}
                 onElegir={setMesElegido}
               />
-              <p className="-mb-2 text-xs font-medium text-ink-300">Los últimos 3 años, mes a mes</p>
+              <div className="mt-2" />
+              <Seccion titulo="Los últimos 3 años" texto="Una línea por año: compara la misma época de cada año para ver la temporada y si el mercado crece" />
               <Grafico s={s} anios={anios} />
+              <div className="mt-2" />
+              <Seccion titulo="Tabla por meses" texto="Facturación y búsquedas de cada mes, con el total de cada año abajo" />
               <Tabla s={s} b={vista === "todos" ? busquedasTodos : busquedasPais.get(vista)} anios={anios} />
               <p className="text-[11px] leading-relaxed text-ink-500">
                 Cómo se calcula: lo que factura el Xray de cada país (suma de «ASIN Revenue») dividido entre sus búsquedas de ese mes da los euros por búsqueda; multiplicado por las búsquedas de cada mes, el tamaño del

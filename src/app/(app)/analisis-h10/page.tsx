@@ -2,8 +2,11 @@ import { estudiosParaVista } from "@/lib/datos/estudiosH10";
 import { VistaH10 } from "@/components/h10/VistaH10";
 
 /** Helium 10 analysis: one study per product, its keyword in each country. */
-export default async function AnalisisH10Page() {
+export default async function AnalisisH10Page({ searchParams }: PageProps<"/analisis-h10">) {
   const guardados = await estudiosParaVista();
+  // «?estudio=…&pestana=…»: opens on that study and tab (coming back from a competitor's page).
+  const sp = await searchParams;
+  const uno = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -16,6 +19,7 @@ export default async function AnalisisH10Page() {
         archivos={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.archivos]))}
         costesPropios={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.costesPropios]))}
         paresAmazon={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.paresAmazon]))}
+        inicial={{ estudio: uno(sp.estudio), pestana: uno(sp.pestana) }}
       />
     </div>
   );

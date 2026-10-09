@@ -6,8 +6,8 @@ import { bucket } from "./documentos";
 import { contarEscrituras, contarLecturas } from "./consumo";
 import { diaMadrid } from "./fechas";
 import { EUR_POR_GBP, nombrePais } from "./h10Analisis";
-import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, type FilaPalabra } from "./h10Csv";
-import { agruparTemasResenas, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
+import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, resenasDesdeCsv, type FilaPalabra } from "./h10Csv";
+import { agruparTemasResenas, quejasPorEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
 import { resenasDesdeExcel } from "./h10Excel";
 import { mensajeError } from "@/lib/ia/errores";
 import { fichasCompetidores, ofertasCompetidor, preciosCompetidores, tarifasCompetidor } from "@/lib/amazon/apis";
@@ -32,6 +32,9 @@ import {
   type ResenasAgrupadas,
   type ResenasCompetidorH10,
   type ResenasH10,
+  type ResenaCompleta,
+  type ResumenResenasCompletas,
+  type QuejasPorEstrellas,
   type PalabraClave,
   type PalabrasMercado,
 } from "./h10Tipos";
@@ -56,6 +59,8 @@ type EstudioGuardado = {
   supuestos?: SupuestosRentabilidad;
   asinsManuales?: string[];
   resenasAgrupadas?: ResenasAgrupadas;
+  /** Complaints of each competitor's 1–3 star reviews (AI), by «country_ASIN». */
+  quejasEstrellas?: Record<string, QuejasPorEstrellas>;
 };
 type DatosArchivo = {
   herramienta: HerramientaH10;
@@ -65,6 +70,8 @@ type DatosArchivo = {
   calculadora?: CalculadoraAmazon;
   historial?: HistorialBusquedas;
   resenasH10?: ResenasH10;
+  /** Every review of one competitor (Review Downloader CSV). */
+  resenasCompletas?: { asin: string | null; resenas: ResenaCompleta[] };
 };
 /** `amazon`: competitors read from Amazon, by «country|ASIN» (stored in `estudiosH10/{id}/amazon/{country}_{ASIN}`). */
 type Entrada = { estudio: EstudioGuardado; datos: Map<string, DatosArchivo>; amazon: Map<string, SeguimientoAmazon> };
@@ -240,6 +247,21 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
             resumen: `Historial de búsquedas (CSV) · ${pista.codigoPais} · ${semanas.meses.length} meses (${semanas.meses[0].mes} a ${semanas.meses.at(-1)!.mes})`,
           },
           datos: { herramienta: "busquedas", codigoPais: pista.codigoPais, historial },
+        };
+      }
+      // Every review of a competitor (Helium 10's «Review Downloader»): read straight from the file, no AI.
+      const completas = resenasDesdeCsv(filas, archivo.name);
+      if (completas) {
+        if (!pista.codigoPais) return sinPais("resenas");
+        const n = (e: number) => completas.resenas.filter((r) => r.estrellas === e).length;
+        return {
+          meta: {
+            herramienta: "resenas",
+            codigoPais: pista.codigoPais,
+            estado: "procesado",
+            resumen: `Reseñas completas (CSV) · ${pista.codigoPais}${completas.asin ? ` · ${completas.asin}` : ""} · ${completas.resenas.length} reseñas (1★ ${n(1)}, 2★ ${n(2)}, 3★ ${n(3)})`,
+          },
+          datos: { herramienta: "resenas", codigoPais: pista.codigoPais, resenasCompletas: completas },
         };
       }
       const r = await reconocerCsv(archivo.name, filas, pista);
@@ -520,6 +542,13 @@ function ensamblar({ estudio, datos, amazon }: Entrada): EstudioParaVista {
         return [{ ...d.resenasH10, archivoId, codigoPais: d.codigoPais, marca: c?.marca ?? null, producto: c?.titulo ?? null }];
       }),
       resenasAgrupadas: estudio.resenasAgrupadas,
+      estrellasAmbito: Object.fromEntries(Object.entries(estudio.quejasEstrellas ?? {}).filter(([k]) => !k.includes("_"))),
+      // Only the counts: the texts are big and load on the competitor's own page.
+      resenasCompletas: lista.flatMap(([archivoId, d]): ResumenResenasCompletas[] => {
+        if (!d.resenasCompletas || !d.codigoPais) return [];
+        const porEstrellas = [1, 2, 3, 4, 5].map((e) => d.resenasCompletas!.resenas.filter((r) => r.estrellas === e).length);
+        return [{ archivoId, codigoPais: d.codigoPais, asin: d.resenasCompletas.asin, total: d.resenasCompletas.resenas.length, porEstrellas }];
+      }),
       supuestos: estudio.supuestos ?? SUPUESTOS_INICIALES,
       // The page only needs the last months of the follow-up.
       amazon: [...amazon.values()].map((v) => ({ ficha: v.ficha, puntos: v.puntos.slice(-PUNTOS_EN_PAGINA) })),
@@ -539,6 +568,96 @@ export async function estudiosParaVista(): Promise<EstudioParaVista[]> {
 }
 
 // ---------- Competitors' reviews ----------
+
+/**
+ * Reviews of each star sent to the AI at most (fewer of the good ones: they say less), and the characters of each.
+ * A whole country or every country reads more reviews, but shorter.
+ */
+const LIMITES_PRODUCTO = { bajas: 120, altas: 80, largo: 500 };
+const LIMITES_AMBITO = { bajas: 160, altas: 90, largo: 300 };
+type Limites = typeof LIMITES_PRODUCTO;
+
+/** What one competitor's reviews say at each star, if the AI already read them. */
+export async function quejasEstrellasDe(id: string, pais: CodigoPais, asin: string): Promise<QuejasPorEstrellas | null> {
+  return (await entrada(id)).estudio.quejasEstrellas?.[`${pais}_${asin}`] ?? null;
+}
+
+/**
+ * Has the AI read reviews of one or several competitors and say, for each star from 1 to 5, what they complain about
+ * or praise and in how many reviews. With several competitors, each star takes reviews of all of them in turn, so a
+ * product with many reviews doesn't drown the rest.
+ */
+async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limites: Limites): Promise<QuejasPorEstrellas> {
+  const elegidas: (ResenaParaAnalizar & { original: string })[] = [];
+  const grupos: QuejasPorEstrellas["grupos"] = [];
+  for (const estrellas of [1, 2, 3, 4, 5] as const) {
+    const listas = fuentes.map((l) => l.filter((r) => r.estrellas === estrellas));
+    const max = estrellas >= 4 ? limites.altas : limites.bajas;
+    let tomadas = 0;
+    for (let i = 0; tomadas < max && listas.some((l) => i < l.length); i++)
+      for (const l of listas)
+        if (i < l.length && tomadas < max) {
+          const r = l[i];
+          elegidas.push({ n: elegidas.length + 1, estrellas, titulo: r.titulo.slice(0, 120), texto: r.texto.slice(0, limites.largo), original: r.texto });
+          tomadas++;
+        }
+    grupos.push({ estrellas, total: listas.reduce((t, l) => t + l.length, 0), leidas: tomadas, temas: [] });
+  }
+  if (!elegidas.length) throw new Error("No hay reseñas cargadas");
+  const respuesta = await quejasPorEstrellas(producto, elegidas);
+  const porNumero = new Map(elegidas.map((r) => [r.n, r]));
+  for (const g of grupos)
+    g.temas = (respuesta.find((x) => x.estrellas === g.estrellas)?.temas ?? [])
+      .map((t) => {
+        // Only reviews of that star, each once.
+        const suyas = [...new Set(t.resenas)].map((n) => porNumero.get(n)).filter((r) => r?.estrellas === g.estrellas);
+        return { texto: t.texto.trim(), tipo: t.tipo, resenas: suyas.length, ejemplo: suyas[0]?.original.slice(0, 220) ?? null };
+      })
+      .filter((t) => t.texto && t.resenas > 0)
+      .sort((a, b) => b.resenas - a.resenas);
+  return { generadoEn: new Date().toISOString(), analizadas: elegidas.length, grupos };
+}
+
+/** One competitor's reviews, star by star (AI). Kept with the study. */
+export async function analizarEstrellas(id: string, pais: CodigoPais, asin: string): Promise<QuejasPorEstrellas> {
+  const e = await entrada(id);
+  const competidor = ensamblar(e).estudio.mercados.find((m) => m.codigoPais === pais)?.competidores.find((c) => c.asin === asin);
+  const resultado = await leerEstrellas(competidor ? `${competidor.marca} · ${competidor.titulo}` : asin, [await resenasCompletasDe(id, pais, asin)], LIMITES_PRODUCTO);
+  e.estudio = { ...e.estudio, quejasEstrellas: { ...e.estudio.quejasEstrellas, [`${pais}_${asin}`]: resultado } };
+  await guardarEstudio(e.estudio);
+  return resultado;
+}
+
+/** Every competitor of a country, or of every country («TODOS»), star by star (AI). Kept with the study. */
+export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "TODOS"): Promise<QuejasPorEstrellas> {
+  const e = await entrada(id);
+  const productos = new Map<string, { pais: CodigoPais; asin: string }>();
+  for (const d of e.datos.values())
+    if (d.resenasCompletas?.asin && d.codigoPais && (ambito === "TODOS" || d.codigoPais === ambito)) productos.set(`${d.codigoPais}_${d.resenasCompletas.asin}`, { pais: d.codigoPais, asin: d.resenasCompletas.asin });
+  if (!productos.size) throw new Error(ambito === "TODOS" ? "No hay reseñas completas cargadas" : `No hay reseñas completas de ${nombrePais(ambito)}`);
+  const fuentes = await Promise.all([...productos.values()].map((p) => resenasCompletasDe(id, p.pais, p.asin)));
+  const resultado = await leerEstrellas(`${e.estudio.nombre} (${productos.size} competidores${ambito === "TODOS" ? ", varios países" : ` de ${nombrePais(ambito)}`})`, fuentes, LIMITES_AMBITO);
+  e.estudio = { ...e.estudio, quejasEstrellas: { ...e.estudio.quejasEstrellas, [ambito]: resultado } };
+  await guardarEstudio(e.estudio);
+  return resultado;
+}
+
+/** Every uploaded review of one competitor in one country (newest file first; the same review isn't repeated). */
+export async function resenasCompletasDe(id: string, pais: CodigoPais, asin: string): Promise<ResenaCompleta[]> {
+  const e = await entrada(id);
+  const subido = new Map(e.estudio.archivos.map((a) => [a.id, a.subidoEn]));
+  const vistas = new Set<string>();
+  return [...e.datos.entries()]
+    .filter(([, d]) => d.codigoPais === pais && d.resenasCompletas?.asin === asin)
+    .sort((a, b) => (subido.get(b[0]) ?? "").localeCompare(subido.get(a[0]) ?? ""))
+    .flatMap(([, d]) => d.resenasCompletas!.resenas)
+    .filter((r) => {
+      const clave = `${r.autor}|${r.fecha}|${r.titulo}|${r.texto.slice(0, 80)}`;
+      if (vistas.has(clave)) return false;
+      vistas.add(clave);
+      return true;
+    });
+}
 
 /**
  * Has the AI put together the review topics of every competitor (Helium 10's «Review Analysis» files) into common

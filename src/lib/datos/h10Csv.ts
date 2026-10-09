@@ -1,4 +1,49 @@
-import type { CodigoPais, CompetidorXray, MercadoXray } from "./h10Tipos";
+import type { CodigoPais, CompetidorXray, MercadoXray, ResenaCompleta } from "./h10Tipos";
+
+/** Most reviews kept per file, and the characters of text in all (a stored document can't pass 1 MB). */
+const MAX_RESENAS = 3000;
+const MAX_TEXTO_TOTAL = 700_000;
+
+/**
+ * Every review of a product exported as CSV (Helium 10's «Review Downloader»): stars, title, text, date… in the
+ * original language. Columns are found by their name, so similar exports work too. Null when the file isn't one.
+ */
+export function resenasDesdeCsv(filas: string[][], nombreArchivo: string): { asin: string | null; resenas: ResenaCompleta[] } | null {
+  const [cab, ...datos] = filas;
+  const col = (re: RegExp) => cab.findIndex((c) => re.test(c.trim()));
+  const iEstrellas = col(/^(rating|stars?|review rating|estrellas|valoraci[oó]n|bewertung|note)$/i);
+  const iTexto = col(/^(body|review|review text|review body|content|text|comment|texto|rese[ñn]a)$/i);
+  if (iEstrellas < 0 || iTexto < 0) return null;
+  const iTitulo = col(/title|t[ií]tulo/i);
+  const iFecha = col(/date|fecha|datum/i);
+  const iVerificada = col(/verified|verificad/i);
+  const iVariante = col(/variation|variant|style|variante/i);
+  const iAutor = col(/author|reviewer|^name$|autor/i);
+  const iUtil = col(/helpful|[uú]til/i);
+  const iUrl = col(/url|link/i);
+  const asin = nombreArchivo.match(/B0[A-Z0-9]{8}/)?.[0] ?? datos.map((f) => f[iUrl] ?? "").join(" ").match(/B0[A-Z0-9]{8}/)?.[0] ?? null;
+  const resenas: ResenaCompleta[] = [];
+  let caracteres = 0;
+  for (const f of datos) {
+    const n = Math.round(Number((f[iEstrellas] ?? "").replace(",", ".").match(/\d+(\.\d+)?/)?.[0]));
+    const texto = (f[iTexto] ?? "").trim().slice(0, 1500);
+    if (n < 1 || n > 5 || (!texto && !(f[iTitulo] ?? "").trim())) continue;
+    caracteres += texto.length;
+    if (resenas.length >= MAX_RESENAS || caracteres > MAX_TEXTO_TOTAL) break;
+    const si = (f[iVerificada] ?? "").trim().toLowerCase();
+    resenas.push({
+      fecha: iFecha >= 0 ? (f[iFecha] ?? "").trim() || null : null,
+      estrellas: n as ResenaCompleta["estrellas"],
+      titulo: iTitulo >= 0 ? (f[iTitulo] ?? "").trim().slice(0, 200) : "",
+      texto,
+      verificada: iVerificada < 0 || !si ? null : /^(yes|true|1|s[ií]|verified)/.test(si),
+      variante: iVariante >= 0 ? (f[iVariante] ?? "").trim() || null : null,
+      autor: iAutor >= 0 ? (f[iAutor] ?? "").trim().slice(0, 60) || null : null,
+      util: iUtil >= 0 && Number.isFinite(parseInt(f[iUtil] ?? "", 10)) ? parseInt(f[iUtil], 10) : null,
+    });
+  }
+  return resenas.length ? { asin, resenas } : null;
+}
 
 /*
  * Reading Helium 10 CSV exports. The AI only says which column is which (exports differ by tool, plan and
