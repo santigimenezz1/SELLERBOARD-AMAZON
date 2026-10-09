@@ -71,6 +71,8 @@ export type EstudioH10 = {
   resenasCompletas?: ResumenResenasCompletas[];
   /** Star-by-star analysis of a whole country («DE»…) or of every country («TODOS»). */
   estrellasAmbito?: Record<string, QuejasPorEstrellas>;
+  /** The research agent's report, only when the owner asked for it. */
+  informe?: InformeEstrategico;
   /** Older Xrays of each country (without their competitors): more months to work out revenue per search. */
   xraysAnteriores?: Partial<Record<CodigoPais, MercadoXray[]>>;
   /** A built-in sample study (not stored, can't be changed). */
@@ -298,4 +300,57 @@ export type QuejasPorEstrellas = {
   analizadas: number;
   /** Per star: reviews there are, how many the AI read (older analyses: all) and what they say. */
   grupos: { estrellas: 1 | 2 | 3 | 4 | 5; total: number; leidas?: number; temas: { texto: string; tipo?: "queja" | "elogio"; resenas: number; ejemplo: string | null }[] }[];
+};
+
+// ---------- Strategic report (research agent) ----------
+
+/** Where a claim comes from: a figure of the study, a web page (its number in «fuentes») or the agent's own guess. */
+export type PruebaInforme = { tipo: "dato" | "web" | "supuesto"; texto: string; fuente?: number };
+
+/** One block of a report section. Texts may carry **bold**. */
+export type BloqueInforme =
+  | { tipo: "cifras"; items: { valor: string; etiqueta: string }[] }
+  | { tipo: "texto"; texto: string }
+  | { tipo: "destacado"; etiqueta: string; texto: string }
+  | { tipo: "cita"; texto: string; nota?: string }
+  | { tipo: "lista"; items: { titulo: string; texto: string; prueba?: PruebaInforme }[] }
+  | { tipo: "despiece"; piezas: { nombre: string; detalle: string; estado: "consumible" | "incluido" | "estructura" | "anadido" }[] }
+  | { tipo: "colores"; items: { nombre: string; hex: string; nota: string; estado: "bien" | "regular" | "mal" }[]; texto?: string }
+  | { tipo: "pasos"; items: { titulo: string; texto: string }[] }
+  /** Keywords for PPC: whether to bid on each and why (amounts in the marketplace currency). */
+  | {
+      tipo: "palabras";
+      moneda: "EUR" | "GBP";
+      items: {
+        texto: string;
+        busquedas: number;
+        puja: number | null;
+        /** Titles of the first page that carry it. */
+        densidad: number;
+        /** Sales needed in 8 days to rank on page 1 (Helium 10's CPR). */
+        cpr: number;
+        veredicto: "atacar" | "probar" | "evitar";
+        concordancia: "exacta" | "frase" | "amplia" | null;
+        motivo: string;
+      }[];
+    }
+  | { tipo: "etiquetas"; titulo: string; tono: "bien" | "mal"; items: string[]; prueba?: PruebaInforme };
+
+export type SeccionInforme = { id: string; etiqueta: string; titulo: string; bloques: BloqueInforme[] };
+
+/** The research agent's report on a niche: what to make, how to sell it and what to ask the factory. */
+export type InformeEstrategico = {
+  generadoEn: string;
+  /** True while it's a mock-up (no agent behind it yet). */
+  simulado: boolean;
+  antetitulo: string;
+  titular: string;
+  /** The title's last words, highlighted. */
+  titularDestacado: string;
+  resumen: string;
+  veredicto: "lanzar" | "validar" | "descartar";
+  secciones: SeccionInforme[];
+  fuentes: { n: number; titulo: string; url: string }[];
+  /** Minutes and dollars the agent took (estimated while simulated). */
+  coste: { minutos: number; dolares: number };
 };

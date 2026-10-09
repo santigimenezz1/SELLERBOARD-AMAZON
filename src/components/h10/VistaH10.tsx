@@ -16,6 +16,8 @@ import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Markdown } from "@/components/chat/Markdown";
 import { PestanaPalabras } from "./PestanaPalabras";
 import { PestanaResenas } from "./PestanaResenas";
+import { InformeEstrategico } from "./InformeEstrategico";
+import { PestanaListings } from "./PestanaListings";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
@@ -24,6 +26,7 @@ const PESTANAS = [
   { id: "competidores", texto: "Competidores" },
   { id: "palabras", texto: "Palabras clave" },
   { id: "resenas", texto: "Reseñas" },
+  { id: "listings", texto: "Listings" },
   { id: "rentabilidad", texto: "Rentabilidad" },
   { id: "conclusiones", texto: "Conclusiones" },
 ] as const;
@@ -178,9 +181,16 @@ export function VistaH10({
         ) : (
           <SinDatos texto="La rentabilidad necesita el Xray de al menos un país; la calculadora de Amazon la hace mucho más precisa." onIrADatos={datosAqui} />
         ))}
+      {pestana === "listings" &&
+        (resumen ? (
+          <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} />
+        ) : (
+          <SinDatos texto="Para ver los listings líderes, sube el Xray (CSV) de al menos un país." onIrADatos={datosAqui} />
+        ))}
       {pestana === "conclusiones" &&
         (resumen ? (
           <div className="flex flex-col gap-4">
+            <InformeEstrategico key={`informe-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} />
             <Informe conRentabilidad={CON_RENTABILIDAD} informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], analizarResenas(estudio), CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)} />
             <Tarjeta titulo="Todas las conclusiones" subtitulo="Salen de los datos del estudio: Xray, búsquedas, palabras clave y reseñas.">
               <div className="text-sm leading-relaxed text-ink-300">
