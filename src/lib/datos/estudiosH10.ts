@@ -9,7 +9,6 @@ import { EUR_POR_GBP, nombrePais } from "./h10Analisis";
 import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, resenasDesdeCsv, type FilaPalabra } from "./h10Csv";
 import { agruparTemasResenas, quejasPorEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
 import { resenasDesdeExcel } from "./h10Excel";
-import { informeSimulado } from "./h10InformeSimulado";
 import { mensajeError } from "@/lib/ia/errores";
 import { fichasCompetidores, ofertasCompetidor, preciosCompetidores, tarifasCompetidor } from "@/lib/amazon/apis";
 import { marketplaceConocido } from "./marketplacesConocidos";
@@ -646,18 +645,26 @@ export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "
   return resultado;
 }
 
-/**
- * The niche report, only when the owner asks for it (it costs a few dollars of AI once the agent exists). For now a
- * mock-up built from the study's own figures, to design how it looks.
- */
-export async function generarInforme(id: string): Promise<InformeEstrategico> {
+/** A study as the page sees it, with its keywords: what the research agent works from. */
+export async function estudioParaAgente(id: string) {
+  const { estudio, palabras, costesPropios } = ensamblar(await entrada(id));
+  return { estudio, palabras, costesPropios };
+}
+
+/** Every full review uploaded in the study, with its country and ASIN (for the agent's review search). */
+export async function todasLasResenas(id: string): Promise<(ResenaCompleta & { pais: CodigoPais; asin: string })[]> {
   const e = await entrada(id);
-  const { estudio: vista, palabras } = ensamblar(e);
-  if (!vista.mercados.length) throw new Error("El informe necesita al menos el Xray de un país");
-  const informe = informeSimulado(vista, palabras);
+  const productos = new Map<string, { pais: CodigoPais; asin: string }>();
+  for (const d of e.datos.values()) if (d.resenasCompletas?.asin && d.codigoPais) productos.set(`${d.codigoPais}_${d.resenasCompletas.asin}`, { pais: d.codigoPais, asin: d.resenasCompletas.asin });
+  const listas = await Promise.all([...productos.values()].map(async (p) => (await resenasCompletasDe(id, p.pais, p.asin)).map((r) => ({ ...r, ...p }))));
+  return listas.flat();
+}
+
+/** Saves the research agent's report in the study. */
+export async function guardarInforme(id: string, informe: InformeEstrategico): Promise<void> {
+  const e = await entrada(id);
   e.estudio = { ...e.estudio, informe };
   await guardarEstudio(e.estudio);
-  return informe;
 }
 
 /** Every uploaded review of one competitor in one country (newest file first; the same review isn't repeated). */

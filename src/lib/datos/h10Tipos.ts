@@ -353,4 +353,20 @@ export type InformeEstrategico = {
   fuentes: { n: number; titulo: string; url: string }[];
   /** Minutes and dollars the agent took (estimated while simulated). */
   coste: { minutos: number; dolares: number };
+  /** How the team worked on it (reports made by the team). */
+  trabajo?: TrabajoEquipo;
+};
+
+/** One step of the research team: who did it, when and what. */
+/** «consulta»: «quien» asks «para» something; «respuesta»: «quien» answers «para». */
+export type PasoEquipo = { hora: string; texto: string; tipo: "inicio" | "estudio" | "web" | "informe" | "aviso" | "consulta" | "respuesta"; quien?: string; para?: string };
+
+/** How the team worked on a report: every step, each specialist's analysis and what it cost. */
+export type TrabajoEquipo = {
+  modo: "ensayo" | "real";
+  empezado: string;
+  terminado: string;
+  pasos: PasoEquipo[];
+  analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[] }[];
+  gasto: { modelo: string; entrada: number; salida: number; cacheEscrita: number; cacheLeida: number; busquedasWeb: number; dolares: number };
 };

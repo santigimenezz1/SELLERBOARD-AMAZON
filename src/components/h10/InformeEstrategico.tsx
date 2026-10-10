@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BloqueInforme, InformeEstrategico as Informe, PruebaInforme } from "@/lib/datos/h10Tipos";
+import type { EstadoInforme, ModoAgente } from "@/lib/ia/agenteInforme";
 
 /** «**bold**» inside a text, everything else as is. */
 function Rico({ texto }: { texto: string }) {
@@ -235,35 +236,71 @@ const VEREDICTO = {
   descartar: { texto: "✕ Descartar", clase: "bg-danger/15 text-danger border-danger/40" },
 };
 
-/** What the agent is doing while it works (shown step by step). */
-const PASOS_AGENTE = ["Leyendo el mercado de cada país", "Revisando quejas y elogios por estrellas", "Buscando en internet cómo es el producto por dentro", "Revisando normativa y materiales", "Escribiendo el informe"];
+/** Every how often the page asks the server how the agent is getting on. */
+const CADA_MS = 1500;
 
 /**
  * «Informe estratégico»: the research agent's report on the niche (what to make, how to sell it, what to ask the
- * factory), generated only when the owner asks for it, after confirming the time and cost.
+ * factory), generated only when the owner asks for it, after confirming the time and cost. While the agent works, its
+ * real steps show as they happen.
  */
 export function InformeEstrategico({ estudioId, informe }: { estudioId: string; informe: Informe | null }) {
   const router = useRouter();
   const [confirmar, setConfirmar] = useState(false);
-  const [paso, setPaso] = useState<number | null>(null);
+  const [estado, setEstado] = useState<EstadoInforme | null>(null);
+  const [modo, setModo] = useState<ModoAgente>("ensayo");
   const [error, setError] = useState<string | null>(null);
+  const url = `/api/h10/estudios/${estudioId}/informe`;
+
+  // Asks how the agent is getting on until it finishes; then shows the report (or the error).
+  const seguir = useCallback(async () => {
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, CADA_MS));
+      const j = await fetch(url).then((r) => r.json()).catch(() => null);
+      const e: EstadoInforme | null = j?.estado ?? null;
+      if (!e) return setEstado(null);
+      setEstado(e);
+      if (e.terminado) {
+        if (e.error) setError(e.error);
+        else router.refresh();
+        // The last steps stay a moment on screen before the report replaces them.
+        await new Promise((ok) => setTimeout(ok, 1200));
+        return setEstado(null);
+      }
+    }
+  }, [url, router]);
+
+  // On opening: the mode the agent would run in, and an agent already working on this study (e.g. after a reload).
+  useEffect(() => {
+    let vivo = true;
+    fetch(url)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!vivo) return;
+        if (j?.modo) setModo(j.modo);
+        if (j?.estado && !j.estado.terminado) {
+          setEstado(j.estado);
+          void seguir();
+        }
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [url, seguir]);
 
   const generar = async () => {
     setConfirmar(false);
     setError(null);
-    setPaso(0);
-    // The steps advance on their own while the request runs (the mock-up answers at once: they show how it will look).
-    const reloj = setInterval(() => setPaso((p) => (p === null ? p : Math.min(PASOS_AGENTE.length - 1, p + 1))), 1300);
     try {
-      const [r] = await Promise.all([fetch(`/api/h10/estudios/${estudioId}/informe`, { method: "POST" }), new Promise((ok) => setTimeout(ok, PASOS_AGENTE.length * 1300))]);
+      const r = await fetch(url, { method: "POST" });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error ?? "No se pudo generar el informe");
-      router.refresh();
+      if (!r.ok) throw new Error(j.error ?? "No se pudo empezar el informe");
+      setEstado(j.estado);
+      await seguir();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo generar el informe");
-    } finally {
-      clearInterval(reloj);
-      setPaso(null);
+      setError(e instanceof Error ? e.message : "No se pudo empezar el informe");
+      setEstado(null);
     }
   };
 
@@ -272,10 +309,18 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
       <div role="dialog" aria-modal className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-900 p-6 shadow-soft" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold text-ink-50">¿Generar el informe del nicho?</h3>
         <p className="mt-2 text-sm leading-relaxed text-ink-300">
-          El agente estudia todos los datos de este producto e investiga en internet. Tarda unos <strong className="text-ink-100">5–10 minutos</strong> y cuesta unos{" "}
-          <strong className="text-ink-100">1–3 $</strong> de IA. Hazlo solo con los productos que de verdad te interesan.
+          Un equipo de 4 especialistas (mercado, palabras clave y PPC, producto, marketing) estudia todos los datos del producto e investiga en internet, y un director escribe el informe. Tarda
+          unos <strong className="text-ink-100">15–30 minutos</strong> y cuesta unos <strong className="text-ink-100">3–8 $</strong> de IA. Hazlo solo con los productos que de verdad te interesan.
         </p>
-        <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">Ahora es una simulación para ver cómo queda: no gasta nada.</p>
+        {modo === "ensayo" ? (
+          <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <strong>Modo ensayo:</strong> el agente recorre los datos reales del estudio con sus herramientas, pero sin IA: entrega un informe de ejemplo y no gasta nada.
+          </p>
+        ) : (
+          <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+            <strong>Modo real:</strong> usa la IA y gasta créditos de Anthropic.
+          </p>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={() => setConfirmar(false)} className="rounded-lg px-3.5 py-2 text-sm text-ink-300 hover:bg-white/[0.06]">
             Cancelar
@@ -288,19 +333,38 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
     </div>
   );
 
-  if (paso !== null)
+  if (estado)
     return (
       <section className="rounded-2xl border border-accent-500/30 bg-ink-900/80 p-6 shadow-soft">
-        <p className="text-[11px] font-bold tracking-[0.2em] text-accent-400 uppercase">El agente está trabajando</p>
-        <ol className="mt-4 flex flex-col gap-2.5">
-          {PASOS_AGENTE.map((t, i) => (
-            <li key={t} className={`flex items-center gap-3 text-sm ${i < paso ? "text-ink-300" : i === paso ? "font-medium text-ink-50" : "text-ink-600"}`}>
-              <span className={`flex size-5 items-center justify-center rounded-full text-[10px] ${i < paso ? "bg-success/20 text-success" : i === paso ? "animate-pulse bg-accent-500/30 text-accent-300" : "bg-white/[0.05]"}`}>
-                {i < paso ? "✓" : i + 1}
-              </span>
-              {t}
-            </li>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-bold tracking-[0.2em] text-accent-400 uppercase">
+            {estado.terminado ? "El equipo ha terminado" : estado.fase === "director" ? "El director está escribiendo el informe" : "Los especialistas están trabajando"}
+          </p>
+          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${estado.modo === "ensayo" ? "bg-warning/15 text-warning" : "bg-danger/15 text-danger"}`}>
+            {estado.modo === "ensayo" ? "Ensayo · sin coste" : `${estado.gasto.modelo} · ${estado.gasto.dolares.toLocaleString("es-ES", { maximumFractionDigits: 3 })} $ hasta ahora`}
+          </span>
+        </div>
+        <ol className="mt-4 flex flex-col gap-2">
+          {estado.pasos.map((p, i) => {
+            const ultimo = i === estado.pasos.length - 1 && !estado.terminado;
+            return (
+              <li key={i} className={`flex items-start gap-3 text-sm ${ultimo ? "font-medium text-ink-50" : "text-ink-300"}`}>
+                <span
+                  className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] ${
+                    ultimo ? "animate-pulse bg-accent-500/30 text-accent-300" : p.tipo === "aviso" ? "bg-warning/15 text-warning" : "bg-success/20 text-success"
+                  }`}
+                >
+                  {ultimo ? "…" : p.tipo === "aviso" ? "!" : p.tipo === "web" ? "↗" : "✓"}
+                </span>
+                <span className="min-w-0">
+                  {p.quien && <span className="mr-1.5 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold text-ink-300">{p.quien}</span>}
+                  {p.texto}
+                </span>
+                <span className="tabular ml-auto shrink-0 text-[11px] text-ink-500">{new Date(p.hora).toLocaleTimeString("es-ES", { minute: "2-digit", second: "2-digit" })}</span>
+              </li>
+            );
+          })}
+          {!estado.terminado && estado.pasos.length === 0 && <li className="text-sm text-ink-400">Arrancando…</li>}
         </ol>
       </section>
     );

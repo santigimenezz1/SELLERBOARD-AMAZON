@@ -18,6 +18,7 @@ import { PestanaPalabras } from "./PestanaPalabras";
 import { PestanaResenas } from "./PestanaResenas";
 import { InformeEstrategico } from "./InformeEstrategico";
 import { PestanaListings } from "./PestanaListings";
+import { PestanaAgentes } from "./PestanaAgentes";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
@@ -29,6 +30,7 @@ const PESTANAS = [
   { id: "listings", texto: "Listings" },
   { id: "rentabilidad", texto: "Rentabilidad" },
   { id: "conclusiones", texto: "Conclusiones" },
+  { id: "agentes", texto: "Agentes" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
 /**
@@ -181,6 +183,7 @@ export function VistaH10({
         ) : (
           <SinDatos texto="La rentabilidad necesita el Xray de al menos un país; la calculadora de Amazon la hace mucho más precisa." onIrADatos={datosAqui} />
         ))}
+      {pestana === "agentes" && <PestanaAgentes key={`agentes-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} />}
       {pestana === "listings" &&
         (resumen ? (
           <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} />
