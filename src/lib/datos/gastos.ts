@@ -1,7 +1,7 @@
 import "server-only";
 
 import { adminDb } from "@/lib/firebase/admin";
-import { cargosDeGrupo, eventosFinancieros, filasLiquidacion, gruposFinancieros, liquidacionesDisponibles, type ItemEvento } from "@/lib/amazon/apis";
+import { cargosDeServicio, eventosFinancieros, filasLiquidacion, liquidacionesDisponibles, type ItemEvento } from "@/lib/amazon/apis";
 import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
 import { contarEscrituras, contarLecturas } from "./consumo";
 
@@ -36,7 +36,8 @@ export type CategoriaGasto =
   | "otros";
 export type Region = "eu" | "uk";
 /** importe: what it cost (positive), in its currency; eur: the same in euros (ECB rate of its day). */
-export type LineaGasto = { fecha: string | null; mes: string; categoria: CategoriaGasto; region: Region; concepto: string; importe: number; moneda: string; eur: number };
+/** pais: the marketplace it was charged in («DE», «GB»…), when known (settlements of the last 90 days and charges since). */
+export type LineaGasto = { fecha: string | null; mes: string; categoria: CategoriaGasto; region: Region; concepto: string; importe: number; moneda: string; eur: number; pais?: string | null };
 type Doc = {
   /** Dated lines from settlement reports, keyed by a stable id. */
   liquidadas: Record<string, LineaGasto>;
@@ -131,6 +132,29 @@ function numero(t: string): number {
   return Number(s.replace(/,/g, ""));
 }
 
+/** Marketplaces of the account: the ones whose charges are read, by their Amazon id and domain. */
+const MERCADOS: { pais: string; id: string; dominio: string }[] = [
+  { pais: "ES", id: "A1RKKUPIHCS9HS", dominio: "amazon.es" },
+  { pais: "DE", id: "A1PA6795UKMFR9", dominio: "amazon.de" },
+  { pais: "FR", id: "A13V1IB3VIYZZH", dominio: "amazon.fr" },
+  { pais: "IT", id: "APJ6JRA9NG5V4", dominio: "amazon.it" },
+  { pais: "GB", id: "A1F83G8C2ARO7P", dominio: "amazon.co.uk" },
+  { pais: "NL", id: "A1805IZSGTT6HS", dominio: "amazon.nl" },
+  { pais: "BE", id: "AMEN7PMS3EDWL", dominio: "amazon.com.be" },
+  { pais: "SE", id: "A2NODRKZP88ZB9", dominio: "amazon.se" },
+  { pais: "PL", id: "A1C3SOZRARQ6R3", dominio: "amazon.pl" },
+];
+
+/** A settlement's marketplace: the one most of its rows name («Amazon.de»); null when none does. */
+function paisDeLiquidacion(filas: Record<string, string>[]): string | null {
+  const cuenta = new Map<string, number>();
+  for (const f of filas) {
+    const m = MERCADOS.find((x) => (f["marketplace-name"] ?? "").toLowerCase() === x.dominio);
+    if (m) cuenta.set(m.pais, (cuenta.get(m.pais) ?? 0) + 1);
+  }
+  return [...cuenta].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
 /** Charges in one settlement report, one line per concept and date (base fee + tax + discounts together). */
 async function gastosDeLiquidacion(documentId: string): Promise<{ lineas: Record<string, LineaGasto>; inicio: string | null }> {
   const filas = await filasLiquidacion(documentId);
@@ -138,6 +162,7 @@ async function gastosDeLiquidacion(documentId: string): Promise<{ lineas: Record
   const sid = cab?.["settlement-id"] ?? documentId;
   const moneda = cab?.["currency"] || "EUR";
   const inicio = fechaIso(cab?.["settlement-start-date"] ?? "");
+  const pais = paisDeLiquidacion(filas);
   const lineas: Record<string, LineaGasto> = {};
   for (const f of filas) {
     const tipo = f["transaction-type"] ?? "";
@@ -153,7 +178,7 @@ async function gastosDeLiquidacion(documentId: string): Promise<{ lineas: Record
     // Refunds and claims: one line per day, all their parts netted.
     const concepto = porTransaccion ?? desc;
     const id = `${sid}|${fecha}|${concepto}`;
-    const l = (lineas[id] ??= { fecha, mes: fecha.slice(0, 7), categoria: porTransaccion ?? categoria(desc), region: moneda === "GBP" ? "uk" : "eu", concepto, importe: 0, moneda, eur: 0 });
+    const l = (lineas[id] ??= { fecha, mes: fecha.slice(0, 7), categoria: porTransaccion ?? categoria(desc), region: moneda === "GBP" ? "uk" : "eu", concepto, importe: 0, moneda, eur: 0, pais });
     l.importe = Math.round((l.importe + importe) * 100) / 100;
   }
   // A day whose refunds came back positive (Amazon returned more than it took) isn't a cost.
@@ -207,35 +232,64 @@ function pendientesVigentes(doc: Doc): Record<string, LineaGasto> {
 }
 
 /**
- * Sync stage: storage charged in the settlement periods still open. Amazon bills it on the 5th–7th, but its
- * settlement report only comes when the period closes; until then it's a provisional line, so the month shows
- * the real charge instead of an estimate.
+ * Sync stage: storage charged in the settlement periods still open. Amazon bills it on the 5th–7th of each month, in
+ * every marketplace, but its settlement report only comes when the period closes; until then it's a provisional line
+ * (with its country and exact day), so the month shows the real charge instead of an estimate. Asked only in the
+ * first half of the month, when storage is billed.
  */
-export async function actualizarAlmacenajePendiente(): Promise<void> {
+export async function actualizarAlmacenajePendiente(forzar = false): Promise<void> {
+  const ahora = new Date();
+  if (!forzar && ahora.getUTCDate() > 15) return;
   const doc = await leer();
-  const hoy = new Date().toISOString().slice(0, 10);
   const pendientes = pendientesVigentes(doc);
-  const abiertos = (await gruposFinancieros(new Date(Date.now() - 40 * 24 * 3600_000))).filter(
-    (gr) => gr.ProcessingStatus === "Open" && gr.FinancialEventGroupId && Number(gr.OriginalTotal?.CurrencyAmount) !== 0,
-  );
-  for (const gr of abiertos) {
-    const vistos = new Map<string, number>();
-    for (const c of await cargosDeGrupo(gr.FinancialEventGroupId!))
-      for (const f of c.FeeList ?? []) {
-        const tipo = f.FeeType ?? "";
-        const importe = Math.round(-(Number(f.FeeAmount?.CurrencyAmount) || 0) * 100) / 100;
-        if (categoria(tipo) !== "almacenamiento" || importe <= 0) continue;
-        const moneda = f.FeeAmount?.CurrencyCode ?? "EUR";
-        const base = `${gr.FinancialEventGroupId}|${tipo}|${moneda}|${importe}`;
-        const n = (vistos.get(base) ?? 0) + 1;
-        vistos.set(base, n);
-        const id = `${base}|${n}`;
-        if (pendientes[id] || doc.pendientes[id]) continue;
-        const eur = Math.round(importe * (moneda === "EUR" ? 1 : await eurPorUnidad(moneda, new Date())) * 100) / 100;
-        pendientes[id] = { fecha: hoy, mes: hoy.slice(0, 7), categoria: "almacenamiento", region: moneda === "GBP" ? "uk" : "eu", concepto: "FBA Inventory Storage Fee (pendiente de liquidar)", importe, moneda, eur };
-      }
+  const desde = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), 1) - 2 * 24 * 3600_000);
+  for (const m of MERCADOS) {
+    for (const c of await cargosDeServicio(m.id, desde)) {
+      const importe = Math.round(-c.importe * 100) / 100;
+      if (categoria(c.descripcion) !== "almacenamiento" || importe <= 0 || pendientes[c.id]) continue;
+      const fecha = c.fecha.slice(0, 10);
+      const eur = Math.round(importe * (c.moneda === "EUR" ? 1 : await eurPorUnidad(c.moneda, new Date(c.fecha))) * 100) / 100;
+      pendientes[c.id] = { fecha, mes: fecha.slice(0, 7), categoria: "almacenamiento", region: c.moneda === "GBP" ? "uk" : "eu", concepto: "FBA Inventory Storage Fee (pendiente de liquidar)", importe, moneda: c.moneda, eur, pais: m.pais };
+    }
+    await new Promise((ok) => setTimeout(ok, 1100));
   }
+  // Lines of the old reading (by settlement period, without country) give way to these.
+  for (const [id, p] of Object.entries(pendientes)) if (!p.pais) delete pendientes[id];
   if (JSON.stringify(pendientes) !== JSON.stringify(doc.pendientes)) await guardar({ ...doc, pendientes });
+}
+
+/**
+ * One-off: puts the country on the settlement lines saved before it was read (from the reports Amazon still keeps,
+ * 90 days). Returns how many lines got it.
+ */
+export async function completarPaisesGastos(): Promise<number> {
+  const doc = await leer();
+  const liquidadas = { ...doc.liquidadas };
+  let n = 0;
+  for (const l of await liquidacionesDisponibles()) {
+    // Amazon throttles report downloads: wait and try again.
+    let filas: Awaited<ReturnType<typeof filasLiquidacion>> = [];
+    for (let intento = 0; ; intento++) {
+      try {
+        filas = await filasLiquidacion(l.reportDocumentId);
+        break;
+      } catch (e) {
+        if (intento >= 6 || !/429|Quota/i.test(String(e))) throw e;
+        await new Promise((ok) => setTimeout(ok, 30_000 * (intento + 1)));
+      }
+    }
+    const sid = filas[0]?.["settlement-id"] ?? l.reportDocumentId;
+    const pais = paisDeLiquidacion(filas);
+    if (!pais) continue;
+    for (const [id, linea] of Object.entries(liquidadas))
+      if (id.startsWith(`${sid}|`) && !linea.pais) {
+        liquidadas[id] = { ...linea, pais };
+        n++;
+      }
+    await new Promise((ok) => setTimeout(ok, 2000));
+  }
+  if (n) await guardar({ ...doc, liquidadas });
+  return n;
 }
 
 /**

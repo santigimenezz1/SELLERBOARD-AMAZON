@@ -195,6 +195,31 @@ export async function mercadosDeGrupo(grupoId: string): Promise<string[]> {
 }
 
 /**
+ * Account charges (storage, subscription, removals…) posted in a marketplace since a date, each with its exact day:
+ * Finances 2024-06-19 transactions of type «ServiceFee». Amounts negative, in the marketplace currency.
+ */
+export async function cargosDeServicio(marketplaceId: string, desde: Date): Promise<{ id: string; fecha: string; descripcion: string; importe: number; moneda: string }[]> {
+  const res: { id: string; fecha: string; descripcion: string; importe: number; moneda: string }[] = [];
+  let nextToken: string | undefined;
+  do {
+    const r = await spGet<{
+      payload?: { transactions?: { transactionId?: string; transactionType?: string; description?: string; postedDate?: string; totalAmount?: { currencyAmount?: number; currencyCode?: string } }[]; nextToken?: string };
+    }>("/finances/2024-06-19/transactions", { postedAfter: desde.toISOString(), marketplaceId, nextToken });
+    for (const t of r.payload?.transactions ?? [])
+      if (t.transactionType === "ServiceFee" && t.postedDate)
+        res.push({
+          id: t.transactionId ?? `${marketplaceId}|${t.postedDate}|${t.totalAmount?.currencyAmount}`,
+          fecha: t.postedDate,
+          descripcion: t.description ?? "",
+          importe: Number(t.totalAmount?.currencyAmount) || 0,
+          moneda: t.totalAmount?.currencyCode ?? "EUR",
+        });
+    nextToken = r.payload?.nextToken || undefined;
+  } while (nextToken);
+  return res;
+}
+
+/**
  * Money of a marketplace Amazon is still holding (sales not released yet: it waits some days after delivery),
  * in its currency. Finances 2024-06-19, DEFERRED transactions.
  */
