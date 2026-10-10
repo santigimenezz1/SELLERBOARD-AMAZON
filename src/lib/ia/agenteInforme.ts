@@ -5,7 +5,7 @@ import { limpiarEnv } from "@/lib/env";
 import { estudioParaAgente, guardarInforme } from "@/lib/datos/estudiosH10";
 import { informeSimulado } from "@/lib/datos/h10InformeSimulado";
 import { resumirEstudio } from "@/lib/datos/h10Analisis";
-import type { BloqueInforme, InformeEstrategico, PasoEquipo, SeccionInforme } from "@/lib/datos/h10Tipos";
+import type { BloqueInforme, InformeEstrategico, NotaAnalisis, PasoEquipo, RevisionInforme, SeccionInforme } from "@/lib/datos/h10Tipos";
 import { describirPaso, ejecutarHerramienta, HERRAMIENTAS } from "./agenteHerramientas";
 import { EQUIPO } from "@/lib/datos/h10Equipo";
 
@@ -15,8 +15,10 @@ import { EQUIPO } from "@/lib/datos/h10Equipo";
  * 1. Four specialists work at the same time, each with its own tools, web budget and expert brief: market, keywords
  *    and PPC, product and reviews, marketing and listing. Each reads all the data of its part (paging through every
  *    competitor, keyword and review) and hands in a written analysis with its figures and sources.
- * 2. The director gets the four analyses, checks the key figures against the study with the same tools, settles
- *    contradictions, decides the verdict and hands in the report («entregar_informe»).
+ * 2. Quality control: the director scores each analysis (rigour, concreteness, actionability, coherence) and sends
+ *    back, once, those under 8 to be redone.
+ * 3. The director checks the key figures against the study, asks the specialists what doesn't add up, decides the
+ *    verdict and hands in the report. An independent reviewer reads it first and sends serious problems back to fix.
  *
  * Cost: the specialists run on Sonnet and the director on Opus (env INFORME_MODELO_ESPECIALISTAS / INFORME_MODELO),
  * with prompt caching: what a turn already read is billed at a twentieth in the next ones.
@@ -396,6 +398,137 @@ async function bucle(opciones: {
   throw new Error(`${quien} no terminó en ${opciones.maxTurnos} pasos`);
 }
 
+/** One answer in a fixed JSON shape (no tools), priced into the team's spending. */
+async function pedirJson<T>(modelo: string, sistema: string, contenido: string, schema: Record<string, unknown>, gasto: GastoAgente): Promise<T> {
+  const apiKey = limpiarEnv(process.env.ANTHROPIC_API_KEY);
+  if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
+  const r = await new Anthropic({ apiKey }).messages
+    .stream({
+      model: modelo,
+      max_tokens: 16000,
+      ...(!modelo.includes("haiku") && { output_config: { effort: "high" as const, format: { type: "json_schema" as const, schema } } }),
+      ...(modelo.includes("haiku") && { output_config: { format: { type: "json_schema" as const, schema } } }),
+      system: sistema,
+      messages: [{ role: "user", content: contenido }],
+    })
+    .finalMessage();
+  sumarGasto(gasto, r.usage, modelo);
+  const t = r.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text;
+  if (!t) throw new Error("La IA no devolvió la revisión");
+  return JSON.parse(t) as T;
+}
+
+// ---------- Quality control ----------
+
+/** A specialist's analysis is sent back when it scores below this. */
+const NOTA_MINIMA = 8;
+
+const ESQUEMA_NOTAS = {
+  type: "object",
+  properties: {
+    notas: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          especialista: { type: "string", enum: ["Mercado", "Palabras clave y PPC", "Producto y reseñas", "Marketing y listing"] },
+          rigor: { type: "number", description: "1–10: cada cifra sale de los datos o de una fuente, nada inventado" },
+          concrecion: { type: "number", description: "1–10: específico de este producto, nada genérico" },
+          accion: { type: "number", description: "1–10: el vendedor sabe exactamente qué hacer" },
+          coherencia: { type: "number", description: "1–10: coherente con los otros análisis y con los datos" },
+          comentario: { type: "string", description: "Qué falta o qué mejorar, concreto; si está bien, por qué" },
+        },
+        required: ["especialista", "rigor", "concrecion", "accion", "coherencia", "comentario"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["notas"],
+  additionalProperties: false,
+};
+
+const RUBRICA = `Eres la directora de un equipo de consultores de Amazon FBA. Puntúa de 1 a 10 cada análisis de tus especialistas, con exigencia de consultora de primer nivel:
+- rigor: cada cifra sale del estudio o de una fuente; nada inventado.
+- concrecion: específico de este producto y de estos datos; nada que valga para cualquier producto.
+- accion: el vendedor sabe exactamente qué hacer (cifras, pasos, textos).
+- coherencia: no contradice los datos ni a los otros especialistas.
+Un 8 es trabajo profesional listo para usar. Por debajo, di en el comentario exactamente qué rehacer.`;
+
+const ESQUEMA_REVISOR = {
+  type: "object",
+  properties: {
+    nota: { type: "number", description: "1–10: calidad del informe tal como está" },
+    problemas: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          seccion: { type: "string" },
+          problema: { type: "string", description: "Qué está mal, falta o no está justificado, y por qué importa" },
+          gravedad: { type: "string", enum: ["alta", "media", "baja"] },
+        },
+        required: ["seccion", "problema", "gravedad"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["nota", "problemas"],
+  additionalProperties: false,
+};
+
+const REVISOR = `Eres un revisor independiente, como un inversor escéptico que va a poner dinero en este lanzamiento de Amazon FBA. No has participado en el informe. Léelo junto a los análisis de los especialistas y busca:
+- cifras sin respaldo o que no cuadran con los análisis;
+- contradicciones entre secciones (precio, país, pack, palabras clave, márgenes);
+- riesgos importantes que no menciona (competencia, temporada, normativa, márgenes, devoluciones, stock);
+- recomendaciones genéricas o imposibles de ejecutar;
+- lo que un vendedor necesitaría y falta.
+Gravedad «alta»: puede hacer perder dinero o llevar a una mala decisión; «media»: resta calidad clara; «baja»: detalle. No inventes problemas: si el informe es sólido, dilo con pocos o ningún problema.`;
+
+/** The director scores the four analyses (in a rehearsal, set scores: one below the bar, to show the flow). */
+async function puntuarAnalisis(ensayo: boolean, analisis: { especialista: string; analisis: string }[], contexto: string, gasto: GastoAgente): Promise<NotaAnalisis[]> {
+  type Bruta = { especialista: string; rigor: number; concrecion: number; accion: number; coherencia: number; comentario: string };
+  const brutas: Bruta[] = ensayo
+    ? analisis.map((a) =>
+        a.especialista === "Palabras clave y PPC"
+          ? { especialista: a.especialista, rigor: 8, concrecion: 6.5, accion: 7, coherencia: 8, comentario: "(Ensayo) El plan de pujas es genérico: falta la puja de partida y el presupuesto de cada campaña." }
+          : { especialista: a.especialista, rigor: 9, concrecion: 8.5, accion: 8.5, coherencia: 9, comentario: "(Ensayo) Sólido y con cifras del estudio." },
+      )
+    : (
+        await pedirJson<{ notas: Bruta[] }>(
+          modeloDirector(),
+          RUBRICA,
+          `${contexto}\n\n${analisis.map((a) => `## ${a.especialista}\n\n${a.analisis}`).join("\n\n")}`,
+          ESQUEMA_NOTAS,
+          gasto,
+        )
+      ).notas;
+  return analisis.map((a) => {
+    const b = brutas.find((x) => x.especialista === a.especialista);
+    const criterios = { rigor: b?.rigor ?? 8, concrecion: b?.concrecion ?? 8, accion: b?.accion ?? 8, coherencia: b?.coherencia ?? 8 };
+    const nota = Math.round(((criterios.rigor + criterios.concrecion + criterios.accion + criterios.coherencia) / 4) * 10) / 10;
+    return { especialista: a.especialista, nota, criterios, comentario: b?.comentario ?? "", rehecho: false };
+  });
+}
+
+/** The independent reviewer reads the final report (in a rehearsal, two set findings, to show the flow). */
+async function revisarInforme(ensayo: boolean, informe: unknown, analisis: { especialista: string; analisis: string }[], contexto: string, gasto: GastoAgente): Promise<RevisionInforme> {
+  if (ensayo)
+    return {
+      nota: 7.8,
+      problemas: [
+        { seccion: "ppc", problema: "(Ensayo) El presupuesto diario no cuadra con el ACoS objetivo y el precio.", gravedad: "media" },
+        { seccion: "riesgo", problema: "(Ensayo) No menciona qué pasa si el stock llega después del pico de temporada.", gravedad: "baja" },
+      ],
+    };
+  return pedirJson<RevisionInforme>(
+    modeloDirector(),
+    REVISOR,
+    `${contexto}\n\nInforme a revisar (JSON):\n${JSON.stringify(informe)}\n\nAnálisis de los especialistas:\n\n${analisis.map((a) => `## ${a.especialista}\n\n${a.analisis}`).join("\n\n")}`,
+    ESQUEMA_REVISOR,
+    gasto,
+  );
+}
+
 /** A specialist answers the director's question with its own analysis in front (one short reply, no tools). */
 async function responderComoEspecialista(e: Especialista, analisis: string, pregunta: string, contexto: string, gasto: GastoAgente): Promise<string> {
   const apiKey = limpiarEnv(process.env.ANTHROPIC_API_KEY);
@@ -429,26 +562,52 @@ async function trabajar(estado: EstadoInforme) {
   });
 
   // 1. The four specialists, at the same time.
-  const analisis = await Promise.all(
-    ESPECIALISTAS.map(async (e) => {
-      const nombreModelo = ensayo ? "ensayo" : modeloEspecialistas();
-      const entrega = await bucle({
-        estado,
-        quien: e.nombre,
-        modelo: ensayo ? modeloEnsayo(guionEspecialista(e, principal)) : modeloReal(nombreModelo, `${COMUN}\n\n${e.encargo}`, [...herramientasDe(e.herramientas), ENTREGAR_ANALISIS], e.web, "high"),
-        nombreModelo,
-        primerMensaje: `${contexto}\nHaz tu análisis.`,
-        final: "entregar_analisis",
-        aceptar: async (i) => (typeof (i as { analisis?: unknown })?.analisis === "string" && (i as { analisis: string }).analisis.length > 20 ? null : "Falta el análisis"),
-        maxTurnos: MAX_TURNOS_ESPECIALISTA,
-      });
-      const input = entrega.input as { analisis: string; fuentes?: { titulo: string; url: string }[] };
-      return { especialista: e.nombre, analisis: input.analisis, fuentes: input.fuentes ?? [] };
-    }),
+  const trabajoEspecialista = async (e: Especialista, primerMensaje: string) => {
+    const nombreModelo = ensayo ? "ensayo" : modeloEspecialistas();
+    const entrega = await bucle({
+      estado,
+      quien: e.nombre,
+      modelo: ensayo ? modeloEnsayo(guionEspecialista(e, principal)) : modeloReal(nombreModelo, `${COMUN}\n\n${e.encargo}`, [...herramientasDe(e.herramientas), ENTREGAR_ANALISIS], e.web, "high"),
+      nombreModelo,
+      primerMensaje,
+      final: "entregar_analisis",
+      aceptar: async (i) => (typeof (i as { analisis?: unknown })?.analisis === "string" && (i as { analisis: string }).analisis.length > 20 ? null : "Falta el análisis"),
+      maxTurnos: MAX_TURNOS_ESPECIALISTA,
+    });
+    const input = entrega.input as { analisis: string; fuentes?: { titulo: string; url: string }[] };
+    return { especialista: e.nombre, analisis: input.analisis, fuentes: input.fuentes ?? [] };
+  };
+  const analisis = await Promise.all(ESPECIALISTAS.map((e) => trabajoEspecialista(e, `${contexto}\nHaz tu análisis.`)));
+
+  // 2. Quality control: the director scores each analysis and sends back, once, those below the bar.
+  estado.fase = "director";
+  const persona = (quien: string) => EQUIPO.find((m) => m.quien === quien)?.persona ?? quien;
+  const nota = (n: number) => n.toLocaleString("es-ES", { maximumFractionDigits: 1 });
+  const notas = await puntuarAnalisis(ensayo, analisis, contexto, estado.gasto);
+  for (const n of notas)
+    estado.pasos.push({
+      hora: new Date().toISOString(),
+      texto: n.nota >= NOTA_MINIMA ? `Aprueba el análisis de ${persona(n.especialista)}: ${nota(n.nota)}/10` : `Devuelve el análisis a ${persona(n.especialista)} (${nota(n.nota)}/10): «${n.comentario}»`,
+      tipo: "revision",
+      quien: "Director",
+      para: n.especialista,
+    });
+  await Promise.all(
+    notas
+      .filter((n) => n.nota < NOTA_MINIMA)
+      .map(async (n) => {
+        const e = ESPECIALISTAS.find((x) => x.nombre === n.especialista)!;
+        const i = analisis.findIndex((a) => a.especialista === n.especialista);
+        analisis[i] = await trabajoEspecialista(
+          e,
+          `${contexto}\n\nTu análisis anterior:\n\n${analisis[i].analisis}\n\nLa directora te lo devuelve con un ${nota(n.nota)}/10: ${n.comentario}\nRehazlo corrigiendo eso, con la misma exigencia en todo lo demás.`,
+        );
+        n.rehecho = true;
+      }),
   );
 
-  // 2. The director checks, decides and writes (it can ask the specialists).
-  estado.fase = "director";
+  // 3. The director checks, decides and writes (it can ask the specialists); the reviewer reads it before it's accepted.
+  let revision: RevisionInforme | null = null;
   const nombreDirector = ensayo ? "ensayo" : modeloDirector();
   let informe: ReturnType<typeof validarInforme> = "";
   await bucle({
@@ -465,11 +624,27 @@ async function trabajar(estado: EstadoInforme) {
     nombreModelo: nombreDirector,
     primerMensaje: `${contexto}\n\nAnálisis de los especialistas:\n\n${analisis
       .map((a) => `## ${a.especialista}\n\n${a.analisis}${a.fuentes.length ? `\n\nFuentes: ${a.fuentes.map((f) => `${f.titulo} (${f.url})`).join(" · ")}` : ""}`)
-      .join("\n\n")}`,
+      .join("\n\n")}\n\nTus notas de calidad: ${notas.map((n) => `${n.especialista} ${nota(n.nota)}/10${n.rehecho ? " (rehecho)" : ""}`).join(" · ")}.`,
     final: "entregar_informe",
     aceptar: async (i) => {
       informe = validarInforme(i);
-      return typeof informe === "string" ? `Informe no válido: ${informe}` : null;
+      if (typeof informe === "string") return `Informe no válido: ${informe}`;
+      if (revision) return null;
+      // The independent reviewer, once: serious findings go back to the director to fix.
+      estado.pasos.push({ hora: new Date().toISOString(), texto: "Empieza a revisar el informe final", tipo: "inicio", quien: "Revisor" });
+      revision = await revisarInforme(ensayo, i, analisis, contexto, estado.gasto);
+      const serios = revision.problemas.filter((p) => p.gravedad !== "baja");
+      estado.pasos.push({
+        hora: new Date().toISOString(),
+        texto: serios.length
+          ? `Devuelve el informe con ${serios.length} ${serios.length === 1 ? "problema" : "problemas"} (${nota(revision.nota)}/10): ${serios.map((p) => `«${p.problema}»`).join(" · ")}`
+          : `Aprueba el informe (${nota(revision.nota)}/10)${revision.problemas.length ? ` con ${revision.problemas.length} detalles menores` : ""}`,
+        tipo: serios.length ? "revision" : "informe",
+        quien: "Revisor",
+        para: "Director",
+      });
+      if (!serios.length) return null;
+      return `El revisor independiente encontró estos problemas:\n${revision.problemas.map((p) => `- [${p.gravedad}] ${p.seccion}: ${p.problema}`).join("\n")}\nCorrige los de gravedad alta y media y vuelve a entregar el informe completo`;
     },
     maxTurnos: MAX_TURNOS_DIRECTOR,
     propias: {
@@ -491,7 +666,7 @@ async function trabajar(estado: EstadoInforme) {
     generadoEn: new Date().toISOString(),
     simulado: ensayo,
     coste: { minutos: Math.max(1, Math.round((Date.now() - inicio) / 60_000)), dolares: estado.gasto.dolares },
-    trabajo: { modo: estado.modo, empezado: estado.empezado, terminado: new Date().toISOString(), pasos: [...estado.pasos, { hora: new Date().toISOString(), texto: "Informe guardado", tipo: "informe", quien: "Director" }], analisis, gasto: { ...estado.gasto } },
+    trabajo: { modo: estado.modo, empezado: estado.empezado, terminado: new Date().toISOString(), pasos: [...estado.pasos, { hora: new Date().toISOString(), texto: "Informe guardado", tipo: "informe", quien: "Director" }], analisis, calidad: { notas, revisor: revision }, gasto: { ...estado.gasto } },
   });
   estado.pasos.push({ hora: new Date().toISOString(), texto: "Informe guardado", tipo: "informe", quien: "Director" });
 }

@@ -54,4 +54,12 @@ export const EQUIPO: MiembroEquipo[] = [
     avatar: { fondo: "#8b5cf6", camisa: "#3b0764", pelo: "#d4d4d8", piel: "#eabf9b", peinado: "rapado" },
     minutos: [5, 10],
   },
+  {
+    quien: "Revisor",
+    persona: "Álex",
+    puesto: "Revisor independiente",
+    descripcion: "Lee el informe final como un inversor escéptico: busca errores, riesgos ignorados y promesas sin datos.",
+    avatar: { fondo: "#64748b", camisa: "#0f172a", pelo: "#292524", piel: "#d8a47f", peinado: "corto" },
+    minutos: [2, 5],
+  },
 ];

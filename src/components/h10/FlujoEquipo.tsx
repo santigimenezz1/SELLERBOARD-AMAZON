@@ -12,7 +12,7 @@ const NODO = 26; // node size
 const SEPARACION = 34; // least gap between two nodes of the same lane
 const FINAL = 190; // room for the report card at the end
 
-const ICONO: Record<PasoEquipo["tipo"], string> = { inicio: "▶", estudio: "▤", web: "↗", informe: "✓", aviso: "!", consulta: "?", respuesta: "↩" };
+const ICONO: Record<PasoEquipo["tipo"], string> = { inicio: "▶", estudio: "▤", web: "↗", informe: "✓", aviso: "!", consulta: "?", respuesta: "↩", revision: "★" };
 const COLOR_TIPO: Record<PasoEquipo["tipo"], string> = {
   inicio: "#f59e0b",
   estudio: "#38bdf8",
@@ -21,6 +21,7 @@ const COLOR_TIPO: Record<PasoEquipo["tipo"], string> = {
   aviso: "#f59e0b",
   consulta: "#a78bfa",
   respuesta: "#a78bfa",
+  revision: "#fb7185",
 };
 const NOMBRE_TIPO: Record<PasoEquipo["tipo"], string> = {
   inicio: "Empieza",
@@ -30,10 +31,11 @@ const NOMBRE_TIPO: Record<PasoEquipo["tipo"], string> = {
   aviso: "Aviso",
   consulta: "Pregunta a un compañero",
   respuesta: "Responde a la directora",
+  revision: "Control de calidad: aprueba o devuelve",
 };
 
 type Nodo = { paso: PasoEquipo; carril: number; x: number; y: number; t: number };
-type Flecha = { de: { x: number; y: number }; a: { x: number; y: number }; color: string; tipo: "entrega" | "consulta" | "respuesta" | "final" };
+type Flecha = { de: { x: number; y: number }; a: { x: number; y: number }; color: string; tipo: "entrega" | "consulta" | "respuesta" | "final" | "revision" };
 
 /** A curve from one node to another, leaving and arriving horizontally. */
 function curva(de: { x: number; y: number }, a: { x: number; y: number }) {
@@ -75,11 +77,28 @@ export function FlujoEquipo({ pasos, enCurso }: { pasos: PasoEquipo[]; enCurso: 
   const ultimoX = new Map<number, number>();
   const nodos: Nodo[] = [];
   let pendienteVuelta: number | null = null;
+  const usadas = new Set<Nodo>();
   for (const p of propios) {
     const carril = EQUIPO.findIndex((m) => m.quien === p.quien);
     const t = Date.parse(p.hora);
     let x = Math.max(ETIQUETAS + 24 + ((t - t0) / Math.max(1, t1 - t0)) * util, (ultimoX.get(carril) ?? -Infinity) + SEPARACION);
-    if (carril === director && p.tipo === "inicio") x = Math.max(x, ...nodos.filter((n) => n.carril !== director && n.paso.tipo === "informe").map((n) => n.x + DESPUES));
+    // The director's first node after hand-ins goes after them.
+    if (carril === director) {
+      const llegan = nodos.filter((n) => n.carril !== director && n.paso.tipo === "informe" && !usadas.has(n));
+      if (llegan.length) x = Math.max(x, ...llegan.map((n) => n.x + DESPUES));
+      llegan.forEach((n) => usadas.add(n));
+    }
+    // A member's first node after work is sent their way (a sent-back analysis, the reviewer's findings).
+    const recibido = [...nodos].reverse().find((n) => n.paso.para === p.quien && n.paso.tipo === "revision" && !usadas.has(n));
+    if (recibido) {
+      x = Math.max(x, recibido.x + DESPUES);
+      usadas.add(recibido);
+    }
+    // The reviewer starts after the director hands in the report.
+    if (p.quien === "Revisor" && p.tipo === "inicio") {
+      const entrega = [...nodos].reverse().find((n) => n.carril === director);
+      if (entrega) x = Math.max(x, entrega.x + DESPUES);
+    }
     if (p.tipo === "respuesta") {
       const pregunta = [...nodos].reverse().find((n) => n.paso.tipo === "consulta" && n.paso.para === p.quien);
       if (pregunta) x = Math.max(x, pregunta.x + DESPUES);
@@ -93,7 +112,6 @@ export function FlujoEquipo({ pasos, enCurso }: { pasos: PasoEquipo[]; enCurso: 
     nodos.push({ paso: p, carril, x, y: ARRIBA + carril * CARRIL + CARRIL / 2, t });
   }
   const deDirector = nodos.filter((n) => n.carril === director);
-  const inicioDirector = deDirector.find((n) => n.paso.tipo === "inicio");
   const finDirector = deDirector.find((n) => n.paso.tipo === "informe" && n === deDirector.at(-1));
   const maxX = Math.max(...nodos.map((n) => n.x));
   const informe = finDirector ? { x: finDirector.x + 110, y: finDirector.y } : null;
@@ -102,9 +120,23 @@ export function FlujoEquipo({ pasos, enCurso }: { pasos: PasoEquipo[]; enCurso: 
 
   const flechas: Flecha[] = [];
   // Each specialist's hand-in goes to the director.
-  if (inicioDirector)
-    for (const n of nodos)
-      if (n.carril !== director && n.paso.tipo === "informe") flechas.push({ de: { x: n.x + NODO / 2, y: n.y }, a: { x: inicioDirector.x - NODO / 2, y: inicioDirector.y }, color: EQUIPO[n.carril].avatar.fondo, tipo: "entrega" });
+  const revisor = EQUIPO.findIndex((m) => m.quien === "Revisor");
+  for (const n of nodos) {
+    if (n.carril === director || n.paso.tipo !== "informe") continue;
+    // A specialist's hand-in goes to the director's next node; the reviewer's approval too.
+    const destino = deDirector.find((d) => d.x > n.x);
+    if (destino) flechas.push({ de: { x: n.x + NODO / 2, y: n.y }, a: { x: destino.x - NODO / 2, y: destino.y }, color: EQUIPO[n.carril].avatar.fondo, tipo: "entrega" });
+  }
+  for (const n of nodos.filter((x) => x.paso.tipo === "revision" && x.paso.para)) {
+    // A score or the reviewer's findings go to the next node of whoever it's for (a redo, or the director fixing).
+    const carrilPara = EQUIPO.findIndex((m) => m.quien === n.paso.para);
+    const destino = nodos.find((d) => d.carril === carrilPara && d.x > n.x);
+    if (destino && (n.carril === revisor || /^Devuelve/.test(n.paso.texto))) flechas.push({ de: { x: n.x + NODO / 2, y: n.y }, a: { x: destino.x - NODO / 2, y: destino.y }, color: "#fb7185", tipo: "revision" });
+  }
+  // The report goes to the reviewer.
+  const aRevisar = nodos.find((n) => n.carril === revisor && n.paso.tipo === "inicio");
+  const entregaDirector = aRevisar && [...deDirector].reverse().find((d) => d.x < aRevisar.x);
+  if (aRevisar && entregaDirector) flechas.push({ de: { x: entregaDirector.x + NODO / 2, y: entregaDirector.y }, a: { x: aRevisar.x - NODO / 2, y: aRevisar.y }, color: EQUIPO[director].avatar.fondo, tipo: "entrega" });
   // Questions and answers.
   for (const c of nodos.filter((n) => n.paso.tipo === "consulta")) {
     const r = nodos.find((n) => n.paso.tipo === "respuesta" && n.paso.quien === c.paso.para && n.t >= c.t);
@@ -225,7 +257,7 @@ export function FlujoEquipo({ pasos, enCurso }: { pasos: PasoEquipo[]; enCurso: 
 
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-ink-400">
-        {(["inicio", "estudio", "web", "consulta", "respuesta", "informe"] as const).map((t) => (
+        {(["inicio", "estudio", "web", "consulta", "respuesta", "revision", "informe"] as const).map((t) => (
           <span key={t} className="inline-flex items-center gap-1.5">
             <span className="flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-ink-950" style={{ background: COLOR_TIPO[t] }}>
               {ICONO[t]}

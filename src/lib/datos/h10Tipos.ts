@@ -359,7 +359,12 @@ export type InformeEstrategico = {
 
 /** One step of the research team: who did it, when and what. */
 /** «consulta»: «quien» asks «para» something; «respuesta»: «quien» answers «para». */
-export type PasoEquipo = { hora: string; texto: string; tipo: "inicio" | "estudio" | "web" | "informe" | "aviso" | "consulta" | "respuesta"; quien?: string; para?: string };
+export type PasoEquipo = { hora: string; texto: string; tipo: "inicio" | "estudio" | "web" | "informe" | "aviso" | "consulta" | "respuesta" | "revision"; quien?: string; para?: string };
+
+/** The director's score of a specialist's analysis (1–10 per criterion), and whether it was sent back and redone. */
+export type NotaAnalisis = { especialista: string; nota: number; criterios: { rigor: number; concrecion: number; accion: number; coherencia: number }; comentario: string; rehecho: boolean };
+/** The independent reviewer's findings on the final report. */
+export type RevisionInforme = { nota: number; problemas: { seccion: string; problema: string; gravedad: "alta" | "media" | "baja" }[] };
 
 /** How the team worked on a report: every step, each specialist's analysis and what it cost. */
 export type TrabajoEquipo = {
@@ -368,5 +373,7 @@ export type TrabajoEquipo = {
   terminado: string;
   pasos: PasoEquipo[];
   analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[] }[];
+  /** Quality control: the director's scores and the reviewer's findings. */
+  calidad?: { notas: NotaAnalisis[]; revisor: RevisionInforme | null };
   gasto: { modelo: string; entrada: number; salida: number; cacheEscrita: number; cacheLeida: number; busquedasWeb: number; dolares: number };
 };
