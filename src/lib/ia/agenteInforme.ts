@@ -5,9 +5,10 @@ import { limpiarEnv } from "@/lib/env";
 import { estudioParaAgente, guardarInforme } from "@/lib/datos/estudiosH10";
 import { informeSimulado } from "@/lib/datos/h10InformeSimulado";
 import { resumirEstudio } from "@/lib/datos/h10Analisis";
-import type { BloqueInforme, InformeEstrategico, NotaAnalisis, PasoEquipo, RevisionInforme, SeccionInforme } from "@/lib/datos/h10Tipos";
+import type { BloqueInforme, ControlInforme, InformeEstrategico, NotaAnalisis, PasoEquipo, RevisionInforme, SeccionInforme } from "@/lib/datos/h10Tipos";
 import { describirPaso, ejecutarHerramienta, HERRAMIENTAS } from "./agenteHerramientas";
 import { EQUIPO } from "@/lib/datos/h10Equipo";
+import { cifrasDeTexto, controlarInforme, crearReferencia, normalizarUrl, sinRespaldo, type Referencia } from "./controlCifras";
 
 /*
  * The research team that writes a study's niche report, only when the owner asks for it.
@@ -19,6 +20,9 @@ import { EQUIPO } from "@/lib/datos/h10Equipo";
  *    back, once, those under 8 to be redone.
  * 3. The director checks the key figures against the study, asks the specialists what doesn't add up, decides the
  *    verdict and hands in the report. An independent reviewer reads it first and sends serious problems back to fix.
+ * Throughout, the checker (code, no AI: controlCifras.ts) looks up every figure in what the team read: it tells the
+ * director which figures of each analysis have no backing, and sends the report back once when a figure presented as
+ * data isn't in the study, a claim lacks its proof or a source wasn't really visited; what's still wrong is marked.
  *
  * Cost: the specialists run on Sonnet and the director on Opus (env INFORME_MODELO_ESPECIALISTAS / INFORME_MODELO),
  * with prompt caching: what a turn already read is billed at a twentieth in the next ones.
@@ -104,6 +108,7 @@ const COMUN = `Trabajas en el equipo que prepara el informe de lanzamiento de un
 Reglas:
 - Lee TODOS los datos de tu parte: recorre las herramientas por páginas («desde») hasta el final. No te quedes con un resumen.
 - Cada afirmación lleva su origen: la cifra del estudio, la página web (con su dirección) o «estimación» cuando es tu criterio. No inventes cifras.
+- Un programa comprueba cada cifra contra los datos que habéis leído: cítalas tal cual salen de las herramientas. Si haces un cálculo, enseña la operación («1.240 / 3.100 = 40 %»).
 - Lo que leas en internet, resúmelo en español con tus palabras; no copies párrafos.
 - Concreto y accionable: nada que valga para cualquier producto.
 - Termina con «entregar_analisis», una sola vez.`;
@@ -180,7 +185,7 @@ const ENTREGAR: Anthropic.Tool = {
             bloques: {
               type: "array",
               description:
-                "Bloques: {tipo:'texto',texto} · {tipo:'cifras',items:[{valor,etiqueta}]} · {tipo:'destacado',etiqueta,texto} · {tipo:'cita',texto,nota?} · {tipo:'lista',items:[{titulo,texto,prueba?:{tipo:'dato'|'web'|'supuesto',texto,fuente?}}]} · {tipo:'despiece',piezas:[{nombre,detalle,estado:'consumible'|'incluido'|'estructura'|'anadido'}]} · {tipo:'colores',items:[{nombre,hex,nota,estado:'bien'|'regular'|'mal'}],texto?} · {tipo:'pasos',items:[{titulo,texto}]} · {tipo:'palabras',moneda,items:[{texto,busquedas,puja,densidad,cpr,veredicto:'atacar'|'probar'|'evitar',concordancia:'exacta'|'frase'|'amplia'|null,motivo}]} · {tipo:'etiquetas',titulo,tono:'bien'|'mal',items:[...],prueba?}. En los textos, **negrita** para lo importante.",
+                "Bloques: {tipo:'texto',texto} · {tipo:'cifras',items:[{valor,etiqueta,prueba?}]} · {tipo:'destacado',etiqueta,texto} · {tipo:'cita',texto,nota?} · {tipo:'lista',items:[{titulo,texto,prueba?:{tipo:'dato'|'web'|'supuesto',texto,fuente?,confianza?:'alta'|'media'|'baja'}}]} · {tipo:'despiece',piezas:[{nombre,detalle,estado:'consumible'|'incluido'|'estructura'|'anadido'}]} · {tipo:'colores',items:[{nombre,hex,nota,estado:'bien'|'regular'|'mal'}],texto?} · {tipo:'pasos',items:[{titulo,texto}]} · {tipo:'palabras',moneda,items:[{texto,busquedas,puja,densidad,cpr,veredicto:'atacar'|'probar'|'evitar',concordancia:'exacta'|'frase'|'amplia'|null,motivo}]} · {tipo:'etiquetas',titulo,tono:'bien'|'mal',items:[...],prueba?}. En los textos, **negrita** para lo importante.",
               items: { type: "object" },
             },
           },
@@ -215,9 +220,10 @@ const DIRECTOR = `Eres el director de un equipo de consultores de Amazon FBA. Cu
 2. Comprueba con las herramientas del estudio las cifras clave en las que se apoya la decisión (tamaño del mercado, precio, quejas principales, palabras clave). Si algo no te cuadra o dos especialistas se contradicen, pregúntales con «preguntar_especialista» y decide tú con los datos.
 3. Decide el veredicto con honestidad: si los datos no lo sostienen, «validar» o «descartar».
 4. Escribe el informe con «entregar_informe», una sola vez: claro, directo, concreto y accionable, en español. Que el vendedor sepa exactamente qué fabricar, a qué precio, cómo anunciarlo, cómo lanzarlo y qué exigir a la fábrica.
-Reglas del informe:
-- Cada afirmación importante lleva su «prueba»: «dato» (cifra del estudio), «web» (número de la fuente) o «supuesto» (criterio o estimación). No inventes cifras.
-- Las fuentes, las de los especialistas que uses, numeradas desde 1 sin saltos; cada «fuente» de una prueba tiene que estar en la lista.
+Reglas del informe (un programa las comprueba al entregar y te devuelve lo que no cumpla):
+- Cada afirmación importante lleva su «prueba»: «dato» (cifra del estudio), «web» (número de la fuente) o «supuesto» (tu deducción, siempre con su «confianza»: alta, media o baja). En las secciones validacion, diferenciacion, riesgo y decision, TODOS los elementos de las listas llevan prueba. No inventes cifras.
+- Una cifra presentada como dato (en «cifras», en «palabras» o en una prueba «dato» y su título) tiene que estar en los datos del estudio tal cual o redondeada. Si es un cálculo, enseña la operación («1.240 / 3.100 = 40 %») o ponle una prueba «supuesto».
+- Las fuentes, solo páginas que los especialistas hayan encontrado o leído, numeradas desde 1 sin saltos; cada «fuente» de una prueba tiene que estar en la lista.
 - No copies textos de las webs: resúmelos.
 - En «palabras», un bloque «palabras» con las de cada veredicto; en «listing», el título y los bullets escritos de verdad en el idioma del país principal.`;
 
@@ -328,15 +334,55 @@ function guionEspecialista(e: Especialista, principal: string): TurnoGuion[] {
   return [
     async () => [llamadas[e.id][0]],
     async () => [llamadas[e.id][1]],
-    async (previos: Record<string, unknown>[]) => [
-      { nombre: "entregar_analisis", input: { analisis: `(Ensayo) Análisis de ${e.nombre}: ${previos.length} consultas al estudio, ${JSON.stringify(previos).length.toLocaleString("es-ES")} caracteres de datos leídos.`, fuentes: [] } },
-    ],
+    // A figure it really read and one made up, for the checker to catch.
+    async (previos: Record<string, unknown>[]) => {
+      const leida = cifrasDeTexto(JSON.stringify(previos).replace(/"/g, " ")).find((c) => c.valor >= 100)?.valor;
+      const real = leida !== undefined ? `Una cifra de los datos: **${leida.toLocaleString("es-ES")}**. ` : "";
+      return [{ nombre: "entregar_analisis", input: { analisis: `(Ensayo) Análisis de ${e.nombre}: ${previos.length} consultas al estudio. ${real}Una cifra inventada para probar el control: **987.654 €**.`, fuentes: [] } }];
+    },
   ];
+}
+
+/**
+ * The director's rehearsal hand-ins, to show the checker at work: the first carries two made-up figures and
+ * deductions without their confidence; once sent back it fixes all but one figure, which ends up marked.
+ */
+function informeEnsayo(...[estudio, palabras, entrega]: [...Parameters<typeof informeSimulado>, number]) {
+  const i = informeSimulado(estudio, palabras);
+  const riesgo = i.secciones.find((s) => s.id === "riesgo")?.bloques.find((b) => b.tipo === "lista");
+  const tendencia = riesgo?.tipo === "lista" ? riesgo.items.find((x) => x.prueba?.tipo === "dato") : undefined;
+  if (tendencia?.prueba) tendencia.prueba.texto += " (+93,17 % en el último año)";
+  if (entrega === 1) {
+    const cifras = i.secciones.flatMap((s) => s.bloques).find((b) => b.tipo === "cifras");
+    if (cifras?.tipo === "cifras" && cifras.items[0]) cifras.items[0].valor = "1.234.567 €";
+    return i;
+  }
+  for (const s of i.secciones)
+    for (const b of s.bloques) {
+      if (b.tipo === "lista")
+        for (const x of b.items) {
+          if (x.prueba?.tipo === "supuesto") x.prueba.confianza ??= "media";
+          else if (!x.prueba && ["validacion", "diferenciacion", "riesgo", "decision"].includes(s.id)) x.prueba = { tipo: "supuesto", texto: "Criterio del equipo", confianza: "media" };
+        }
+      if (b.tipo === "etiquetas" && b.prueba?.tipo === "supuesto") b.prueba.confianza ??= "media";
+    }
+  return i;
 }
 
 // ---------- One agent's loop ----------
 
 type Entrega = { herramienta: string; input: unknown };
+type Leido = { lecturas: string[]; urls: Set<string> };
+
+/** The pages («url») of a web search or fetch result, normalised. */
+function urlsDe(x: unknown, urls: Set<string>) {
+  if (Array.isArray(x)) for (const y of x) urlsDe(y, urls);
+  else if (x && typeof x === "object") {
+    const o = x as Record<string, unknown>;
+    if (typeof o.url === "string") urls.add(normalizarUrl(o.url));
+    if (Array.isArray(o.content) || (o.content && typeof o.content === "object")) urlsDe(o.content, urls);
+  }
+}
 
 /**
  * Runs one agent until it hands in with «final» (whose input «aceptar» checks: a string sends it back to fix), noting
@@ -353,6 +399,8 @@ async function bucle(opciones: {
   maxTurnos: number;
   /** Tools answered by the team instead of the study (asking a specialist). */
   propias?: Record<string, (input: Record<string, unknown>) => Promise<string>>;
+  /** What the team read, for the checker: every study answer and every web page found or fetched. */
+  leido: Leido;
 }): Promise<Entrega> {
   const { estado, quien, modelo, nombreModelo, final, aceptar } = opciones;
   const paso = (texto: string, tipo: PasoAgente["tipo"]) => estado.pasos.push({ hora: new Date().toISOString(), texto, tipo, quien });
@@ -362,8 +410,11 @@ async function bucle(opciones: {
     const r = await modelo(mensajes);
     sumarGasto(estado.gasto, r.usage, nombreModelo);
     if (r.stop_reason === "refusal") throw new Error(`${quien}: la IA no quiso seguir`);
-    // Web search and fetch run on Anthropic's side: only noted in the progress.
-    for (const b of r.content) if (b.type === "server_tool_use") paso(describirPaso(b.name, b.input), "web");
+    // Web search and fetch run on Anthropic's side: only noted in the progress, and their pages kept for the checker.
+    for (const b of r.content) {
+      if (b.type === "server_tool_use") paso(describirPaso(b.name, b.input), "web");
+      if (b.type === "web_search_tool_result" || b.type === "web_fetch_tool_result") urlsDe(b.content, opciones.leido.urls);
+    }
     if (r.stop_reason === "pause_turn") {
       mensajes.push({ role: "assistant", content: r.content });
       continue;
@@ -391,6 +442,7 @@ async function bucle(opciones: {
         continue;
       }
       const res = await ejecutarHerramienta(estado.estudioId, l.name, l.input);
+      if (!res.error) opciones.leido.lecturas.push(res.texto);
       respuestas.push({ type: "tool_result", tool_use_id: l.id, content: res.texto, ...(res.error && { is_error: true }) });
     }
     mensajes.push({ role: "user", content: respuestas });
@@ -452,6 +504,7 @@ const RUBRICA = `Eres la directora de un equipo de consultores de Amazon FBA. Pu
 - concrecion: específico de este producto y de estos datos; nada que valga para cualquier producto.
 - accion: el vendedor sabe exactamente qué hacer (cifras, pasos, textos).
 - coherencia: no contradice los datos ni a los otros especialistas.
+Junto a cada análisis va la lista de sus cifras que el control automático no encontró en los datos: pueden ser cálculos o estimaciones bien explicados, o invenciones. Tenlo en cuenta en «rigor».
 Un 8 es trabajo profesional listo para usar. Por debajo, di en el comentario exactamente qué rehacer.`;
 
 const ESQUEMA_REVISOR = {
@@ -482,10 +535,23 @@ const REVISOR = `Eres un revisor independiente, como un inversor escéptico que 
 - riesgos importantes que no menciona (competencia, temporada, normativa, márgenes, devoluciones, stock);
 - recomendaciones genéricas o imposibles de ejecutar;
 - lo que un vendedor necesitaría y falta.
+- decisiones clave que se apoyan más en deducciones que en datos (tienes el recuento de pruebas y las cifras que el control automático no pudo verificar).
 Gravedad «alta»: puede hacer perder dinero o llevar a una mala decisión; «media»: resta calidad clara; «baja»: detalle. No inventes problemas: si el informe es sólido, dilo con pocos o ningún problema.`;
 
+/** The checker's findings, in words, for the reviewer. */
+const resumenControl = (c: ControlInforme | null) =>
+  !c
+    ? ""
+    : `Control automático: ${c.revisadas} cifras comprobadas en los datos, ${c.sinVerificar.length} sin verificar${c.sinVerificar.length ? ` (${c.sinVerificar.map((x) => `${x.cifra} en ${x.donde}`).join("; ")})` : ""}. Pruebas: ${c.pruebas.dato} datos, ${c.pruebas.web} webs, ${c.pruebas.supuesto} deducciones${c.sinPrueba ? `; ${c.sinPrueba} afirmaciones sin prueba` : ""}.`;
+
 /** The director scores the four analyses (in a rehearsal, set scores: one below the bar, to show the flow). */
-async function puntuarAnalisis(ensayo: boolean, analisis: { especialista: string; analisis: string }[], contexto: string, gasto: GastoAgente): Promise<NotaAnalisis[]> {
+async function puntuarAnalisis(
+  ensayo: boolean,
+  analisis: { especialista: string; analisis: string }[],
+  contexto: string,
+  gasto: GastoAgente,
+  conControl: (a: { especialista: string; analisis: string }) => string,
+): Promise<NotaAnalisis[]> {
   type Bruta = { especialista: string; rigor: number; concrecion: number; accion: number; coherencia: number; comentario: string };
   const brutas: Bruta[] = ensayo
     ? analisis.map((a) =>
@@ -497,7 +563,7 @@ async function puntuarAnalisis(ensayo: boolean, analisis: { especialista: string
         await pedirJson<{ notas: Bruta[] }>(
           modeloDirector(),
           RUBRICA,
-          `${contexto}\n\n${analisis.map((a) => `## ${a.especialista}\n\n${a.analisis}`).join("\n\n")}`,
+          `${contexto}\n\n${analisis.map(conControl).join("\n\n")}`,
           ESQUEMA_NOTAS,
           gasto,
         )
@@ -555,6 +621,12 @@ async function trabajar(estado: EstadoInforme) {
   // The study's main country (the one that makes most among the best scored), as the Mercado tab shows it.
   const principal = resumirEstudio(estudio).mejor.mercado.codigoPais;
   const contexto = `Producto: «${estudio.nombre}». País principal: ${principal}. Países con datos: ${paises.join(", ")}. Palabras clave (Cerebro) de: ${Object.keys(palabras).join(", ") || "ninguno"}. Reseñas completas de ${estudio.resenasCompletas?.length ?? 0} productos.`;
+  const leido: Leido = { lecturas: [], urls: new Set() };
+  // The sample report's sources count as visited in a rehearsal (no web there).
+  if (ensayo) for (const f of informeSimulado(estudio, palabras).fuentes) leido.urls.add(normalizarUrl(f.url));
+  // The study without the team's own previous report: its figures would back themselves up.
+  const referencia = (): Referencia => crearReferencia([{ ...estudio, informe: undefined }, palabras], leido.lecturas);
+  const verificador = (texto: string, tipo: PasoAgente["tipo"], para?: string) => estado.pasos.push({ hora: new Date().toISOString(), texto, tipo, quien: "Verificador", ...(para && { para }) });
   estado.pasos.push({
     hora: new Date().toISOString(),
     texto: ensayo ? "Modo ensayo: sin IA y sin coste. Las herramientas del estudio son las reales" : `Modo real: especialistas con ${modeloEspecialistas()}, director con ${modeloDirector()}`,
@@ -573,17 +645,34 @@ async function trabajar(estado: EstadoInforme) {
       final: "entregar_analisis",
       aceptar: async (i) => (typeof (i as { analisis?: unknown })?.analisis === "string" && (i as { analisis: string }).analisis.length > 20 ? null : "Falta el análisis"),
       maxTurnos: MAX_TURNOS_ESPECIALISTA,
+      leido,
     });
     const input = entrega.input as { analisis: string; fuentes?: { titulo: string; url: string }[] };
-    return { especialista: e.nombre, analisis: input.analisis, fuentes: input.fuentes ?? [] };
+    return { especialista: e.nombre, analisis: input.analisis, fuentes: input.fuentes ?? [], sinRespaldo: [] as string[] };
   };
   const analisis = await Promise.all(ESPECIALISTAS.map((e) => trabajoEspecialista(e, `${contexto}\nHaz tu análisis.`)));
 
+  // The checker looks up the figures of each analysis in everything the team read, for the director to judge.
+  const persona = (quien: string) => EQUIPO.find((m) => m.quien === quien)?.persona ?? quien;
+  const verificarAnalisis = (a: (typeof analisis)[number]) => {
+    const total = cifrasDeTexto(a.analisis).length;
+    a.sinRespaldo = sinRespaldo(a.analisis, referencia());
+    verificador(
+      `Cifras de ${persona(a.especialista)}: ${total - a.sinRespaldo.length} de ${total} están en los datos${a.sinRespaldo.length ? ` · sin respaldo: ${a.sinRespaldo.slice(0, 6).join(", ")}${a.sinRespaldo.length > 6 ? "…" : ""}` : ""}`,
+      "estudio",
+    );
+  };
+  verificador("Empieza a comprobar las cifras de los cuatro análisis", "inicio");
+  analisis.forEach(verificarAnalisis);
+  const sinRespaldoTotal = analisis.reduce((n, a) => n + a.sinRespaldo.length, 0);
+  verificador(sinRespaldoTotal ? `Pasa a Carmen las ${sinRespaldoTotal} cifras de los análisis que no están en los datos` : "Avisa a Carmen: todas las cifras de los análisis están en los datos", "revision", "Director");
+  const conControl = (a: { especialista: string; analisis: string; sinRespaldo?: string[] }) =>
+    `## ${a.especialista}\n\n${a.analisis}\n\n(Control automático: ${a.sinRespaldo?.length ? `cifras que no están en los datos: ${a.sinRespaldo.join(", ")}` : "todas sus cifras están en los datos"})`;
+
   // 2. Quality control: the director scores each analysis and sends back, once, those below the bar.
   estado.fase = "director";
-  const persona = (quien: string) => EQUIPO.find((m) => m.quien === quien)?.persona ?? quien;
   const nota = (n: number) => n.toLocaleString("es-ES", { maximumFractionDigits: 1 });
-  const notas = await puntuarAnalisis(ensayo, analisis, contexto, estado.gasto);
+  const notas = await puntuarAnalisis(ensayo, analisis, contexto, estado.gasto, conControl);
   for (const n of notas)
     estado.pasos.push({
       hora: new Date().toISOString(),
@@ -603,6 +692,7 @@ async function trabajar(estado: EstadoInforme) {
           `${contexto}\n\nTu análisis anterior:\n\n${analisis[i].analisis}\n\nLa directora te lo devuelve con un ${nota(n.nota)}/10: ${n.comentario}\nRehazlo corrigiendo eso, con la misma exigencia en todo lo demás.`,
         );
         n.rehecho = true;
+        verificarAnalisis(analisis[i]);
       }),
   );
 
@@ -610,6 +700,9 @@ async function trabajar(estado: EstadoInforme) {
   let revision: RevisionInforme | null = null;
   const nombreDirector = ensayo ? "ensayo" : modeloDirector();
   let informe: ReturnType<typeof validarInforme> = "";
+  let control: ControlInforme | null = null;
+  let devueltoPorVerificador = false;
+  let entregasEnsayo = 0;
   await bucle({
     estado,
     quien: "Director",
@@ -618,21 +711,39 @@ async function trabajar(estado: EstadoInforme) {
           async () => [{ nombre: "resumen_mercado", input: {} }],
           async () => [{ nombre: "preguntar_especialista", input: { especialista: "Palabras clave y PPC", pregunta: "¿Por qué evitar la palabra con más búsquedas al principio?" } }],
           // Its date, mock flag and cost are ignored on hand-in, as from the model.
-          async () => [{ nombre: "entregar_informe", input: informeSimulado(estudio, palabras) as unknown as Record<string, unknown> }],
+          async () => [{ nombre: "entregar_informe", input: informeEnsayo(estudio, palabras, ++entregasEnsayo) as unknown as Record<string, unknown> }],
         ])
       : modeloReal(nombreDirector, DIRECTOR, [...HERRAMIENTAS, PREGUNTAR, ENTREGAR], null, "high"),
     nombreModelo: nombreDirector,
     primerMensaje: `${contexto}\n\nAnálisis de los especialistas:\n\n${analisis
-      .map((a) => `## ${a.especialista}\n\n${a.analisis}${a.fuentes.length ? `\n\nFuentes: ${a.fuentes.map((f) => `${f.titulo} (${f.url})`).join(" · ")}` : ""}`)
+      .map((a) => `${conControl(a)}${a.fuentes.length ? `\n\nFuentes: ${a.fuentes.map((f) => `${f.titulo} (${f.url})`).join(" · ")}` : ""}`)
       .join("\n\n")}\n\nTus notas de calidad: ${notas.map((n) => `${n.especialista} ${nota(n.nota)}/10${n.rehecho ? " (rehecho)" : ""}`).join(" · ")}.`,
     final: "entregar_informe",
     aceptar: async (i) => {
       informe = validarInforme(i);
       if (typeof informe === "string") return `Informe no válido: ${informe}`;
+      const revisado = controlarInforme(informe, referencia(), leido.urls);
+      const c = (control = revisado.control);
+      const { problemas } = revisado;
+      if (problemas.length && !devueltoPorVerificador) {
+        devueltoPorVerificador = true;
+        verificador(
+          `Devuelve el informe a Carmen con ${problemas.length} ${problemas.length === 1 ? "problema" : "problemas"}: ${problemas.slice(0, 3).map((p) => `«${p}»`).join(" · ")}${problemas.length > 3 ? "…" : ""}`,
+          "revision",
+          "Director",
+        );
+        return `El control automático de cifras y pruebas encontró esto:\n${problemas.map((p) => `- ${p}`).join("\n")}\nCorrígelo y vuelve a entregar el informe completo`;
+      }
+      verificador(
+        c.sinVerificar.length
+          ? `Da paso al informe con ${c.sinVerificar.length} ${c.sinVerificar.length === 1 ? "cifra marcada como no verificada" : "cifras marcadas como no verificadas"} (${c.revisadas - c.sinVerificar.length} de ${c.revisadas} comprobadas)`
+          : `Aprueba las cifras del informe: ${c.revisadas} comprobadas en los datos${problemas.length ? ` · ${problemas.length} avisos menores` : ""}`,
+        "informe",
+      );
       if (revision) return null;
       // The independent reviewer, once: serious findings go back to the director to fix.
       estado.pasos.push({ hora: new Date().toISOString(), texto: "Empieza a revisar el informe final", tipo: "inicio", quien: "Revisor" });
-      revision = await revisarInforme(ensayo, i, analisis, contexto, estado.gasto);
+      revision = await revisarInforme(ensayo, i, analisis, `${contexto}\n\n${resumenControl(control)}`, estado.gasto);
       const serios = revision.problemas.filter((p) => p.gravedad !== "baja");
       estado.pasos.push({
         hora: new Date().toISOString(),
@@ -647,6 +758,7 @@ async function trabajar(estado: EstadoInforme) {
       return `El revisor independiente encontró estos problemas:\n${revision.problemas.map((p) => `- [${p.gravedad}] ${p.seccion}: ${p.problema}`).join("\n")}\nCorrige los de gravedad alta y media y vuelve a entregar el informe completo`;
     },
     maxTurnos: MAX_TURNOS_DIRECTOR,
+    leido,
     propias: {
       preguntar_especialista: async (i) => {
         const e = ESPECIALISTAS.find((x) => x.nombre === i.especialista);
@@ -666,6 +778,8 @@ async function trabajar(estado: EstadoInforme) {
     generadoEn: new Date().toISOString(),
     simulado: ensayo,
     coste: { minutos: Math.max(1, Math.round((Date.now() - inicio) / 60_000)), dolares: estado.gasto.dolares },
+    // Set inside the hand-in callback, which TypeScript can't follow.
+    ...((control as ControlInforme | null) && { control: control as unknown as ControlInforme }),
     trabajo: { modo: estado.modo, empezado: estado.empezado, terminado: new Date().toISOString(), pasos: [...estado.pasos, { hora: new Date().toISOString(), texto: "Informe guardado", tipo: "informe", quien: "Director" }], analisis, calidad: { notas, revisor: revision }, gasto: { ...estado.gasto } },
   });
   estado.pasos.push({ hora: new Date().toISOString(), texto: "Informe guardado", tipo: "informe", quien: "Director" });

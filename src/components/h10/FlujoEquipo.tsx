@@ -94,6 +94,11 @@ export function FlujoEquipo({ pasos, enCurso }: { pasos: PasoEquipo[]; enCurso: 
       x = Math.max(x, recibido.x + DESPUES);
       usadas.add(recibido);
     }
+    // The checker starts after the specialists hand in, and checks the report after the director hands it in.
+    if (p.quien === "Verificador") {
+      const antes = [...nodos].reverse().find((n) => n.carril === director) ?? nodos.filter((n) => n.paso.tipo === "informe" && n.carril !== director).at(-1);
+      if (antes && (p.tipo === "inicio" || antes.carril === director)) x = Math.max(x, antes.x + DESPUES);
+    }
     // The reviewer starts after the director hands in the report.
     if (p.quien === "Revisor" && p.tipo === "inicio") {
       const entrega = [...nodos].reverse().find((n) => n.carril === director);
@@ -121,6 +126,7 @@ export function FlujoEquipo({ pasos, enCurso }: { pasos: PasoEquipo[]; enCurso: 
   const flechas: Flecha[] = [];
   // Each specialist's hand-in goes to the director.
   const revisor = EQUIPO.findIndex((m) => m.quien === "Revisor");
+  const verificador = EQUIPO.findIndex((m) => m.quien === "Verificador");
   for (const n of nodos) {
     if (n.carril === director || n.paso.tipo !== "informe") continue;
     // A specialist's hand-in goes to the director's next node; the reviewer's approval too.
@@ -131,12 +137,17 @@ export function FlujoEquipo({ pasos, enCurso }: { pasos: PasoEquipo[]; enCurso: 
     // A score or the reviewer's findings go to the next node of whoever it's for (a redo, or the director fixing).
     const carrilPara = EQUIPO.findIndex((m) => m.quien === n.paso.para);
     const destino = nodos.find((d) => d.carril === carrilPara && d.x > n.x);
-    if (destino && (n.carril === revisor || /^Devuelve/.test(n.paso.texto))) flechas.push({ de: { x: n.x + NODO / 2, y: n.y }, a: { x: destino.x - NODO / 2, y: destino.y }, color: "#fb7185", tipo: "revision" });
+    if (destino && (n.carril === revisor || n.carril === verificador || /^Devuelve/.test(n.paso.texto))) flechas.push({ de: { x: n.x + NODO / 2, y: n.y }, a: { x: destino.x - NODO / 2, y: destino.y }, color: "#fb7185", tipo: "revision" });
   }
   // The report goes to the reviewer.
   const aRevisar = nodos.find((n) => n.carril === revisor && n.paso.tipo === "inicio");
   const entregaDirector = aRevisar && [...deDirector].reverse().find((d) => d.x < aRevisar.x);
   if (aRevisar && entregaDirector) flechas.push({ de: { x: entregaDirector.x + NODO / 2, y: entregaDirector.y }, a: { x: aRevisar.x - NODO / 2, y: aRevisar.y }, color: EQUIPO[director].avatar.fondo, tipo: "entrega" });
+  // Each hand-in of the report goes to the checker first.
+  for (const n of nodos.filter((x) => x.carril === verificador && x.paso.tipo !== "inicio")) {
+    const entrega = [...deDirector].reverse().find((d) => d.x < n.x);
+    if (entrega?.paso.tipo === "informe") flechas.push({ de: { x: entrega.x + NODO / 2, y: entrega.y }, a: { x: n.x - NODO / 2, y: n.y }, color: EQUIPO[director].avatar.fondo, tipo: "entrega" });
+  }
   // Questions and answers.
   for (const c of nodos.filter((n) => n.paso.tipo === "consulta")) {
     const r = nodos.find((n) => n.paso.tipo === "respuesta" && n.paso.quien === c.paso.para && n.t >= c.t);

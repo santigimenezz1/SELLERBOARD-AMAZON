@@ -5,7 +5,7 @@ import { MenuMovil, Nav } from "@/components/Nav";
 // import { ContadorConsumo } from "@/components/ContadorConsumo";
 import { resumenEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { listarSuscripciones } from "@/lib/datos/suscripciones";
-import { porVencer } from "@/lib/datos/suscripcionesCalc";
+import { CON_SUSCRIPCIONES, porVencer } from "@/lib/datos/suscripcionesCalc";
 import { diaMadrid } from "@/lib/datos/fechas";
 import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
 import { Chat } from "@/components/chat/Chat";
@@ -20,7 +20,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   // Colours the «Estado de la cuenta» menu item (from memory after the first load).
   const estadoCuenta = await resumenEstadoCuenta().catch(() => null);
   // Orange dot on «Suscripciones» while a payment is close (from memory after the first load).
-  const avisosSuscripciones = porVencer(await listarSuscripciones().catch(() => []), diaMadrid(new Date())).length;
+  const avisosSuscripciones = CON_SUSCRIPCIONES ? porVencer(await listarSuscripciones().catch(() => []), diaMadrid(new Date())).length : 0;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">

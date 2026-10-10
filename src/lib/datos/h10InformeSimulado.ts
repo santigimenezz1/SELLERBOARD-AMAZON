@@ -68,8 +68,8 @@ function seccionPalabras(e: EstudioH10, palabras: Record<string, PalabrasMercado
         items: [
           { valor: lista.length.toLocaleString("es-ES"), etiqueta: "Palabras analizadas" },
           { valor: String(atacar.length), etiqueta: "Con ventaja para atacar" },
-          { valor: busquedasAtacar.toLocaleString("es-ES"), etiqueta: "Búsquedas/mes de esas" },
-          { valor: pujaMedia !== null ? dinero(pujaMedia) : "—", etiqueta: "Puja media sugerida" },
+          { valor: busquedasAtacar.toLocaleString("es-ES"), etiqueta: "Búsquedas/mes de esas", prueba: { tipo: "supuesto", texto: "Suma de las búsquedas de las palabras para atacar", confianza: "alta" } },
+          { valor: pujaMedia !== null ? dinero(pujaMedia) : "—", etiqueta: "Puja media sugerida", prueba: { tipo: "supuesto", texto: "Media de las pujas sugeridas del Cerebro", confianza: "alta" } },
         ],
       },
       { tipo: "palabras", moneda, items: [...atacar, ...probar, ...evitar] },
@@ -145,7 +145,7 @@ export function informeSimulado(e: EstudioH10, palabras: Record<string, Palabras
             items: [
               { valor: euros(r.mercadoTotalEur), etiqueta: "Mercado al mes" },
               { valor: precio ? `${precio.desde}–${precio.hasta === Infinity ? "+" : precio.hasta} €` : "—", etiqueta: `Precio con más ventas (${m.mercado.codigoPais})` },
-              { valor: resenasTop.toLocaleString("es-ES"), etiqueta: "Reseñas de media (top 10)" },
+              { valor: resenasTop.toLocaleString("es-ES"), etiqueta: "Reseñas de media (top 10)", prueba: { tipo: "supuesto", texto: "Media de reseñas de los 10 que más venden", confianza: "alta" } },
               { valor: `${cuotaLider} %`, etiqueta: `Cuota del líder${lider ? ` (${lider.marca})` : ""}` },
             ],
           },

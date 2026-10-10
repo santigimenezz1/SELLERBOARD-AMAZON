@@ -96,11 +96,11 @@ export function PestanaAgentes({ estudioId, informe }: { estudioId: string; info
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-bold tracking-[0.2em] text-accent-400 uppercase">Tu equipo de análisis</p>
-            <h2 className="mt-1 text-xl font-bold text-ink-50">{enCurso ? "Están trabajando en tu informe" : trabajo ? "Así trabajaron en el último informe" : "6 personas listas para estudiar tu producto"}</h2>
+            <h2 className="mt-1 text-xl font-bold text-ink-50">{enCurso ? "Están trabajando en tu informe" : trabajo ? "Así trabajaron en el último informe" : "7 miembros listos para estudiar tu producto"}</h2>
             <p className="mt-1 text-sm text-ink-400">
               {enCurso || trabajo
                 ? `${total ? duracion(total) : "—"} en total${gasto ? ` · ${gasto.dolares.toLocaleString("es-ES", { maximumFractionDigits: 3 })} $` : ""}${gasto?.busquedasWeb ? ` · ${gasto.busquedasWeb} búsquedas en internet` : ""}${modo === "ensayo" ? " · ensayo, sin IA" : ""}`
-                : "Cuatro especialistas trabajan a la vez, la directora puntúa y une su trabajo y un revisor independiente lo examina. Pide el informe en «Conclusiones»."}
+                : "Cuatro especialistas trabajan a la vez, un verificador automático comprueba cada cifra, la directora puntúa y une su trabajo y un revisor independiente lo examina. Pide el informe en «Conclusiones»."}
             </p>
           </div>
           {enCurso && <span className="animate-pulse rounded-full bg-success/15 px-3 py-1 text-xs font-semibold text-success">● En directo</span>}
@@ -160,6 +160,8 @@ export function PestanaAgentes({ estudioId, informe }: { estudioId: string; info
           const analisis = trabajo?.analisis.find((a) => a.especialista === m.quien);
           const calificacion = trabajo?.calidad?.notas.find((n) => n.especialista === m.quien);
           const revisor = m.quien === "Revisor" ? trabajo?.calidad?.revisor : null;
+          const control = m.quien === "Verificador" ? informe?.control : null;
+          const sinRespaldo = analisis?.sinRespaldo ?? [];
           return (
             <section key={m.quien} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-ink-900/80 shadow-soft">
               <header className="flex items-center gap-3 border-b border-white/[0.06] p-3" style={{ background: `linear-gradient(135deg, ${m.avatar.fondo}26, transparent)` }}>
@@ -182,6 +184,16 @@ export function PestanaAgentes({ estudioId, informe }: { estudioId: string; info
                   </span>
                 )}
                 {revisor && <span className="rounded-full bg-rose-500/15 px-2 py-0.5 font-semibold text-rose-300">Informe: {revisor.nota.toLocaleString("es-ES")}/10</span>}
+                {control && (
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${control.sinVerificar.length ? "bg-warning/15 text-warning" : "bg-success/15 text-success"}`}>
+                    {control.revisadas - control.sinVerificar.length}/{control.revisadas} cifras verificadas
+                  </span>
+                )}
+                {analisis && sinRespaldo.length > 0 && (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 font-semibold text-warning" title={`Cifras de su análisis que no están en los datos: ${sinRespaldo.join(", ")}`}>
+                    ⚠ {sinRespaldo.length} sin respaldo
+                  </span>
+                )}
               </div>
               <p className="px-3 pt-2 text-xs text-ink-400">{m.descripcion}</p>
               <ol className="flex max-h-96 flex-col gap-1.5 overflow-y-auto p-3">
@@ -216,6 +228,24 @@ export function PestanaAgentes({ estudioId, informe }: { estudioId: string; info
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {control && (
+                <div className="border-t border-white/[0.06] px-3 py-2.5 text-xs">
+                  <p className="font-semibold text-ink-200">En el informe final</p>
+                  <p className="mt-1 text-ink-300">
+                    Origen de las afirmaciones: {control.pruebas.dato} datos del estudio · {control.pruebas.web} webs · {control.pruebas.supuesto} deducciones
+                  </p>
+                  {control.sinVerificar.length > 0 && (
+                    <ul className="mt-1.5 flex flex-col gap-1">
+                      {control.sinVerificar.map((x, i) => (
+                        <li key={i} className="text-ink-300">
+                          <span className="mr-1 rounded bg-warning/20 px-1 text-[10px] font-bold text-warning">{x.cifra}</span>
+                          {x.donde}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
               {analisis && (

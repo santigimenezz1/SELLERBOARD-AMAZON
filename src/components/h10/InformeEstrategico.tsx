@@ -22,12 +22,24 @@ function Rico({ texto }: { texto: string }) {
   );
 }
 
-/** Where a claim comes from: a figure of the study, a web source or the agent's guess. */
+/** The automatic check's warning on a figure it didn't find in the study's data. */
+function SinVerificar({ cifras }: { cifras: string[] }) {
+  return (
+    <span
+      title={`El control automático no encontró ${cifras.length === 1 ? "esta cifra" : "estas cifras"} en los datos del estudio: ${cifras.join(", ")}`}
+      className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning"
+    >
+      ⚠ Sin verificar: {cifras.join(", ")}
+    </span>
+  );
+}
+
+/** Where a claim comes from: a figure of the study, a web source or the team's deduction (with how sure it is). */
 function Prueba({ p }: { p: PruebaInforme }) {
   const estilo = {
     dato: { clase: "border-serie-ventas/30 bg-serie-ventas/10 text-serie-ventas", icono: "▤", etiqueta: "Dato del estudio" },
     web: { clase: "border-success/30 bg-success/10 text-success", icono: "↗", etiqueta: `Fuente ${p.fuente ? `[${p.fuente}]` : "web"}` },
-    supuesto: { clase: "border-warning/30 bg-warning/10 text-warning", icono: "!", etiqueta: "Suposición" },
+    supuesto: { clase: "border-violet-400/30 bg-violet-400/10 text-violet-300", icono: "◇", etiqueta: `Deducción${p.confianza ? ` · confianza ${p.confianza}` : ""}` },
   }[p.tipo];
   const contenido = (
     <>
@@ -38,12 +50,35 @@ function Prueba({ p }: { p: PruebaInforme }) {
       <span className="text-ink-300">· {p.texto}</span>
     </>
   );
-  return p.tipo === "web" && p.fuente ? (
-    <a href={`#fuente-${p.fuente}`} className={`mt-1.5 inline-flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] hover:opacity-80 ${estilo.clase}`}>
-      {contenido}
-    </a>
-  ) : (
-    <span className={`mt-1.5 inline-flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] ${estilo.clase}`}>{contenido}</span>
+  const clase = `mt-1.5 inline-flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] ${estilo.clase}`;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {p.tipo === "web" && p.fuente ? (
+        <a href={`#fuente-${p.fuente}`} className={`${clase} hover:opacity-80`}>
+          {contenido}
+        </a>
+      ) : (
+        <span className={clase}>{contenido}</span>
+      )}
+      {p.sinVerificar?.length ? <SinVerificar cifras={p.sinVerificar} /> : null}
+    </span>
+  );
+}
+
+/** The cover's summary of the automatic check: figures verified and where the claims come from. */
+function ChipControl({ c }: { c: NonNullable<Informe["control"]> }) {
+  const malas = c.sinVerificar.length;
+  const detalle = [
+    `${c.revisadas - malas} de ${c.revisadas} cifras encontradas en los datos del estudio`,
+    ...c.sinVerificar.map((x) => `⚠ ${x.cifra} · ${x.donde}`),
+    `Origen de las afirmaciones: ${c.pruebas.dato} datos del estudio, ${c.pruebas.web} webs, ${c.pruebas.supuesto} deducciones`,
+    ...(c.sinPrueba ? [`${c.sinPrueba} afirmaciones sin origen`] : []),
+    ...(c.fuentesNoVistas.length ? [`Fuentes que nadie del equipo visitó: ${c.fuentesNoVistas.map((n) => `[${n}]`).join(" ")}`] : []),
+  ].join("\n");
+  return (
+    <span title={detalle} className={`cursor-help rounded-full border px-3 py-1 font-semibold ${malas ? "border-warning/40 bg-warning/10 text-warning" : "border-success/40 bg-success/10 text-success"}`}>
+      {malas ? `⚠ ${malas} ${malas === 1 ? "cifra" : "cifras"} sin verificar` : "✓ Cifras verificadas"} · {c.revisadas - malas}/{c.revisadas}
+    </span>
   );
 }
 
@@ -75,8 +110,16 @@ function Bloque({ b }: { b: BloqueInforme }) {
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {b.items.map((x) => (
             <div key={x.etiqueta} className="border-t-[3px] border-accent-500 bg-white/[0.03] px-4 py-4">
-              <p className="tabular text-3xl font-extrabold tracking-tight text-ink-50">{x.valor}</p>
+              <p className="tabular text-3xl font-extrabold tracking-tight text-ink-50">
+                {x.valor}
+                {x.sinVerificar?.length ? (
+                  <span title={`El control automático no encontró esta cifra en los datos del estudio`} className="ml-1.5 align-top text-base text-warning">
+                    ⚠
+                  </span>
+                ) : null}
+              </p>
               <p className="mt-1 text-[11px] font-semibold tracking-[0.15em] text-ink-400 uppercase">{x.etiqueta}</p>
+              {x.prueba && x.prueba.tipo !== "dato" && <Prueba p={x.prueba} />}
             </div>
           ))}
         </div>
@@ -182,7 +225,14 @@ function Bloque({ b }: { b: BloqueInforme }) {
                 return (
                   <tr key={p.texto} className={`border-b border-white/[0.05] align-top ${v.fila}`}>
                     <td className="py-2.5 pr-3 font-semibold text-ink-50">{p.texto}</td>
-                    <td className="px-3 py-2.5 text-right text-ink-100">{p.busquedas.toLocaleString("es-ES")}</td>
+                    <td className="px-3 py-2.5 text-right text-ink-100">
+                      {p.sinVerificar && (
+                        <span title="El control automático no encontró estas búsquedas o este CPR en el Cerebro del estudio" className="mr-1 text-warning">
+                          ⚠
+                        </span>
+                      )}
+                      {p.busquedas.toLocaleString("es-ES")}
+                    </td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap text-ink-300">{p.puja !== null ? `${p.puja.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${simbolo}` : "—"}</td>
                     <td className="px-3 py-2.5 text-right text-ink-300">{p.densidad}</td>
                     <td className="px-3 py-2.5 text-right text-ink-300">{p.cpr}</td>
@@ -405,6 +455,7 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
             <span className={`rounded-full border px-3 py-1 font-semibold ${v.clase}`}>{v.texto}</span>
             <span className="rounded-full border border-white/10 px-3 py-1 text-ink-300">{new Date(informe.generadoEn).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}</span>
             <span className="rounded-full border border-white/10 px-3 py-1 text-ink-300">{informe.fuentes.length} fuentes</span>
+            {informe.control && <ChipControl c={informe.control} />}
             <span className="rounded-full border border-white/10 px-3 py-1 text-ink-300">
               ≈ {informe.coste.minutos} min · {informe.coste.dolares.toLocaleString("es-ES")} $
             </span>

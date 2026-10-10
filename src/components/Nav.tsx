@@ -15,9 +15,10 @@ const ENLACES = [
   // { href: "/palabras-clave", texto: "Palabras clave" },
   { href: "/mensajes", texto: "Mensajes" },
   { href: "/analisis-h10", texto: "Análisis H10" },
+  // Tickets live inside «Documentos».
   { href: "/documentos", texto: "Documentos" },
-  { href: "/tickets", texto: "Tickets" },
-  { href: "/suscripciones", texto: "Suscripciones" },
+  // Hidden for now, see CON_SUSCRIPCIONES: uncomment to show it again.
+  // { href: "/suscripciones", texto: "Suscripciones" },
   { href: "/variantes", texto: "Variantes" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
@@ -122,7 +123,7 @@ export function MenuMovil({ estadoCuenta, avisosSuscripciones, email }: { estado
                       className={`flex items-center gap-2.5 rounded-lg px-3 py-3 text-[15px] transition-colors ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-300 hover:bg-white/[0.04] hover:text-ink-100"}`}
                     >
                       <Punto href={e.href} estadoCuenta={estadoCuenta} />
-            <PuntoSuscripciones href={e.href} avisos={avisosSuscripciones} />
+                      <PuntoSuscripciones href={e.href} avisos={avisosSuscripciones} />
                       {e.texto}
                     </Link>
                   </li>

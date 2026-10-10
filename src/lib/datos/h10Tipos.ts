@@ -304,12 +304,26 @@ export type QuejasPorEstrellas = {
 
 // ---------- Strategic report (research agent) ----------
 
-/** Where a claim comes from: a figure of the study, a web page (its number in «fuentes») or the agent's own guess. */
-export type PruebaInforme = { tipo: "dato" | "web" | "supuesto"; texto: string; fuente?: number };
+/**
+ * Where a claim comes from: a figure of the study, a web page (its number in «fuentes») or the agent's own deduction,
+ * with how sure it is. «sinVerificar»: figures of a «dato» the automatic check didn't find in the data.
+ */
+export type PruebaInforme = { tipo: "dato" | "web" | "supuesto"; texto: string; fuente?: number; confianza?: "alta" | "media" | "baja"; sinVerificar?: string[] };
+
+/** The automatic check of a report: figures checked against the data, those not found, and where claims come from. */
+export type ControlInforme = {
+  revisadas: number;
+  sinVerificar: { cifra: string; donde: string }[];
+  pruebas: { dato: number; web: number; supuesto: number };
+  /** Claims of the evidence sections without a proof. */
+  sinPrueba: number;
+  /** Sources (their number) no specialist found or read. */
+  fuentesNoVistas: number[];
+};
 
 /** One block of a report section. Texts may carry **bold**. */
 export type BloqueInforme =
-  | { tipo: "cifras"; items: { valor: string; etiqueta: string }[] }
+  | { tipo: "cifras"; items: { valor: string; etiqueta: string; prueba?: PruebaInforme; sinVerificar?: string[] }[] }
   | { tipo: "texto"; texto: string }
   | { tipo: "destacado"; etiqueta: string; texto: string }
   | { tipo: "cita"; texto: string; nota?: string }
@@ -332,6 +346,8 @@ export type BloqueInforme =
         veredicto: "atacar" | "probar" | "evitar";
         concordancia: "exacta" | "frase" | "amplia" | null;
         motivo: string;
+        /** Its searches or CPR aren't in the study (automatic check). */
+        sinVerificar?: boolean;
       }[];
     }
   | { tipo: "etiquetas"; titulo: string; tono: "bien" | "mal"; items: string[]; prueba?: PruebaInforme };
@@ -355,6 +371,8 @@ export type InformeEstrategico = {
   coste: { minutos: number; dolares: number };
   /** How the team worked on it (reports made by the team). */
   trabajo?: TrabajoEquipo;
+  /** The automatic check of its figures and proofs (reports made by the team). */
+  control?: ControlInforme;
 };
 
 /** One step of the research team: who did it, when and what. */
@@ -372,7 +390,7 @@ export type TrabajoEquipo = {
   empezado: string;
   terminado: string;
   pasos: PasoEquipo[];
-  analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[] }[];
+  analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[]; sinRespaldo?: string[] }[];
   /** Quality control: the director's scores and the reviewer's findings. */
   calidad?: { notas: NotaAnalisis[]; revisor: RevisionInforme | null };
   gasto: { modelo: string; entrada: number; salida: number; cacheEscrita: number; cacheLeida: number; busquedasWeb: number; dolares: number };

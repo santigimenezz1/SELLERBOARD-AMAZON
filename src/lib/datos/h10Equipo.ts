@@ -55,6 +55,14 @@ export const EQUIPO: MiembroEquipo[] = [
     minutos: [5, 10],
   },
   {
+    quien: "Verificador",
+    persona: "Víctor",
+    puesto: "Verificador de cifras · automático",
+    descripcion: "No es una IA: un programa que busca cada cifra en los datos del estudio y comprueba que cada afirmación diga de dónde sale. Gratis y sin errores de lectura.",
+    avatar: { fondo: "#06b6d4", camisa: "#164e63", pelo: "#44403c", piel: "#e8b894", peinado: "corto" },
+    minutos: [0, 1],
+  },
+  {
     quien: "Revisor",
     persona: "Álex",
     puesto: "Revisor independiente",

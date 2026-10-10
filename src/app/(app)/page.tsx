@@ -9,6 +9,7 @@ import { BotonSync } from "@/components/panel/BotonSync";
 import { VistaPanel } from "@/components/panel/VistaPanel";
 import { AvisoSuscripciones } from "@/components/suscripciones/AvisoSuscripciones";
 import { listarSuscripciones } from "@/lib/datos/suscripciones";
+import { CON_SUSCRIPCIONES } from "@/lib/datos/suscripcionesCalc";
 import { diaMadrid } from "@/lib/datos/fechas";
 
 const texto = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
@@ -35,7 +36,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
   // Seller Central's «Saldo total»: the selected marketplace's, or all of them in euros.
   const saldo = await saldoTotal(panel.estado.pais);
   // Payments about to be charged, shown on top (from memory after the first load).
-  const suscripciones = await listarSuscripciones().catch(() => []);
+  const suscripciones = CON_SUSCRIPCIONES ? await listarSuscripciones().catch(() => []) : [];
 
   return (
     <VistaPanel
@@ -65,7 +66,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
       }
       avisos={
         <>
-          <AvisoSuscripciones lista={suscripciones} hoy={diaMadrid(new Date())} />
+          {CON_SUSCRIPCIONES && <AvisoSuscripciones lista={suscripciones} hoy={diaMadrid(new Date())} />}
           {!isAmazonConfigured && (
             <p className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning">
               Faltan las credenciales de Amazon en <code className="font-mono text-xs">.env.local</code> (SPAPI_LWA_CLIENT_ID, SPAPI_LWA_CLIENT_SECRET, SPAPI_REFRESH_TOKEN).

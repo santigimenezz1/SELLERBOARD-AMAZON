@@ -5,6 +5,9 @@
  * has passed, so a renewal never needs updating by hand.
  */
 
+/** Hidden for now (its page, data and API stay): off the menu, no dot and no warning on the Panel. True to bring it back. */
+export const CON_SUSCRIPCIONES = false;
+
 export type Periodicidad = "mensual" | "trimestral" | "semestral" | "anual";
 
 export const PERIODICIDADES: { valor: Periodicidad; texto: string; meses: number }[] = [
