@@ -1,14 +1,17 @@
 import "server-only";
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { estudioParaAgente, todasLasResenas } from "@/lib/datos/estudiosH10";
+import { estudioParaAgente, mkDe, todasLasResenas } from "@/lib/datos/estudiosH10";
+import { fichasCatalogo } from "@/lib/amazon/apis";
+import { hojaNumeros } from "./hojaNumeros";
 import { analizarResenas, EUR_POR_GBP, marcasDelEstudio, nombrePais, rangosDePrecio, resumirEstudio } from "@/lib/datos/h10Analisis";
 import { esCodigoPais } from "@/lib/datos/h10Tipos";
 import { EQUIPO } from "@/lib/datos/h10Equipo";
 
 /*
  * The research agent's tools: read-only questions about the study it's writing the report for (market, keywords,
- * reviews, one competitor). Each returns compact JSON text. The report itself is handed in with «entregar_informe»,
+ * reviews, one competitor), the numbers sheet (hojaNumeros.ts) and competitors' real listings read from Amazon's
+ * catalog (text, and photos the model looks at). Each returns compact JSON text, plus image links for the photos. The report itself is handed in with «entregar_informe»,
  * whose input is checked in agenteInforme.ts.
  */
 
@@ -98,6 +101,35 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
     name: "historial_busquedas",
     description: "Búsquedas de la palabra principal de un país mes a mes (hasta 5 años) y la facturación estimada de cada mes: para ver la temporada, la tendencia y cuándo lanzar.",
     input_schema: { type: "object", properties: { pais: { type: "string" } }, required: ["pais"], additionalProperties: false },
+  },
+  {
+    name: "hoja_numeros",
+    description:
+      "La hoja de números del producto, calculada por código con las tarifas FBA REALES de Amazon: precio, IVA, comisión, tarifa FBA, almacenamiento, publicidad por venta, devoluciones, coste del producto, beneficio por unidad, margen, ACoS de equilibrio, precio mínimo sin perder, inversión y meses para recuperarla según la cuota. Con «precio» la recalcula a ese precio (en euros) en el país dado. Usa SIEMPRE estas cifras: no hagas tus propias cuentas de margen, ACoS o inversión.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pais: { type: "string", description: "Un país (opcional; sin él, todos)" },
+        precio: { type: "number", description: "Precio de venta en euros para recalcular (opcional, necesita «pais»)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "ver_listing",
+    description:
+      "El listing REAL de un producto en Amazon, leído ahora de su catálogo: título, marca, bullets, descripción, y cuántas fotos tiene y de qué tipo. Úsala con los líderes para ver cómo venden de verdad (no te lo imagines).",
+    input_schema: { type: "object", properties: { pais: { type: "string" }, asin: { type: "string" } }, required: ["pais", "asin"], additionalProperties: false },
+  },
+  {
+    name: "ver_fotos",
+    description: "Las fotos REALES de un listing de Amazon, para que las veas: la principal y las secundarias, en orden (hasta 9). Úsala con el líder y 2–3 competidores más, no con todos: cada foto cuesta.",
+    input_schema: {
+      type: "object",
+      properties: { pais: { type: "string" }, asin: { type: "string" }, cuantas: { type: "integer", description: "Máx. 9, por defecto 7" } },
+      required: ["pais", "asin"],
+      additionalProperties: false,
+    },
   },
   {
     name: "ver_competidor",
@@ -243,10 +275,63 @@ async function verCompetidor(id: string, d: Datos, i: Record<string, unknown>) {
   };
 }
 
-/** Runs one of the study tools; errors come back as text for the model, never thrown. */
-export async function ejecutarHerramienta(id: string, nombre: string, entrada: unknown): Promise<{ texto: string; error: boolean }> {
+type ValorCatalogo = { value?: unknown };
+const valores = (a: Record<string, ValorCatalogo[]> | undefined, clave: string) =>
+  (a?.[clave] ?? []).map((v) => (typeof v.value === "string" ? v.value.trim() : "")).filter(Boolean);
+
+/** One listing as Amazon's catalog has it (in the marketplace's language), or why not. */
+async function leerListing(i: Record<string, unknown>) {
+  const pais = texto(i.pais, 2).toUpperCase();
+  const asin = texto(i.asin, 10).toUpperCase();
+  if (!esCodigoPais(pais)) return { error: "País no válido: ES, DE, FR, IT o GB" };
+  if (!/^[A-Z0-9]{10}$/.test(asin)) return { error: "ASIN no válido" };
+  const it = (await fichasCatalogo([asin], mkDe(pais)))[0];
+  if (!it) return { error: `${asin} no se vende en ${nombrePais(pais)}` };
+  // One photo per slot (MAIN, PT01…), the biggest of each.
+  const fotos = new Map<string, string>();
+  for (const f of [...(it.images?.[0]?.images ?? [])].sort((a, b) => b.width - a.width)) if (!fotos.has(f.variant)) fotos.set(f.variant, f.link);
+  const orden = [...fotos.entries()].sort(([a], [b]) => (a === "MAIN" ? -1 : b === "MAIN" ? 1 : a.localeCompare(b)));
+  return { pais, asin, it, orden };
+}
+
+async function verListing(i: Record<string, unknown>) {
+  const l = await leerListing(i);
+  if ("error" in l) return l;
+  const a = l.it.attributes as Record<string, ValorCatalogo[]> | undefined;
+  const titulo = valores(a, "item_name")[0] ?? l.it.summaries?.[0]?.itemName ?? null;
+  return {
+    pais: l.pais,
+    asin: l.asin,
+    marca: l.it.summaries?.[0]?.brand ?? null,
+    titulo,
+    caracteresTitulo: titulo?.length ?? 0,
+    bullets: valores(a, "bullet_point"),
+    descripcion: valores(a, "product_description")[0]?.slice(0, 1500) ?? null,
+    fotos: { total: l.orden.length, tipos: l.orden.map(([v]) => v) },
+  };
+}
+
+/** Amazon serves any photo smaller by adding a size before the extension: 500 px is plenty to judge it, and cheap. */
+const fotoPequena = (url: string) => url.replace(/(\.[a-z]+)$/i, "._SL500_$1");
+
+async function verFotos(i: Record<string, unknown>) {
+  const l = await leerListing(i);
+  if ("error" in l) return { r: l, imagenes: [] };
+  const elegidas = l.orden.slice(0, entero(i.cuantas, 7, 9));
+  return {
+    r: { pais: l.pais, asin: l.asin, fotos: elegidas.map(([v], n) => `${n + 1}: ${v === "MAIN" ? "principal" : v}`), nota: "Las fotos van a continuación, en este orden" },
+    imagenes: elegidas.map(([, url]) => fotoPequena(url)),
+  };
+}
+
+/** Runs one of the study tools; errors come back as text for the model, never thrown. Photos come as image links. */
+export async function ejecutarHerramienta(id: string, nombre: string, entrada: unknown): Promise<{ texto: string; error: boolean; imagenes?: string[] }> {
   const i = (entrada && typeof entrada === "object" ? entrada : {}) as Record<string, unknown>;
   try {
+    if (nombre === "ver_fotos") {
+      const { r, imagenes } = await verFotos(i);
+      return { texto: JSON.stringify(r), error: "error" in r, imagenes };
+    }
     const d = await estudioParaAgente(id);
     const r =
       nombre === "resumen_mercado"
@@ -265,7 +350,11 @@ export async function ejecutarHerramienta(id: string, nombre: string, entrada: u
                     ? await leerResenas(id, i)
                     : nombre === "historial_busquedas"
                       ? historialBusquedas(d, i)
-                      : { error: `Herramienta desconocida: ${nombre}` };
+                      : nombre === "hoja_numeros"
+                        ? await hojaNumeros(id, { pais: texto(i.pais, 2) || undefined, precio: typeof i.precio === "number" ? i.precio : undefined })
+                        : nombre === "ver_listing"
+                          ? await verListing(i)
+                          : { error: `Herramienta desconocida: ${nombre}` };
     return { texto: JSON.stringify(r), error: "error" in r };
   } catch (e) {
     return { texto: JSON.stringify({ error: e instanceof Error ? e.message : "Error" }), error: true };
@@ -292,12 +381,25 @@ export function describirPaso(nombre: string, entrada: unknown): string {
       return `Leyendo reseñas${i.estrellas ? ` de ${i.estrellas}★` : ""}${i.pais ? ` de ${nombrePais(String(i.pais))}` : ""}${i.asin ? ` de ${i.asin}` : ""}${i.desde ? ` (desde la ${Number(i.desde) + 1}ª)` : ""}`;
     case "historial_busquedas":
       return `Revisando el historial de búsquedas de ${nombrePais(String(i.pais ?? ""))}`;
+    case "hoja_numeros":
+      return i.precio ? `Calculando los números a ${i.precio} € en ${nombrePais(String(i.pais ?? ""))}` : "Consultando la hoja de números";
+    case "ver_listing":
+      return `Leyendo el listing real de ${i.asin} en Amazon ${String(i.pais ?? "")}`;
+    case "ver_fotos":
+      return `Mirando las fotos de ${i.asin} en Amazon ${String(i.pais ?? "")}`;
     case "entregar_analisis":
       return "Entrega su análisis a la directora";
+    case "entregar_revision":
+      return "Entrega su revisión a la directora";
     case "preguntar_especialista":
       return `Pregunta a ${EQUIPO.find((m) => m.quien === i.especialista)?.persona ?? i.especialista}: «${String(i.pregunta ?? "").slice(0, 90)}»`;
     case "web_search":
       return `Buscando en internet: «${i.query ?? ""}»`;
+    // The web tools filter what they found by running code on Anthropic's side.
+    case "code_execution":
+    case "bash_code_execution":
+    case "text_editor_code_execution":
+      return "Filtrando lo que encontró en internet";
     case "web_fetch":
       return `Leyendo la página ${String(i.url ?? "").replace(/^https?:\/\//, "").slice(0, 60)}`;
     case "entregar_informe":

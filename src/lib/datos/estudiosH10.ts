@@ -728,7 +728,8 @@ const COMPETIDORES_POR_PAIS = 5;
 const PUNTOS_GUARDADOS = 730;
 const PUNTOS_EN_PAGINA = 120;
 const idAmazon = (pais: string, asin: string) => `${pais}_${asin}`;
-const mkDe = (pais: CodigoPais) => Object.entries(MARKETPLACES).find(([, c]) => c === pais)![0];
+/** The Amazon marketplace id of a study country. */
+export const mkDe = (pais: CodigoPais) => Object.entries(MARKETPLACES).find(([, c]) => c === pais)![0];
 const MARKETPLACES: Record<string, CodigoPais> = { A1RKKUPIHCS9HS: "ES", A1PA6795UKMFR9: "DE", A13V1IB3VIYZZH: "FR", APJ6JRA9NG5V4: "IT", A1F83G8C2ARO7P: "GB" };
 const esAsin = (v: unknown): v is string => typeof v === "string" && /^[A-Z0-9]{10}$/.test(v);
 

@@ -8,6 +8,7 @@ import { EQUIPO, type MiembroEquipo } from "@/lib/datos/h10Equipo";
 import { Markdown } from "@/components/chat/Markdown";
 import { AvatarAgente } from "./AvatarAgente";
 import { FlujoEquipo } from "./FlujoEquipo";
+import { BancoPruebas } from "./BancoPruebas";
 
 const CADA_MS = 1500;
 
@@ -271,6 +272,8 @@ export function PestanaAgentes({ estudioId, informe }: { estudioId: string; info
           );
         })}
       </div>
+
+      <BancoPruebas estudioId={estudioId} />
     </div>
   );
 }
