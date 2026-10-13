@@ -4,14 +4,15 @@ import { useState } from "react";
 import Link from "next/link";
 import type { CodigoPais, EstudioH10, PalabrasMercado } from "@/lib/datos/h10Tipos";
 import { EUR_POR_GBP, nombrePais } from "@/lib/datos/h10Analisis";
-import { auditarListing, colorNota, resumenListings } from "@/lib/datos/h10Listings";
+import { auditarListing, colorNota, listingDe, resumenListings } from "@/lib/datos/h10Listings";
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { Pais, Tarjeta } from "./comun";
 import { FotoGenerica } from "./FotoGenerica";
 
 /**
  * «Listings»: the 10 leaders of the niche as cards, from the one that earns most, each opening its listing audit; at the
- * end, what the leaders get wrong and what they get right. A mock-up until the listing agent exists.
+ * end, what the leaders get wrong and what they get right. Photos and texts are the real ones when a «ficha» JSON
+ * brought the listing; the findings are a mock-up until the listing agent exists.
  */
 export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado> }) {
   const [pais, setPais] = useState<CodigoPais | null>(null);
@@ -20,14 +21,17 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
     .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
     .sort((a, b) => b.eur - a.eur)
     .slice(0, 10)
-    .map((x) => ({ ...x, a: auditarListing(x.c, x.m, palabras[x.m.codigoPais]) }));
+    .map((x) => ({ ...x, a: auditarListing(x.c, x.m, palabras[x.m.codigoPais], listingDe(estudio.listings, x.m.codigoPais, x.c.asin)) }));
   const { fallos, aciertos } = resumenListings(lideres.map((x) => x.a));
   const donde = pais ? `en ${nombrePais(pais)}` : "del nicho";
+  const reales = lideres.filter((x) => x.a.real).length;
 
   return (
     <div className="flex flex-col gap-4">
       <p className="w-fit rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
-        Simulación · fotos genéricas y hallazgos de ejemplo; el título se analiza de verdad con las palabras clave del estudio
+        {reales
+          ? `Fotos y textos reales de Amazon en ${reales} de ${lideres.length} · los fallos y aciertos aún son de ejemplo (salvo el título, las fotos usadas, los bullets, el A+ y el vídeo)`
+          : "Simulación · fotos genéricas y hallazgos de ejemplo; el título se analiza de verdad con las palabras clave del estudio"}
       </p>
 
       <div className="flex flex-wrap gap-1.5">
@@ -52,7 +56,7 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
             const contenido = (
               <>
                 <div className="relative">
-                  <FotoGenerica tono={i} />
+                  <FotoGenerica tono={i} url={a.real?.fotos[0]} />
                   <span className="absolute top-2 left-2 flex size-7 items-center justify-center rounded-full bg-ink-950/85 text-xs font-bold text-ink-50">{i + 1}</span>
                   {/* Dark chip with the score's colour, readable on any photo. */}
                   <span className={`absolute top-2 right-2 rounded-full bg-ink-950/85 px-2 py-0.5 text-xs font-bold ${colorNota(a.nota).split(" ")[1]}`}>{a.nota.toLocaleString("es-ES")}</span>
@@ -62,8 +66,8 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
                     <span className="truncate font-semibold text-ink-50">{c.marca}</span>
                     <Pais codigo={m.codigoPais} corto />
                   </span>
-                  <span className="line-clamp-2 text-xs text-ink-400" title={c.titulo}>
-                    {c.titulo}
+                  <span className="line-clamp-2 text-xs text-ink-400" title={a.titulo}>
+                    {a.titulo}
                   </span>
                   <span className="tabular mt-auto flex flex-wrap items-center gap-x-2 text-xs text-ink-300">
                     <span className="font-semibold text-ink-100">{formatMoneda(c.precio, m.moneda)}</span>
@@ -74,7 +78,7 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
                     ) : null}
                     <span>{formatNumero(c.resenas)} reseñas</span>
                   </span>
-                  <span className="tabular text-xs text-ink-400">{formatMoneda(c.facturacion, m.moneda)}/mes</span>
+                  <span className="tabular text-sm font-semibold text-success">{formatMoneda(c.facturacion, m.moneda)}/mes</span>
                   <span className="flex gap-1.5 text-[11px]">
                     <span className="rounded bg-danger/10 px-1.5 py-0.5 font-medium text-danger">{malos} fallos</span>
                     <span className="rounded bg-success/10 px-1.5 py-0.5 font-medium text-success">{buenos} aciertos</span>

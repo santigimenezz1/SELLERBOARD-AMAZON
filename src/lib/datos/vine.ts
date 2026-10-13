@@ -10,7 +10,7 @@ import { tarifasDeSkus } from "./tarifasVenta";
 import { obtenerGastos } from "./gastos";
 import { adminDb } from "@/lib/firebase/admin";
 import { contarEscrituras, contarLecturas } from "./consumo";
-import type { Pedido } from "./tipos";
+import { esVentaAmazon, type Pedido } from "./tipos";
 import { avisarVine, type ReclamoVine } from "@/lib/telegram";
 
 /*
@@ -42,7 +42,7 @@ export type CuotaVine = { fecha: string | null; mes: string; region: "eu" | "uk"
 
 export async function datosVine(): Promise<{ pedidos: PedidoVine[]; cuotas: CuotaVine[] }> {
   await asegurarAlmacen(await idUltimaSync());
-  const lineas = [...pedidosEnAlmacen().values()].filter((p) => p.ventaTotal === 0 && p.unidades > 0 && p.estado !== "CANCELLED" && !p.amazonOrderId.startsWith("S0"));
+  const lineas = [...pedidosEnAlmacen().values()].filter((p) => p.ventaTotal === 0 && p.unidades > 0 && p.estado !== "CANCELLED" && esVentaAmazon(p));
 
   const costes = new Map<string, number | null>();
   const muestras = new Map<string, Awaited<ReturnType<typeof tarifasDeSkus>>>();
@@ -167,7 +167,7 @@ export async function guardarInscripcionesVine(marketplaceId: string, filas: unk
  * A Vine unit: an order line with a 100 % discount (price 0). Pending lines are left out: before Amazon
  * prices an order, a normal one without list price would also read 0.
  */
-const esLineaVine = (p: Pedido) => p.ventaTotal === 0 && p.unidades > 0 && p.estado !== "CANCELLED" && !/PENDING/i.test(p.estado) && !p.amazonOrderId.startsWith("S0");
+const esLineaVine = (p: Pedido) => p.ventaTotal === 0 && p.unidades > 0 && p.estado !== "CANCELLED" && !/PENDING/i.test(p.estado) && esVentaAmazon(p);
 
 type DocAvisos = { avisados: string[] };
 const ga = globalThis as unknown as { __vineAvisos?: DocAvisos };

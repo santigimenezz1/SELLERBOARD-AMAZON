@@ -29,7 +29,7 @@ const LISTA: ItemLista[] = [
   { id: "resenas", herramienta: "resenas", texto: "Reseñas de los competidores", necesidad: "Recomendable", ambito: "pais", ayuda: "De los 3–5 líderes: Helium 10 → «Review Analysis» → descargar el Excel, uno por producto. La IA los analiza en la pestaña «Reseñas»" },
   { id: "calculadora", herramienta: "calculadora", texto: "Calculadora de Amazon", necesidad: "Imprescindible en 1 país", ambito: "pais", ayuda: "Calculadora de ingresos con el ASIN del líder (captura), o «Traer datos de Amazon» en Competidores, que trae las tarifas de los 5 países solo" },
   { id: "historial", herramienta: "historial", texto: "Historial de ventas (12 meses)", necesidad: "Recomendable", ambito: "pais", ayuda: "Gráficas de ventas, precio y BSR de los 2–3 líderes, en Xray (captura). Imprescindible en tu país principal; en los demás, para ver si la temporada coincide" },
-  { id: "ficha", herramienta: "ficha", texto: "Fichas de los competidores", necesidad: "Recomendable", ambito: "pais", ayuda: "Capturas de la página en Amazon de los 3–5 líderes en ese país (fotos, título, viñetas)" },
+  { id: "ficha", herramienta: "ficha", texto: "Fichas de los competidores", necesidad: "Recomendable", ambito: "pais", ayuda: "«Cargar datos» trae de Amazon los 5 líderes de cada país con Xray (título, viñetas, fotos), o sube capturas de su página" },
   { id: "restricciones", herramienta: "restricciones", texto: "¿Puedes vender en la categoría?", necesidad: "Recomendable", ambito: "principal", ayuda: "Seller Central → Añadir un producto → busca el ASIN del líder (captura)" },
   { id: "proveedor", herramienta: "proveedor", texto: "Precio y cantidad mínima del proveedor", necesidad: "Imprescindible", ambito: "producto", ayuda: "Presupuesto o anuncio del proveedor. También vale con guardar tus costes en «Rentabilidad»" },
   { id: "envio", herramienta: "envio", texto: "Envío hasta Amazon y aduana", necesidad: "Imprescindible", ambito: "producto", ayuda: "Presupuesto del transitario. También vale con guardar tus costes en «Rentabilidad»" },
@@ -64,6 +64,8 @@ const busquedasXray = (archivos: ArchivoH10[], pais: string) =>
 /**
  * «Datos»: upload the study's Helium 10 files, see what's missing per country, and the files kept. `tarifasAuto`:
  * countries with Amazon fees read automatically («Traer datos de Amazon»), which count as the calculator.
+ * `paisesXray`: countries with an Xray, whose leaders' listings «Cargar datos» brings from Amazon; `listingsAuto`:
+ * how many it brought per country, which count as competitors' listings.
  */
 export function PestanaDatos({
   estudioId,
@@ -71,12 +73,16 @@ export function PestanaDatos({
   costesPropios,
   cajaPropia,
   tarifasAuto,
+  paisesXray,
+  listingsAuto,
 }: {
   estudioId: string;
   archivos: ArchivoH10[];
   costesPropios: boolean;
   cajaPropia: boolean;
   tarifasAuto: string[];
+  paisesXray: string[];
+  listingsAuto: Record<string, number>;
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
@@ -136,6 +142,8 @@ export function PestanaDatos({
     // Saving your own costs in «Rentabilidad» counts for the supplier and freight items, your box for its item;
     // Amazon's automatic fees, for the calculator.
     if (it.id === "calculadora" && pais && tarifasAuto.includes(pais)) return n + 1;
+    // Loaded listings and uploaded pages are often the same leaders: the bigger of both, not their sum.
+    if (it.id === "ficha" && pais) return Math.max(n, listingsAuto[pais] ?? 0);
     return n || (((it.id === "proveedor" || it.id === "envio") && costesPropios) || (it.id === "medidas" && cajaPropia) ? 1 : 0);
   };
   const casillas = LISTA_VISIBLE.flatMap((it) => (it.ambito === "pais" ? columnas.map((p) => cuantos(it, p) > 0) : [cuantos(it) > 0]));
@@ -210,7 +218,7 @@ export function PestanaDatos({
             type="file"
             multiple
             hidden
-            accept=".csv,text/csv,image/*,.pdf,.xlsx,.xls"
+            accept=".csv,text/csv,image/*,.pdf,.xlsx,.xls,.json"
             onChange={(e) => {
               void subir([...(e.target.files ?? [])]);
               e.target.value = "";
@@ -258,6 +266,7 @@ export function PestanaDatos({
                     <td className="px-2 py-2" title={it.ayuda}>
                       <span className="font-medium text-ink-100">{it.texto}</span>
                       <span className="block text-[11px] text-ink-500">{it.ayuda}</span>
+                      {it.id === "ficha" && paisesXray.length > 0 && <CargarListings estudioId={estudioId} paises={paisesXray} />}
                     </td>
                     <td className={`px-2 py-2 text-xs whitespace-nowrap ${it.necesidad.startsWith("Imprescindible") ? "text-accent-300" : "text-ink-400"}`}>{it.necesidad}</td>
                     {it.ambito === "pais" ? (
@@ -285,6 +294,60 @@ export function PestanaDatos({
         )}
       </Tarjeta>
     </div>
+  );
+}
+
+/**
+ * «Cargar datos»: brings from Amazon the leaders' listings of every country with an Xray, one country after another,
+ * and says how it went in each.
+ */
+function CargarListings({ estudioId, paises }: { estudioId: string; paises: string[] }) {
+  const router = useRouter();
+  const [enCurso, setEnCurso] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<{ pais: string; texto: string; ok: boolean }[]>([]);
+
+  const cargar = async () => {
+    setResultado([]);
+    const hechos: { pais: string; texto: string; ok: boolean }[] = [];
+    for (const p of paises) {
+      setEnCurso(p);
+      try {
+        const r = await fetch(`/api/h10/estudios/${estudioId}/listings`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pais: p }) });
+        const b = (await r.json().catch(() => ({}))) as { error?: string; listings?: unknown[] };
+        if (!r.ok) throw new Error(b.error ?? `error ${r.status}`);
+        const n = b.listings?.length ?? 0;
+        hechos.push({ pais: p, ok: true, texto: `${n} ${n === 1 ? "listing" : "listings"}` });
+      } catch (e) {
+        hechos.push({ pais: p, ok: false, texto: e instanceof Error ? e.message : "no se pudo cargar" });
+      }
+      setResultado([...hechos]);
+    }
+    setEnCurso(null);
+    router.refresh();
+  };
+
+  return (
+    <span className="mt-1.5 flex flex-col items-start gap-1">
+      <button
+        onClick={() => void cargar()}
+        disabled={!!enCurso}
+        title="Trae de Amazon el título, las viñetas, la descripción y las fotos de los 5 líderes de cada país (uno por familia de variantes). Se ven en «Listings»"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md bg-success px-2.5 text-xs font-semibold text-ink-950 transition-all hover:brightness-110 active:scale-[0.97] disabled:opacity-60"
+      >
+        {enCurso ? (
+          <>
+            <Spinner tamano="sm" /> Cargando {nombrePais(enCurso)}…
+          </>
+        ) : (
+          "Cargar datos"
+        )}
+      </button>
+      {resultado.map((x) => (
+        <span key={x.pais} className={`text-[11px] ${x.ok ? "text-success" : "text-danger"}`}>
+          {nombrePais(x.pais)}: {x.texto}
+        </span>
+      ))}
+    </span>
   );
 }
 

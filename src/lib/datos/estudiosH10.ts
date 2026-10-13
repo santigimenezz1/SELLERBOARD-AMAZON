@@ -10,7 +10,7 @@ import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, resenasD
 import { agruparTemasResenas, quejasPorEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
 import { resenasDesdeExcel } from "./h10Excel";
 import { mensajeError } from "@/lib/ia/errores";
-import { fichasCompetidores, ofertasCompetidor, preciosCompetidores, tarifasCompetidor } from "@/lib/amazon/apis";
+import { fichasCompetidores, fichasConFamilia, ofertasCompetidor, preciosCompetidores, tarifasCompetidor, type ItemCatalogoConFamilia } from "@/lib/amazon/apis";
 import { marketplaceConocido } from "./marketplacesConocidos";
 import {
   HERRAMIENTAS_H10,
@@ -38,7 +38,9 @@ import {
   type InformeEstrategico,
   type PalabraClave,
   type PalabrasMercado,
+  type ListingAmazon,
 } from "./h10Tipos";
+import { listingsDesdeJson } from "./h10Fichas";
 
 /*
  * Stored Helium 10 studies.
@@ -74,9 +76,15 @@ type DatosArchivo = {
   resenasH10?: ResenasH10;
   /** Every review of one competitor (Review Downloader CSV). */
   resenasCompletas?: { asin: string | null; resenas: ResenaCompleta[] };
+  /** Competitors' listings as their Amazon pages show them («ficha» JSON). */
+  listings?: ListingAmazon[];
 };
-/** `amazon`: competitors read from Amazon, by «country|ASIN» (stored in `estudiosH10/{id}/amazon/{country}_{ASIN}`). */
-type Entrada = { estudio: EstudioGuardado; datos: Map<string, DatosArchivo>; amazon: Map<string, SeguimientoAmazon> };
+/**
+ * `amazon`: competitors read from Amazon, by «country|ASIN» (stored in `estudiosH10/{id}/amazon/{country}_{ASIN}`).
+ * `listings`: the leaders' listings loaded from Amazon's catalog («Cargar datos»), by «country|ASIN» (stored in
+ * `estudiosH10/{id}/listings/{country}_{ASIN}`).
+ */
+type Entrada = { estudio: EstudioGuardado; datos: Map<string, DatosArchivo>; amazon: Map<string, SeguimientoAmazon>; listings: Map<string, ListingAmazon> };
 
 export const TAMANO_MAXIMO_H10 = 15 * 1024 * 1024;
 /** Keywords per country sent to the page (the rest stay stored). */
@@ -85,7 +93,7 @@ const PALABRAS_EN_PAGINA = 400;
 const MAX_RIVALES = 5;
 
 // Renamed when the cached shape changes, so a server reloaded in development doesn't reuse an old one.
-const g = globalThis as unknown as { __estudiosH10v2?: Map<string, Entrada> };
+const g = globalThis as unknown as { __estudiosH10v3?: Map<string, Entrada> };
 const col = () => adminDb().collection("estudiosH10");
 const ruta = (id: string, a: Pick<ArchivoH10, "id" | "nombre">) => `h10/${id}/${a.id}/${a.nombre}`;
 const texto = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -101,20 +109,21 @@ const sinAcentos = (t: string) =>
 const nombreArchivo = (n: string) => n.normalize("NFKD").replace(/[^\w.\- ]+/g, "").replace(/\s+/g, "_").slice(-120) || "archivo";
 
 async function cargar(): Promise<Map<string, Entrada>> {
-  if (g.__estudiosH10v2) return g.__estudiosH10v2;
+  if (g.__estudiosH10v3) return g.__estudiosH10v3;
   const snap = await col().get();
   contarLecturas(Math.max(snap.size, 1));
   const mapa = new Map<string, Entrada>();
   for (const d of snap.docs) {
-    const [datos, amazon] = await Promise.all([d.ref.collection("datos").get(), d.ref.collection("amazon").get()]);
-    contarLecturas(Math.max(datos.size, 1) + Math.max(amazon.size, 1));
+    const [datos, amazon, listings] = await Promise.all([d.ref.collection("datos").get(), d.ref.collection("amazon").get(), d.ref.collection("listings").get()]);
+    contarLecturas(Math.max(datos.size, 1) + Math.max(amazon.size, 1) + Math.max(listings.size, 1));
     mapa.set(d.id, {
       estudio: { id: d.id, ...(d.data() as Omit<EstudioGuardado, "id">) },
       datos: new Map(datos.docs.map((x) => [x.id, x.data() as DatosArchivo])),
       amazon: new Map(amazon.docs.map((x) => { const v = x.data() as SeguimientoAmazon; return [`${v.ficha.codigoPais}|${v.ficha.asin}`, v]; })),
+      listings: new Map(listings.docs.map((x) => { const l = x.data() as ListingAmazon; return [`${l.codigoPais}|${l.asin}`, l]; })),
     });
   }
-  g.__estudiosH10v2 = mapa;
+  g.__estudiosH10v3 = mapa;
   return mapa;
 }
 
@@ -138,7 +147,7 @@ export async function crearEstudio(datos: { nombre?: unknown; descripcion?: unkn
   const ahora = new Date().toISOString();
   const estudio: EstudioGuardado = { id: randomUUID(), nombre, descripcion: texto(datos.descripcion, 200), creadoEn: ahora, actualizadoEn: ahora, archivos: [] };
   await guardarEstudio(estudio);
-  (await cargar()).set(estudio.id, { estudio, datos: new Map(), amazon: new Map() });
+  (await cargar()).set(estudio.id, { estudio, datos: new Map(), amazon: new Map(), listings: new Map() });
   return estudio.id;
 }
 
@@ -187,8 +196,9 @@ export async function borrarEstudio(id: string): Promise<void> {
   await bucket().deleteFiles({ prefix: `h10/${id}/` });
   for (const archivoId of e.datos.keys()) await col().doc(id).collection("datos").doc(archivoId).delete();
   for (const v of e.amazon.values()) await col().doc(id).collection("amazon").doc(idAmazon(v.ficha.codigoPais, v.ficha.asin)).delete();
+  for (const l of e.listings.values()) await col().doc(id).collection("listings").doc(idAmazon(l.codigoPais, l.asin)).delete();
   await col().doc(id).delete();
-  contarEscrituras(e.datos.size + e.amazon.size + 1);
+  contarEscrituras(e.datos.size + e.amazon.size + e.listings.size + 1);
   (await cargar()).delete(id);
 }
 
@@ -232,6 +242,22 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
     datos: { herramienta: h, codigoPais: pais },
   });
   try {
+    // Competitors' listings (title, bullets, photos…) as JSON: read straight from the file, no AI.
+    if (/\.json$/i.test(archivo.name) || archivo.type === "application/json") {
+      const listings = listingsDesdeJson(datos.toString("utf8"), fecha);
+      if (!listings) throw new Error("El JSON no trae listings con ASIN, país y título");
+      const paises = [...new Set(listings.map((l) => l.codigoPais))];
+      const porPais = paises.map((p) => `${p} ${listings.filter((l) => l.codigoPais === p).length}`).join(", ");
+      return {
+        meta: {
+          herramienta: "ficha",
+          codigoPais: paises.length === 1 ? paises[0] : null,
+          estado: "procesado",
+          resumen: `Fichas de competidores (datos y fotos) · ${listings.length} ${listings.length === 1 ? "listing" : "listings"} · ${porPais}`,
+        },
+        datos: { herramienta: "ficha", codigoPais: paises.length === 1 ? paises[0] : null, listings },
+      };
+    }
     const esCsv = /\.csv$/i.test(archivo.name) || archivo.type === "text/csv";
     if (esCsv) {
       const filas = leerCsv(datos.toString("utf8"));
@@ -459,7 +485,7 @@ export type EstudioParaVista = {
 };
 
 /** Per country: the latest Xray, and the keywords of every Cerebro and Magnet merged (a keyword once, with its best data). */
-function ensamblar({ estudio, datos, amazon }: Entrada): EstudioParaVista {
+function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): EstudioParaVista {
   const subido = new Map(estudio.archivos.map((a) => [a.id, a.subidoEn]));
   const lista = [...datos.entries()].sort((a, b) => (subido.get(b[0]) ?? "").localeCompare(subido.get(a[0]) ?? ""));
 
@@ -556,6 +582,8 @@ function ensamblar({ estudio, datos, amazon }: Entrada): EstudioParaVista {
       // The page only needs the last months of the follow-up.
       amazon: [...amazon.values()].map((v) => ({ ficha: v.ficha, puntos: v.puntos.slice(-PUNTOS_EN_PAGINA) })),
       asinsManuales: estudio.asinsManuales ?? [],
+      // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
+      listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],
     },
     paresAmazon: paresAmazon([...mercados.values()], estudio.asinsManuales ?? []),
     palabras,
@@ -840,6 +868,120 @@ export async function asinManual(id: string, asin: unknown, accion: "agregar" | 
     }
   }
   await guardarEstudio(e.estudio);
+}
+
+// ---------- Leaders' listings from Amazon's catalog («Cargar datos») ----------
+
+/** Listings loaded per country: the leaders by revenue of the ASIN (not of its family), one per variation family. */
+const LISTINGS_POR_PAIS = 5;
+/** ASINs asked to find them: enough to skip the variations of the same family. */
+const CANDIDATOS = 15;
+const IDIOMA: Record<CodigoPais, string> = { ES: "es", DE: "de", FR: "fr", IT: "it", GB: "en" };
+
+/**
+ * The leaders' listings of one country from Amazon's catalog: title, bullets, description, photos, features and
+ * ranks, in that country's language. From the latest Xray, the ASINs that earn most, skipping the variations of a
+ * family already taken. Replaces what the catalog gave before for that country (pages read from a «ficha» JSON stay).
+ */
+export async function cargarListingsAmazon(id: string, pais: unknown): Promise<ListingAmazon[]> {
+  if (!esCodigoPais(pais)) throw new Error("País no válido");
+  const e = await entrada(id);
+  const m = ensamblar(e).estudio.mercados.find((x) => x.codigoPais === pais);
+  if (!m) throw new Error(`Falta el Xray de ${nombrePais(pais)}`);
+  const orden = [...m.competidores].filter((c) => c.asin && esAsin(c.asin)).sort((a, b) => b.facturacion - a.facturacion);
+  const candidatos = [...new Set(orden.map((c) => c.asin!))].slice(0, CANDIDATOS);
+  if (!candidatos.length) throw new Error(`El Xray de ${nombrePais(pais)} no trae ASIN`);
+  const mk = mkDe(pais);
+  const items = new Map((await fichasConFamilia(candidatos, mk)).map((it) => [it.asin, it]));
+  const relaciones = (it: ItemCatalogoConFamilia) => it.relationships?.find((r) => r.marketplaceId === mk)?.relationships ?? it.relationships?.[0]?.relationships ?? [];
+  const padreDe = (it: ItemCatalogoConFamilia) => relaciones(it).find((r) => r.parentAsins?.length)?.parentAsins?.[0] ?? null;
+
+  // One per family, in revenue order.
+  const elegidos: ItemCatalogoConFamilia[] = [];
+  const familiasVistas = new Set<string>();
+  for (const asin of candidatos) {
+    const it = items.get(asin);
+    if (!it) continue;
+    const familia = padreDe(it) ?? asin;
+    if (familiasVistas.has(familia)) continue;
+    familiasVistas.add(familia);
+    elegidos.push(it);
+    if (elegidos.length === LISTINGS_POR_PAIS) break;
+  }
+  if (!elegidos.length) throw new Error(`Amazon no dio ninguno de los líderes de ${nombrePais(pais)}`);
+
+  // The siblings of each family, from its parent.
+  const padres = [...new Set(elegidos.map(padreDe).filter((x): x is string => !!x))];
+  const hijos = new Map((await fichasConFamilia(padres, mk)).map((p) => [p.asin, relaciones(p).flatMap((r) => r.childAsins ?? [])]));
+
+  const idioma = IDIOMA[pais];
+  type Valor = { value?: unknown; language_tag?: string };
+  const valores = (it: ItemCatalogoConFamilia, clave: string) => {
+    const todos = (it.attributes?.[clave] ?? []) as Valor[];
+    const suyos = todos.filter((v) => !v.language_tag || v.language_tag.startsWith(idioma));
+    return (suyos.length ? suyos : todos).map((v) => (typeof v.value === "string" ? v.value.trim() : "")).filter(Boolean);
+  };
+  const leidoEn = new Date().toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/Madrid" });
+  const listings = elegidos.map((it): ListingAmazon => {
+    const c = orden.find((x) => x.asin === it.asin)!;
+    const s = it.summaries?.find((x) => x.marketplaceId === mk) ?? it.summaries?.[0];
+    // One photo per slot (MAIN, PT01…), the biggest of each, the main one first.
+    const fotos = new Map<string, string>();
+    const imagenes = it.images?.find((g) => g.marketplaceId === mk)?.images ?? it.images?.[0]?.images ?? [];
+    for (const f of [...imagenes].sort((a, b) => b.width - a.width)) if (!fotos.has(f.variant)) fotos.set(f.variant, f.link);
+    const rangos = it.salesRanks?.find((r) => r.marketplaceId === mk) ?? it.salesRanks?.[0];
+    const peso = it.dimensions?.find((d) => d.marketplaceId === mk)?.item?.weight ?? it.dimensions?.[0]?.item?.weight;
+    const padre = padreDe(it);
+    const moneda = m.moneda === "GBP" ? "£" : "€";
+    return {
+      asin: it.asin,
+      codigoPais: pais,
+      parent: padre,
+      familia: padre ? [...new Set([...(hijos.get(padre) ?? []), it.asin])] : [],
+      url: `https://www.amazon.${pais === "GB" ? "co.uk" : pais.toLowerCase()}/dp/${it.asin}`,
+      titulo: valores(it, "item_name")[0] ?? s?.itemName ?? c.titulo,
+      marca: s?.brand ?? c.marca,
+      precio: null,
+      precioXray: c.precio ? `${c.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moneda}` : null,
+      valoracion: c.valoracion ? `${c.valoracion.toLocaleString("es-ES")} de 5 estrellas` : null,
+      resenas: c.resenas ? String(c.resenas) : null,
+      vinetas: valores(it, "bullet_point"),
+      caracteristicas: [
+        ...(s?.color ? [`Color: ${s.color}`] : []),
+        ...(s?.size ? [`Tamaño: ${s.size}`] : []),
+        ...valores(it, "material").slice(0, 1).map((v) => `Material: ${v}`),
+        ...(s?.modelNumber ? [`Modelo: ${s.modelNumber}`] : []),
+      ],
+      detalles: [
+        ...(rangos?.displayGroupRanks ?? []).map((r) => `Nº ${r.rank.toLocaleString("es-ES")} en ${r.title}`),
+        ...(rangos?.classificationRanks ?? []).map((r) => `Nº ${r.rank.toLocaleString("es-ES")} en ${r.title}`),
+        ...(peso?.value ? [`Peso: ${peso.value.toLocaleString("es-ES", { maximumFractionDigits: 2 })} ${peso.unit ?? ""}`.trim()] : []),
+        ...(padre ? [`Variantes (mismo parent ${padre}): ${(hijos.get(padre) ?? []).slice(0, 10).join(", ") || "—"}`] : []),
+      ],
+      descripcion: valores(it, "product_description")[0] ?? null,
+      video: false,
+      fotos: [...fotos.entries()].sort(([a], [b]) => (a === "MAIN" ? -1 : b === "MAIN" ? 1 : a.localeCompare(b))).map(([, url]) => url).slice(0, 12),
+      aplusTexto: null,
+      aplusFotos: [],
+      historiaMarca: null,
+      leidoEn,
+      fuente: "catalogo",
+    };
+  });
+
+  // The country's earlier catalog listings go: the leaders may have changed.
+  const refs = col().doc(id).collection("listings");
+  for (const [clave, l] of [...e.listings]) {
+    if (l.codigoPais !== pais) continue;
+    await refs.doc(idAmazon(l.codigoPais, l.asin)).delete();
+    e.listings.delete(clave);
+  }
+  for (const l of listings) {
+    await refs.doc(idAmazon(l.codigoPais, l.asin)).set(JSON.parse(JSON.stringify(l)));
+    e.listings.set(`${l.codigoPais}|${l.asin}`, l);
+  }
+  contarEscrituras(listings.length * 2);
+  return listings;
 }
 
 // ---------- Daily follow-up ----------

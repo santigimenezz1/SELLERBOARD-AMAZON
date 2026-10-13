@@ -1,7 +1,7 @@
 import "server-only";
 
 import { adminDb } from "@/lib/firebase/admin";
-import type { Pedido } from "@/lib/datos/tipos";
+import { esVentaAmazon, type Pedido } from "@/lib/datos/tipos";
 import type { CorreoCliente } from "@/lib/gmail";
 import { pedidosEnAlmacen } from "@/lib/datos/almacen";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
@@ -147,7 +147,7 @@ function ventasDeHoy(): Map<string, { numero: number; acumuladas: number }> {
   const hoy = diaMadrid(new Date());
   const porPedido = new Map<string, { fecha: number; unidades: number }>();
   for (const p of pedidosEnAlmacen().values()) {
-    if (p.estado === "CANCELLED" || diaMadrid(p.fecha) !== hoy) continue;
+    if (p.estado === "CANCELLED" || !esVentaAmazon(p) || diaMadrid(p.fecha) !== hoy) continue;
     const v = porPedido.get(p.amazonOrderId) ?? { fecha: p.fecha.getTime(), unidades: 0 };
     v.unidades += p.unidades;
     porPedido.set(p.amazonOrderId, v);

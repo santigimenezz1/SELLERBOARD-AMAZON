@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { estudiosParaVista } from "@/lib/datos/estudiosH10";
 import { nombrePais } from "@/lib/datos/h10Analisis";
-import { auditarListing, colorNota } from "@/lib/datos/h10Listings";
+import { auditarListing, colorNota, listingDe } from "@/lib/datos/h10Listings";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { esCodigoPais } from "@/lib/datos/h10Tipos";
 import { formatMoneda, formatNumero } from "@/lib/format";
@@ -19,7 +19,8 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
   const m = v?.estudio.mercados.find((x) => x.codigoPais === pais);
   const c = m?.competidores.find((x) => x.asin === asin);
   if (!v || !m || !c) notFound();
-  const a = auditarListing(c, m, v.palabras[pais]);
+  const real = listingDe(v.estudio.listings, pais, asin);
+  const a = auditarListing(c, m, v.palabras[pais], real);
   const titulo = a.partes.find((p) => p.id === "titulo")!;
   const resto = a.partes.filter((p) => p.id !== "titulo");
   const malos = a.partes.reduce((t, p) => t + p.mal.length, 0);
@@ -32,11 +33,15 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
       </Link>
 
       <p className="w-fit rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
-        Simulación · fotos genéricas y hallazgos de ejemplo; el título se analiza de verdad
+        {real?.fuente === "catalogo"
+          ? `Fotos, título, bullets y descripción reales del catálogo de Amazon (cargados el ${real.leidoEn}${real.asin !== asin ? `, del listing de su variante ${real.asin}` : ""}) · el A+ y el vídeo no los da Amazon por API, así que siguen de ejemplo, igual que los fallos y aciertos`
+          : real
+          ? `Fotos, título, bullets, descripción y A+ reales de Amazon (leídos el ${real.leidoEn}${real.asin !== asin ? `, del listing de su variante ${real.asin}` : ""}) · los fallos y aciertos aún son de ejemplo, salvo los que solo cuentan fotos, bullets, A+ y vídeo`
+          : "Simulación · fotos genéricas y hallazgos de ejemplo; el título se analiza de verdad"}
       </p>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <FotoGenerica tono={asin.charCodeAt(5)} className="w-40 shrink-0" />
+        <FotoGenerica tono={asin.charCodeAt(5)} url={real?.fotos[0]} className="w-40 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-2 text-xs text-ink-400">
             <Pais codigo={pais} />
@@ -52,7 +57,7 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
             </Link>
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{c.marca}</h1>
-          <p className="mt-1 text-sm text-ink-300">{c.titulo}</p>
+          <p className="mt-1 text-sm text-ink-300">{a.titulo}</p>
           <p className="tabular mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-300">
             <span className="font-semibold text-ink-100">{formatMoneda(c.precio, m.moneda)}</span>
             {c.valoracion ? (
@@ -60,7 +65,7 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
                 <span className="text-accent-400">★</span> {c.valoracion.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} · {formatNumero(c.resenas)} reseñas
               </span>
             ) : null}
-            <span>{formatMoneda(c.facturacion, m.moneda)}/mes</span>
+            <span className="font-semibold text-success">{formatMoneda(c.facturacion, m.moneda)}/mes</span>
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
@@ -89,7 +94,9 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {a.fotos.map((f) => (
             <div key={f.n} className="flex flex-col gap-1.5">
-              <FotoGenerica n={f.n} tipo={f.tipo} tono={f.n} className={`border-2 ${BORDE_FOTO[f.estado]}`} />
+              <a href={f.url ?? undefined} target="_blank" rel="noreferrer" className={f.url ? "" : "pointer-events-none"}>
+                <FotoGenerica n={f.n} tipo={f.tipo} tono={f.n} url={f.url} className={`border-2 ${BORDE_FOTO[f.estado]}`} />
+              </a>
               <span className="flex items-center justify-between gap-2 text-xs">
                 <span className="truncate text-ink-300">{f.tipo}</span>
                 <span className={`rounded px-1.5 font-bold ${colorNota(f.nota)}`}>{f.nota.toLocaleString("es-ES")}</span>
@@ -112,7 +119,7 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
           {a.fotos.map((f) => (
             <li key={f.n} className="grid gap-4 py-4 first:pt-1 sm:grid-cols-[120px_1fr]">
               <div className="flex flex-col gap-1.5">
-                <FotoGenerica n={f.n} tipo={f.tipo} tono={f.n} className={`border-2 ${BORDE_FOTO[f.estado]}`} />
+                <FotoGenerica n={f.n} tipo={f.tipo} tono={f.n} url={f.url} className={`border-2 ${BORDE_FOTO[f.estado]}`} />
                 <span className={`w-fit rounded px-1.5 text-sm font-bold ${colorNota(f.nota)}`}>{f.nota.toLocaleString("es-ES")}</span>
               </div>
               <div className="flex min-w-0 flex-col gap-2 text-sm">
@@ -177,7 +184,7 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
 
       <Tarjeta titulo="Título" subtitulo="Analizado con las palabras clave más buscadas del Cerebro de este país">
         <div className="mt-3 flex flex-col gap-3">
-          <p className="rounded-lg border border-white/[0.06] bg-ink-950/50 px-4 py-3 text-[15px] text-ink-100">{c.titulo}</p>
+          <p className="rounded-lg border border-white/[0.06] bg-ink-950/50 px-4 py-3 text-[15px] text-ink-100">{a.titulo}</p>
           <p className="text-xs text-ink-400">
             {a.tituloInfo.caracteres} caracteres · en el móvil se ven unos 80 · Amazon permite hasta 200
             <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
@@ -213,12 +220,25 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
               </div>
               {p.id === "bullets" && (
                 <ul className="mt-3 flex flex-col gap-1.5 rounded-lg border border-white/[0.06] bg-ink-950/50 px-4 py-3 text-sm text-ink-300">
-                  {a.bullets.map((t) => (
-                    <li key={t}>• {t}</li>
-                  ))}
+                  {a.bullets.length ? a.bullets.map((t, i) => <li key={i}>• {t}</li>) : <li className="text-ink-500">Sin bullets</li>}
                 </ul>
               )}
-              {p.id === "descripcion" && <p className="mt-3 rounded-lg border border-white/[0.06] bg-ink-950/50 px-4 py-3 text-sm text-ink-300">{a.descripcion}</p>}
+              {p.id === "descripcion" && (
+                <p className="mt-3 rounded-lg border border-white/[0.06] bg-ink-950/50 px-4 py-3 text-sm whitespace-pre-line text-ink-300">
+                  {a.descripcion || <span className="text-ink-500">Sin descripción de texto{a.aplus ? " (la sustituye el A+)" : ""}</span>}
+                </p>
+              )}
+              {p.id === "aplus" && real && (real.aplusFotos.length > 0 || real.aplusTexto) && (
+                <div className="mt-3 flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-ink-950/50 p-3">
+                  {real.aplusFotos.map((u) => (
+                    <a key={u} href={u} target="_blank" rel="noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- Amazon's own A+ image */}
+                      <img src={u} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full rounded bg-white" />
+                    </a>
+                  ))}
+                  {real.aplusTexto && <p className="px-1 text-xs whitespace-pre-line text-ink-400">{real.aplusTexto}</p>}
+                </div>
+              )}
               <div className="mt-3">
                 <Hallazgos bien={p.bien} mal={p.mal} mejora={p.mejora} />
               </div>
@@ -226,8 +246,25 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
           ))}
       </div>
 
+      {real && (real.caracteristicas.length > 0 || real.detalles.length > 0 || real.historiaMarca) && (
+        <Tarjeta titulo="Ficha técnica en Amazon" subtitulo="Tal como la muestra su página: características, detalles del producto y la historia de la marca">
+          <div className="mt-3 grid gap-4 text-sm lg:grid-cols-2">
+            {[...real.caracteristicas, ...real.detalles].length > 0 && (
+              <ul className="flex flex-col gap-1 text-ink-300">
+                {[...new Set([...real.caracteristicas, ...real.detalles])].map((t) => (
+                  <li key={t}>· {t}</li>
+                ))}
+              </ul>
+            )}
+            {real.historiaMarca && <p className="whitespace-pre-line text-ink-400">{real.historiaMarca}</p>}
+          </div>
+        </Tarjeta>
+      )}
+
       <p className="text-xs text-ink-500">
-        En la versión real, el agente de listings leerá la ficha completa de Amazon {nombrePais(pais)} (fotos, A+, vídeo) y la comparará con las reseñas y las palabras clave del estudio.
+        {real
+          ? `El agente de listings comparará esta ficha de Amazon ${nombrePais(pais)} con las reseñas y las palabras clave del estudio para escribir los fallos y aciertos de verdad.`
+          : `En la versión real, el agente de listings leerá la ficha completa de Amazon ${nombrePais(pais)} (fotos, A+, vídeo) y la comparará con las reseñas y las palabras clave del estudio.`}
       </p>
     </div>
   );

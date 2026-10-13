@@ -148,6 +148,8 @@ export function VistaH10({
           costesPropios={!!costesPropios[estudio.id]}
           cajaPropia={cajaCompleta(estudio.supuestos?.miCaja)}
           tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
+          paisesXray={estudio.mercados.map((m) => m.codigoPais)}
+          listingsAuto={(estudio.listings ?? []).filter((l) => l.fuente === "catalogo").reduce<Record<string, number>>((t, l) => ({ ...t, [l.codigoPais]: (t[l.codigoPais] ?? 0) + 1 }), {})}
         />}
       {pestana === "mercado" &&
         (resumen ? (

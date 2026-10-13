@@ -37,7 +37,8 @@ export type PedidoAmazon = {
   orderId: string;
   createdTime: string;
   lastUpdatedTime: string;
-  salesChannel: { marketplaceId?: string; marketplaceName?: string };
+  /** Removals and Multi-Channel shipments come as channel «Non-Amazon». */
+  salesChannel: { marketplaceId?: string; marketplaceName?: string; channelName?: string };
   fulfillment?: { fulfillmentStatus?: string };
   orderItems: {
     orderItemId: string;
@@ -372,6 +373,23 @@ export async function fichasCatalogo(asins: string[], marketplaceId: string, loc
     marketplaceIds: marketplaceId,
     includedData: ["attributes", "images", "summaries", "salesRanks", "dimensions"],
     locale,
+    pageSize: 20,
+  });
+  return res.items ?? [];
+}
+
+export type ItemCatalogoConFamilia = ItemCatalogoCompleto & {
+  relationships?: { marketplaceId: string; relationships?: { type?: string; parentAsins?: string[]; childAsins?: string[] }[] }[];
+};
+
+/** Like `fichasCatalogo`, plus each item's variation family (its parent, or its children when it is the parent). */
+export async function fichasConFamilia(asins: string[], marketplaceId: string): Promise<ItemCatalogoConFamilia[]> {
+  if (!asins.length) return [];
+  const res = await spGet<{ items?: ItemCatalogoConFamilia[] }>("/catalog/2022-04-01/items", {
+    identifiers: asins.slice(0, 20),
+    identifiersType: "ASIN",
+    marketplaceIds: marketplaceId,
+    includedData: ["attributes", "images", "summaries", "salesRanks", "dimensions", "relationships"],
     pageSize: 20,
   });
   return res.items ?? [];

@@ -12,7 +12,7 @@ import { datosVine, inscripcionesVine } from "@/lib/datos/vine";
 import { todasLasDevoluciones } from "@/lib/datos/devoluciones";
 import { CATEGORIAS_POLITICAS, obtenerEstadoCuenta } from "@/lib/datos/estadoCuenta";
 import { listarTickets } from "@/lib/datos/tickets";
-import type { Marketplace } from "@/lib/datos/tipos";
+import { esVentaAmazon, type Marketplace } from "@/lib/datos/tipos";
 
 /*
  * The read-only tools the chat's AI can call to answer questions about the shop. Each one wraps the same
@@ -138,7 +138,7 @@ const HERRAMIENTAS: Record<string, Herramienta> = {
       const grupos = new Map<string, { pais: string; sku: string; moneda: string; precio: number; unidades: number; pedidos: Set<string> }>();
       const sinPrecio = new Map<string, number>();
       for (const p of pedidosEnAlmacen().values()) {
-        if (p.estado === "CANCELLED" || p.unidades <= 0 || (mk && p.marketplaceId !== mk) || (sku && p.sku !== sku)) continue;
+        if (p.estado === "CANCELLED" || p.unidades <= 0 || !esVentaAmazon(p) || (mk && p.marketplaceId !== mk) || (sku && p.sku !== sku)) continue;
         const dia = diaMadrid(p.fecha);
         if (dia < desde || dia > hasta) continue;
         const pais = codigo.get(p.marketplaceId) ?? p.marketplaceId;

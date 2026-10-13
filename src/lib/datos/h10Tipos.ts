@@ -75,6 +75,8 @@ export type EstudioH10 = {
   informe?: InformeEstrategico;
   /** Older Xrays of each country (without their competitors): more months to work out revenue per search. */
   xraysAnteriores?: Partial<Record<CodigoPais, MercadoXray[]>>;
+  /** Competitors' real listings (title, bullets, photos…) from «ficha» JSON files, the newest of each country and ASIN. */
+  listings?: ListingAmazon[];
   /** A built-in sample study (not stored, can't be changed). */
   ejemplo?: boolean;
 };
@@ -163,6 +165,40 @@ export type FichaAmazon = {
 export type PuntoSeguimiento = { dia: string; precio: number | null; ofertas: number | null; rank: number | null };
 
 export type SeguimientoAmazon = { ficha: FichaAmazon; puntos: PuntoSeguimiento[] };
+
+/**
+ * A competitor's listing as its Amazon page shows it (a «ficha» JSON file): texts in the marketplace's language and
+ * the photos' links on Amazon. `familia`: the ASINs of its variations (colours, sizes), which share this listing.
+ */
+export type ListingAmazon = {
+  asin: string;
+  codigoPais: CodigoPais;
+  parent: string | null;
+  familia: string[];
+  url: string;
+  titulo: string;
+  marca: string;
+  /** As the page showed it (it may lack it), and the Xray's. */
+  precio: string | null;
+  precioXray: string | null;
+  valoracion: string | null;
+  resenas: string | null;
+  vinetas: string[];
+  caracteristicas: string[];
+  detalles: string[];
+  descripcion: string | null;
+  video: boolean;
+  fotos: string[];
+  aplusTexto: string | null;
+  aplusFotos: string[];
+  historiaMarca: string | null;
+  leidoEn: string;
+  /**
+   * «pagina»: read from the Amazon page (a «ficha» JSON); «catalogo»: from Amazon's catalog API («Cargar datos»),
+   * which has no A+ nor video, so those stay unknown.
+   */
+  fuente?: "pagina" | "catalogo";
+};
 
 export const SUPUESTOS_INICIALES: SupuestosRentabilidad = { costeFabrica: 20, envioUnidad: 6, conversion: 10, devoluciones: 5, mesesStock: 2, lanzamiento: 1500 };
 

@@ -2,7 +2,7 @@ import "server-only";
 
 import { FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
-import { calcularBeneficio, redondear, type Marketplace, type Pedido } from "@/lib/datos/tipos";
+import { calcularBeneficio, esVentaAmazon, redondear, type Marketplace, type Pedido } from "@/lib/datos/tipos";
 import { nombrePais } from "@/lib/datos/paises";
 import { ivaIncluido } from "@/lib/datos/iva";
 import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketplacesConocidos";
@@ -583,6 +583,9 @@ async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace
     const fecha = new Date(p.createdTime);
     const marketplaceId = p.salesChannel.marketplaceId ?? "";
     const mk = porId.get(marketplaceId);
+    // Removals and Multi-Channel shipments: kept, but not a sale (see esVentaAmazon).
+    const canal = `${p.salesChannel.channelName ?? ""} ${p.salesChannel.marketplaceName ?? ""}`;
+    const noAmazon = /non-amazon/i.test(canal) || !esVentaAmazon({ amazonOrderId: p.orderId });
     let esNuevo = true;
     try {
       const lineas: Pedido[] = [];
@@ -639,11 +642,13 @@ async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace
           moneda,
           tipoCambio,
           sincronizadoEn: new Date(),
+          ...(noAmazon && { noAmazon: true }),
         });
       }
       let cambiado = false;
       for (const l of lineas) cambiado = esc.set("pedidos", l.id, l) || cambiado;
-      if (esNuevo) {
+      // A removal is no new sale to announce.
+      if (esNuevo && !noAmazon) {
         nuevos++;
         lineasNuevas.push(...lineas);
       }

@@ -37,7 +37,19 @@ export type Pedido = {
   moneda: string;
   tipoCambio: number;
   sincronizadoEn: Date;
+  /**
+   * true cuando no es una venta en Amazon: una retirada de inventario o un envío Multi-Channel (canal «Non-Amazon»).
+   * Se guarda pero no cuenta en ventas, pedidos ni unidades (ver esVentaAmazon).
+   */
+  noAmazon?: boolean;
 };
+
+/**
+ * ¿Es una venta en Amazon? Las retiradas de inventario y los envíos Multi-Channel salen en la API de pedidos con el
+ * canal «Non-Amazon» y un ID «S01-…»/«S02-…» (las ventas llevan 3 cifras: 171-…, 302-…), a 0 €. El prefijo sirve
+ * también para los pedidos guardados antes de que existiera `noAmazon`.
+ */
+export const esVentaAmazon = (p: { amazonOrderId: string; noAmazon?: boolean }) => !p.noAmazon && !/^S\d/.test(p.amazonOrderId);
 
 /** Colección `costesProducto`. Id: el SKU (codificado, ver idDocSku). */
 export type CosteProducto = {

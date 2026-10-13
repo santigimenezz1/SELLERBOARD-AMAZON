@@ -2,6 +2,7 @@ import "server-only";
 
 import { asegurarAlmacen, pedidosEnAlmacen } from "./almacen";
 import { idUltimaSync } from "./panel";
+import { esVentaAmazon } from "./tipos";
 import { diaMadrid } from "./fechas";
 import { MARKETPLACE_UK, costeTotal, obtenerEscandallo, regionDeMarketplace, type RegionCoste } from "./escandallos";
 import { obtenerGastos, type CategoriaGasto, type LineaGasto } from "./gastos";
@@ -115,7 +116,8 @@ export async function obtenerContabilidad(ahora = new Date()): Promise<MesContab
       sinCoste: [],
     });
 
-  const lineas = [...pedidosEnAlmacen().values()].filter((p) => p.estado !== "CANCELLED");
+  // Removals aren't sales: their units cost nothing here (the removal fee is in the account charges).
+  const lineas = [...pedidosEnAlmacen().values()].filter((p) => p.estado !== "CANCELLED" && esVentaAmazon(p));
 
   // Fee rate (fees ÷ sale) of each SKU in each marketplace, from its settled sales without refunds: used for
   // the orders Amazon hasn't settled yet.

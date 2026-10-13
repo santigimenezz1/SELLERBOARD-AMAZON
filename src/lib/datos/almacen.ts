@@ -4,7 +4,7 @@ import { Timestamp, type DocumentData } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import type { TransaccionResumida } from "@/lib/amazon/finanzas";
 import { contarEscrituras, contarLecturas } from "./consumo";
-import type { Pedido } from "./tipos";
+import { esVentaAmazon, type Pedido } from "./tipos";
 import type { Ficha } from "./fichas";
 import type { LineaReembolso, LineaVenta } from "./ventas";
 
@@ -42,7 +42,7 @@ type Almacen = {
   revision: number;
 };
 
-const g = globalThis as unknown as { __almacen?: Almacen; __almacenCargando?: Promise<void>; __almacenDerivado?: { revision: number; datos: DatosVentas } };
+const g = globalThis as unknown as { __almacen?: Almacen; __almacenCargando?: Promise<void>; __almacenDerivadoV2?: { revision: number; datos: DatosVentas } };
 
 function almacen(): Almacen {
   const a = (g.__almacen ??= { version: null, marca: null, pedidos: new Map(), transaccionesAmazon: new Map(), productos: new Map(), fichas: new Map(), revision: 0 });
@@ -103,7 +103,7 @@ export function fijarVersion(version: string) {
 /** Something went wrong mid-write: forget everything and reload on next use. */
 export function invalidarAlmacen() {
   g.__almacen = undefined;
-  g.__almacenDerivado = undefined;
+  g.__almacenDerivadoV2 = undefined;
 }
 
 export const pedidosEnAlmacen = (): ReadonlyMap<string, Pedido> => almacen().pedidos;
@@ -186,9 +186,10 @@ export type DatosVentas = { lineas: LineaVenta[]; reembolsos: LineaReembolso[]; 
 export async function datosVentas(version: string | null): Promise<DatosVentas> {
   await asegurarAlmacen(version);
   const a = almacen();
-  if (g.__almacenDerivado?.revision === a.revision) return g.__almacenDerivado.datos;
+  if (g.__almacenDerivadoV2?.revision === a.revision) return g.__almacenDerivadoV2.datos;
 
-  const lineas: LineaVenta[] = [...a.pedidos.values()].map((p) => ({
+  // Removals and Multi-Channel shipments are no sales: they don't count anywhere sales are shown.
+  const lineas: LineaVenta[] = [...a.pedidos.values()].filter(esVentaAmazon).map((p) => ({
     amazonOrderId: p.amazonOrderId,
     fecha: p.fecha,
     marketplaceId: p.marketplaceId,
@@ -208,6 +209,6 @@ export async function datosVentas(version: string | null): Promise<DatosVentas> 
   for (const [asin, p] of a.productos) if (p.imagen) imagenes.set(asin, p.imagen);
 
   const datos = { lineas, reembolsos, imagenes };
-  g.__almacenDerivado = { revision: a.revision, datos };
+  g.__almacenDerivadoV2 = { revision: a.revision, datos };
   return datos;
 }

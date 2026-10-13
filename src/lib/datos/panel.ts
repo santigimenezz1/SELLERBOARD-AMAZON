@@ -3,7 +3,7 @@ import "server-only";
 import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { diaMadrid, diasEntre } from "./fechas";
-import { redondear, type Marketplace } from "./tipos";
+import { esVentaAmazon, redondear, type Marketplace } from "./tipos";
 import { BLOQUEO_MS } from "@/lib/amazon/sincronizar";
 import { asegurarAlmacen, pedidosEnAlmacen } from "./almacen";
 import { contarLecturas } from "./consumo";
@@ -85,7 +85,7 @@ export async function cargarPanel(desde: string, hasta: string, marketplaceId: s
       return dia >= desde && dia <= hasta;
     })
     // The marketplace filter runs here rather than in the query: avoids a composite index, and the volume is small.
-    .filter((l) => l.estado !== "CANCELLED" && (!marketplaceId || l.marketplaceId === marketplaceId));
+    .filter((l) => l.estado !== "CANCELLED" && esVentaAmazon(l) && (!marketplaceId || l.marketplaceId === marketplaceId));
 
   const m: Metricas = { ventas: 0, unidades: 0, pedidos: 0, comisiones: 0, reembolsos: 0, iva: 0, coste: 0, beneficio: 0, margen: null, unidadesSinCoste: 0, pedidosIvaEstimado: 0, pedidosSinLiquidar: 0 };
   const pedidos = new Set<string>();

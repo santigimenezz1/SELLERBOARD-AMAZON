@@ -1,10 +1,12 @@
-import type { CompetidorXray, MercadoXray, PalabrasMercado } from "./h10Tipos";
+import type { CodigoPais, CompetidorXray, ListingAmazon, MercadoXray, PalabrasMercado } from "./h10Tipos";
 
 /*
  * Audit of a competitor's listing: photos, title, bullets, description, A+, video, price and reviews, each with a
  * score, what it does well, what fails and how to beat it. For now a mock-up to design the screens: the title is
  * checked for real (length, brand, the niche's top keywords from Cerebro) and the rest is sample findings chosen
- * from the ASIN, always the same for the same listing, as the listing agent would write them.
+ * from the ASIN, always the same for the same listing, as the listing agent would write them. With the real listing
+ * (a «ficha» JSON) its photos, bullets, description, A+ and video are the real ones, and so are the findings that only
+ * count them (photos used, bullets, A+, video).
  */
 
 export type ParteAuditoria = { id: string; nombre: string; nota: number; bien: string[]; mal: string[]; mejora: string };
@@ -20,6 +22,8 @@ export type FotoAuditoria = {
   mal: string[];
   /** What this photo should show and doesn't. */
   falta: string | null;
+  /** The real photo on Amazon, when the listing was loaded. */
+  url: string | null;
 };
 export type AuditoriaListing = {
   asin: string | null;
@@ -38,7 +42,16 @@ export type AuditoriaListing = {
   fotosQueFaltan: { texto: string; porque: string }[];
   /** What your own 9 slots should show to beat it. */
   planFotos: { n: number; tipo: string; mostrar: string }[];
+  /** The real listing, when a «ficha» JSON brought it (photos, texts and A+ as on Amazon). */
+  real: ListingAmazon | null;
 };
+
+/** A competitor's real listing in that country: its own, or that of a variation of the same family. */
+export function listingDe(listings: ListingAmazon[] | undefined, pais: CodigoPais, asin: string | null | undefined): ListingAmazon | null {
+  if (!asin || !listings?.length) return null;
+  const delPais = listings.filter((l) => l.codigoPais === pais);
+  return delPais.find((l) => l.asin === asin) ?? delPais.find((l) => l.familia.includes(asin)) ?? null;
+}
 
 /** A number from 0 to 1 that depends only on the text: the same listing always gets the same sample findings. */
 function semilla(texto: string) {
@@ -135,15 +148,17 @@ function palabrasTop(palabras?: PalabrasMercado) {
   return [...(palabras?.palabras ?? [])].sort((a, b) => b.busquedas - a.busquedas).slice(0, 6).map((p) => p.texto);
 }
 
-export function auditarListing(c: CompetidorXray, m: MercadoXray, palabras?: PalabrasMercado): AuditoriaListing {
+export function auditarListing(c: CompetidorXray, m: MercadoXray, palabras?: PalabrasMercado, real: ListingAmazon | null = null): AuditoriaListing {
   const azar = semilla(`${m.codigoPais}|${c.asin ?? c.titulo}`);
   const top = palabrasTop(palabras);
-  const titulo = c.titulo.toLowerCase();
+  // The Xray's title is often cut: the real one when there is.
+  const tituloCompleto = real?.titulo ?? c.titulo;
+  const titulo = tituloCompleto.toLowerCase();
   // A keyword counts when all its words are in the title.
   const esta = (k: string) => k.split(/\s+/).every((w) => titulo.includes(w));
   const presentes = top.filter(esta);
   const ausentes = top.filter((k) => !esta(k));
-  const largo = c.titulo.length;
+  const largo = tituloCompleto.length;
 
   const malTitulo = [
     ...(largo > 180 ? [`Muy largo (${largo} caracteres): en el móvil se corta y no se ve lo importante`] : []),
@@ -152,13 +167,20 @@ export function auditarListing(c: CompetidorXray, m: MercadoXray, palabras?: Pal
     ...(!titulo.startsWith(c.marca.toLowerCase()) ? ["No empieza por la marca"] : []),
   ];
   const bienTitulo = [
-    ...(c.titulo.toLowerCase().startsWith(c.marca.toLowerCase()) ? ["Empieza por la marca"] : []),
+    ...(titulo.startsWith(c.marca.toLowerCase()) ? ["Empieza por la marca"] : []),
     ...(presentes.length ? [`Incluye ${presentes.slice(0, 3).map((k) => `«${k}»`).join(", ")}`] : []),
     ...(largo >= 80 && largo <= 180 ? [`Buena longitud (${largo} caracteres)`] : []),
   ];
 
-  const aplus = azar() > 0.35;
-  const video = azar() > 0.5;
+  // Drawn even with the real listing, so the rest of the sample findings stay the same.
+  const aplusAzar = azar() > 0.35;
+  const videoAzar = azar() > 0.5;
+  // Amazon's catalog API has no A+ nor video: those stay as samples for a listing loaded from it.
+  const delaPagina = real && real.fuente !== "catalogo" ? real : null;
+  const aplus = delaPagina ? delaPagina.aplusFotos.length > 0 || !!delaPagina.aplusTexto : aplusAzar;
+  const video = delaPagina ? delaPagina.video : videoAzar;
+  const nFotos = real ? Math.min(9, real.fotos.length) : null;
+  const nBullets = real?.vinetas.length ?? null;
   const parte = (id: keyof typeof MAL | "titulo" | "resenas", nombre: string, bien: string[], mal: string[], base = 8.6): ParteAuditoria => ({
     id,
     nombre,
@@ -168,11 +190,22 @@ export function auditarListing(c: CompetidorXray, m: MercadoXray, palabras?: Pal
     mejora: MEJORA[id as keyof typeof MEJORA],
   });
 
-  const fotosMal = elegir(azar, MAL.fotos, 1 + Math.floor(azar() * 3));
+  // With the real listing, what only counts photos or bullets is said from the real numbers.
+  const huecos = BIEN.fotos[4];
+  const fotosMal = [
+    ...(nFotos !== null && nFotos < 7 ? [`Solo usa ${nFotos} de los 9 huecos de imagen`] : []),
+    ...elegir(azar, MAL.fotos, 1 + Math.floor(azar() * 3)).filter((t) => nFotos === null || !t.startsWith("Solo usa")),
+  ];
+  const fotosBien = [...(nFotos !== null && nFotos >= 9 ? [huecos] : []), ...elegir(azar, BIEN.fotos, 2).filter((t) => nFotos === null || t !== huecos)].slice(0, 2);
+  const bulletsMal = [
+    ...(nBullets !== null && nBullets <= 1 ? ["Bullets casi vacíos: no explica nada del producto"] : nBullets !== null && nBullets < 5 ? [`Solo ${nBullets} bullets de los 5 habituales`] : []),
+    ...elegir(azar, MAL.bullets, 1 + Math.floor(azar() * 2)),
+  ];
+  const bulletsBien = elegir(azar, BIEN.bullets, 1 + Math.floor(azar() * 2));
   const partes: ParteAuditoria[] = [
-    parte("fotos", "Imágenes", elegir(azar, BIEN.fotos, 2), fotosMal),
+    parte("fotos", "Imágenes", fotosBien, fotosMal),
     parte("titulo", "Título", bienTitulo, malTitulo, 9),
-    parte("bullets", "Bullets", elegir(azar, BIEN.bullets, 1 + Math.floor(azar() * 2)), elegir(azar, MAL.bullets, 1 + Math.floor(azar() * 2))),
+    parte("bullets", "Bullets", nBullets !== null && nBullets <= 1 ? [] : bulletsBien, bulletsMal),
     parte("descripcion", "Descripción", elegir(azar, BIEN.descripcion, 1), elegir(azar, MAL.descripcion, Math.floor(azar() * 2) + 1), 7.5),
     aplus ? parte("aplus", "A+", elegir(azar, BIEN.aplus, 2), elegir(azar, MAL.aplus.slice(1), Math.floor(azar() * 2))) : parte("aplus", "A+", [], [MAL.aplus[0]], 4),
     video ? parte("video", "Vídeo", ["Tiene vídeo en la galería"], elegir(azar, MAL.video.slice(1), Math.floor(azar() * 2)), 8.5) : parte("video", "Vídeo", [], [MAL.video[0]], 4),
@@ -186,7 +219,9 @@ export function auditarListing(c: CompetidorXray, m: MercadoXray, palabras?: Pal
     ),
   ];
 
-  const fotos: FotoAuditoria[] = FOTOS.slice(0, aplus ? 7 + Math.floor(azar() * 2) : 5 + Math.floor(azar() * 2)).map((tipo, i) => {
+  const cuantasAzar = aplus ? 7 + Math.floor(azar() * 2) : 5 + Math.floor(azar() * 2);
+  const tipos = real ? real.fotos.slice(0, 9).map((_, i) => (i === 0 ? "Principal" : `Foto ${i + 1}`)) : FOTOS.slice(0, cuantasAzar);
+  const fotos: FotoAuditoria[] = tipos.map((tipo, i) => {
     const r = azar();
     const estado = r > 0.66 ? "bien" : r > 0.3 ? "regular" : "mal";
     const checks =
@@ -211,30 +246,47 @@ export function auditarListing(c: CompetidorXray, m: MercadoXray, palabras?: Pal
       regular: "Correcta, pero el texto es pequeño o no aporta nada nuevo.",
       mal: "Confusa o repetida: este hueco se podría aprovechar mucho mejor.",
     }[estado];
-    return { n: i + 1, tipo, estado, comentario, checks, bien, mal, falta, nota: estado === "bien" ? 8 + Math.round(r * 15) / 10 : estado === "regular" ? 5.5 + Math.round(r * 15) / 10 : 3 + Math.round(r * 15) / 10 };
+    return {
+      n: i + 1,
+      tipo,
+      estado,
+      comentario,
+      checks,
+      bien,
+      mal,
+      falta,
+      url: real?.fotos[i] ?? null,
+      nota: estado === "bien" ? 8 + Math.round(r * 15) / 10 : estado === "regular" ? 5.5 + Math.round(r * 15) / 10 : 3 + Math.round(r * 15) / 10,
+    };
   });
 
   return {
     asin: c.asin ?? null,
     pais: m.codigoPais,
     marca: c.marca,
-    titulo: c.titulo,
+    titulo: tituloCompleto,
     nota: Math.round((partes.reduce((t, p) => t + p.nota, 0) / partes.length) * 10) / 10,
     partes,
     fotos,
     tituloInfo: { caracteres: largo, presentes, ausentes },
-    bullets: [
-      "MANTIENE EL FRÍO 24 H Y EL CALOR 12 H – Doble pared de acero inoxidable al vacío.",
-      "100 % ESTANCA – Tapa con junta de silicona, apta para llevar en la mochila.",
-      "SIN BPA – Materiales aptos para alimentos, sin sabor a metal.",
-      "FÁCIL DE LIMPIAR – Boca ancha, cabe hielo y un cepillo.",
-      "IDEAL PARA REGALO – Disponible en varios colores.",
-    ].slice(0, 3 + Math.floor(azar() * 3)),
-    descripcion: "Nuestra botella térmica es perfecta para el día a día: trabajo, gimnasio, colegio o montaña. Fabricada con acero inoxidable de alta calidad, mantiene tus bebidas frías o calientes durante horas.",
+    bullets: (() => {
+      const ejemplo = [
+        "MANTIENE EL FRÍO 24 H Y EL CALOR 12 H – Doble pared de acero inoxidable al vacío.",
+        "100 % ESTANCA – Tapa con junta de silicona, apta para llevar en la mochila.",
+        "SIN BPA – Materiales aptos para alimentos, sin sabor a metal.",
+        "FÁCIL DE LIMPIAR – Boca ancha, cabe hielo y un cepillo.",
+        "IDEAL PARA REGALO – Disponible en varios colores.",
+      ].slice(0, 3 + Math.floor(azar() * 3));
+      return real ? real.vinetas : ejemplo;
+    })(),
+    descripcion: real
+      ? (real.descripcion ?? "")
+      : "Nuestra botella térmica es perfecta para el día a día: trabajo, gimnasio, colegio o montaña. Fabricada con acero inoxidable de alta calidad, mantiene tus bebidas frías o calientes durante horas.",
     aplus,
     video,
     fotosQueFaltan: elegir(azar, FALTAN, 3),
     planFotos: PLAN_FOTOS,
+    real,
   };
 }
 

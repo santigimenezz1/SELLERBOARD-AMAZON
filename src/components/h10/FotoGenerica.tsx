@@ -1,6 +1,22 @@
-/** A stand-in for a listing photo while the real ones aren't loaded: a bottle outline on a soft background, with its slot. */
-export function FotoGenerica({ n, tipo, tono = 0, className = "" }: { n?: number; tipo?: string; tono?: number; className?: string }) {
+/**
+ * A listing photo: the real one from Amazon when there's `url`, else a stand-in (a bottle outline on a soft
+ * background), with its slot.
+ */
+export function FotoGenerica({ n, tipo, tono = 0, url, className = "" }: { n?: number; tipo?: string; tono?: number; url?: string | null; className?: string }) {
   const fondos = ["from-sky-200 to-sky-50", "from-emerald-200 to-emerald-50", "from-amber-200 to-amber-50", "from-rose-200 to-rose-50", "from-violet-200 to-violet-50", "from-slate-300 to-slate-100"];
+  if (url)
+    return (
+      <div className={`relative flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-white ${className}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- Amazon's own photo, already sized */}
+        <img src={url} alt={tipo ?? ""} loading="lazy" referrerPolicy="no-referrer" className="size-full object-contain" />
+        {(n !== undefined || tipo) && (
+          <span className="absolute inset-x-1.5 bottom-1.5 truncate rounded bg-black/55 px-1.5 py-0.5 text-center text-[10px] font-medium text-white">
+            {n !== undefined ? `${n}. ` : ""}
+            {tipo}
+          </span>
+        )}
+      </div>
+    );
   return (
     <div className={`relative flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br ${fondos[Math.abs(tono) % fondos.length]} ${className}`}>
       <svg viewBox="0 0 40 100" aria-hidden className="h-3/4 text-slate-500/70" fill="currentColor">
