@@ -1,6 +1,6 @@
 import { diaMadrid } from "./fechas";
 import { diasDelMes, fraccionMesTranscurrida, periodoExtra, periodosFijos, type Periodo } from "./periodos";
-import { productosDelPeriodo, resumenVentas, serieDiaria, type LineaReembolso, type LineaVenta, type ProductoPeriodo, type PuntoVentas, type ResumenVentas } from "./ventas";
+import { pedidosDelPeriodo, productosDelPeriodo, resumenVentas, serieDiaria, type LineaReembolso, type LineaVenta, type ProductoPeriodo, type PuntoVentas, type ResumenVentas } from "./ventas";
 
 export type ParametrosPanel = { p?: string; e?: string; desde?: string; hasta?: string; pais?: string; mes?: string };
 
@@ -40,7 +40,12 @@ export function construirPanel(
   reembolsos: LineaReembolso[],
   panel: EstadoPanel,
   ahora = new Date(),
-): { tarjetas: { periodo: Periodo; resumen: ResumenVentas }[]; productos: ProductoPeriodo[]; serie: PuntoVentas[] } {
+): {
+  tarjetas: { periodo: Periodo; resumen: ResumenVentas }[];
+  productos: ProductoPeriodo[];
+  serie: PuntoVentas[];
+  pedidos: ReturnType<typeof pedidosDelPeriodo>;
+} {
   const { periodos, seleccionado, estado, hoy } = panel;
   const mes = periodos.find((p) => p.id === "mes")!;
   const tarjetas = periodos.map((periodo) => {
@@ -63,5 +68,6 @@ export function construirPanel(
     tarjetas,
     productos: productosDelPeriodo(lineas, reembolsos, seleccionado.desde, seleccionado.hasta, estado.pais),
     serie: serieDiaria(lineas, mesSerie.desde, mesSerie.hasta, hoy, estado.pais),
+    pedidos: pedidosDelPeriodo(lineas, seleccionado.desde, seleccionado.hasta, estado.pais),
   };
 }

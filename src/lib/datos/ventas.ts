@@ -130,6 +130,38 @@ export function productosDelPeriodo(lineas: LineaVenta[], reembolsos: LineaReemb
     .sort((a, b) => b.unidades - a.unidades || b.ventas - a.ventas);
 }
 
+/** One order of the period with its products; `fecha` as ISO text, ready for the page. */
+export type PedidoPeriodo = {
+  amazonOrderId: string;
+  fecha: string;
+  marketplaceId: string;
+  estado: string;
+  unidades: number;
+  ventas: number;
+  lineas: { sku: string; asin: string; titulo: string; unidades: number }[];
+};
+
+/** The period's orders, newest first, and how many orders had 1, 2, 3… units. */
+export function pedidosDelPeriodo(
+  lineas: LineaVenta[],
+  desde: string,
+  hasta: string,
+  marketplaceId: string | null,
+): { pedidos: PedidoPeriodo[]; porUnidades: { unidades: number; pedidos: number }[] } {
+  const porId = new Map<string, PedidoPeriodo>();
+  for (const l of delPeriodo(lineas, desde, hasta, marketplaceId)) {
+    const p = porId.get(l.amazonOrderId) ?? { amazonOrderId: l.amazonOrderId, fecha: l.fecha.toISOString(), marketplaceId: l.marketplaceId, estado: l.estado, unidades: 0, ventas: 0, lineas: [] };
+    p.unidades += l.unidades;
+    p.ventas += l.ventaTotal;
+    p.lineas.push({ sku: l.sku, asin: l.asin, titulo: l.titulo, unidades: l.unidades });
+    porId.set(l.amazonOrderId, p);
+  }
+  const pedidos = [...porId.values()].map((p) => ({ ...p, ventas: redondear(p.ventas) })).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const cuenta = new Map<number, number>();
+  for (const p of pedidos) cuenta.set(p.unidades, (cuenta.get(p.unidades) ?? 0) + 1);
+  return { pedidos, porUnidades: [...cuenta].map(([unidades, n]) => ({ unidades, pedidos: n })).sort((a, b) => a.unidades - b.unidades) };
+}
+
 export type PuntoVentas = {
   dia: string;
   ventas: number;

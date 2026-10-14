@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 import type { Marketplace } from "@/lib/datos/tipos";
 import type { Periodo } from "@/lib/datos/periodos";
-import type { ProductoPeriodo, PuntoVentas } from "@/lib/datos/ventas";
+import type { PedidoPeriodo, ProductoPeriodo, PuntoVentas } from "@/lib/datos/ventas";
 import { ultimosMeses } from "@/lib/datos/periodos";
 import { TransicionPanel, Atenuable } from "./Transicion";
 import { BarraFiltros } from "./BarraFiltros";
 import { TarjetasPeriodo, type TarjetaPeriodo } from "./TarjetasPeriodo";
 import { TablaProductosPeriodo } from "./TablaProductosPeriodo";
 import { GraficoMes } from "./GraficoMes";
+import { TablaPedidosPeriodo } from "./TablaPedidosPeriodo";
 import { Consumo } from "./Consumo";
 import { LIMITE_ESCRITURAS, LIMITE_LECTURAS } from "@/lib/datos/consumo";
 import type { EstadoUrl } from "./url";
@@ -22,6 +23,10 @@ type Props = {
   /** Daily sales of the chart month. */
   serie: PuntoVentas[];
   productos: ProductoPeriodo[];
+  /** The selected period's orders, and how many had 1, 2, 3… units. */
+  pedidos: { pedidos: PedidoPeriodo[]; porUnidades: { unidades: number; pedidos: number }[] };
+  /** Main photo per ASIN of those orders. */
+  imagenes: Record<string, string>;
   marketplaces: Marketplace[];
   /** Sync button. */
   acciones: ReactNode;
@@ -35,7 +40,7 @@ type Props = {
  * the selected tile below them, and the daily chart of a month at the bottom. Phase 1 shows sales and units only; profit, ads and
  * the rest are added later.
  */
-export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, productos, marketplaces, acciones, avisos, consumo }: Props) {
+export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, productos, pedidos, imagenes, marketplaces, acciones, avisos, consumo }: Props) {
   const mercado = marketplaces.find((m) => m.id === estado.pais);
   // The usage line sits quietly at the bottom while usage is low; near the limit it isn't shown (no red warning).
   const consumoAlto = consumo.lecturas / LIMITE_LECTURAS >= 0.5 || consumo.escrituras / LIMITE_ESCRITURAS >= 0.5;
@@ -64,6 +69,14 @@ export function VistaPanel({ base, estado, hoy, tarjetas, seleccionado, serie, p
               diaSeleccionado={seleccionado.desde === seleccionado.hasta ? seleccionado.desde : null}
               base={base}
               estado={estado}
+            />
+            <TablaPedidosPeriodo
+              titulo={seleccionado.nombre}
+              pedidos={pedidos.pedidos}
+              porUnidades={pedidos.porUnidades}
+              marketplaces={marketplaces}
+              imagenes={imagenes}
+              unDia={seleccionado.desde === seleccionado.hasta}
             />
           </div>
         </Atenuable>
