@@ -8,6 +8,7 @@ import { listarSuscripciones } from "@/lib/datos/suscripciones";
 import { CON_SUSCRIPCIONES, porVencer } from "@/lib/datos/suscripcionesCalc";
 import { diaMadrid } from "@/lib/datos/fechas";
 import { RefrescoAutomatico } from "@/components/RefrescoAutomatico";
+import { RenovarSesion } from "@/components/RenovarSesion";
 import { Chat } from "@/components/chat/Chat";
 
 // Every page here depends on the signed-in user and live data: never pre-render them at build time. Without this
@@ -42,6 +43,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         </div>
       </header>
       <RefrescoAutomatico />
+      <RenovarSesion />
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
       {/* «Pregunta a tu app»: the data chat, on every page. */}
       <Chat />

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 import { clientAuth, isFirebaseConfigured } from "@/lib/firebase/client";
+import { renovarSesion } from "@/lib/auth/renovarSesion";
 
 const AUTH_ERRORS: Record<string, string> = {
   "auth/invalid-credential": "Email o contraseña incorrectos.",
@@ -23,10 +24,21 @@ export function LoginForm({ serverConfigured }: { serverConfigured: boolean }) {
 
   const configured = isFirebaseConfigured && serverConfigured;
 
-  // Reaching /login means there is no valid server session; drop any stale client session too.
+  // Reaching /login means there is no valid server session. If this browser is still signed in to Firebase (the
+  // session only lapsed), it signs back in silently; otherwise any stale client session is dropped.
+  const [comprobando, setComprobando] = useState(isFirebaseConfigured);
   useEffect(() => {
-    if (isFirebaseConfigured) signOut(clientAuth()).catch(() => {});
-  }, []);
+    if (!isFirebaseConfigured) return;
+    void renovarSesion().then((ok) => {
+      if (ok) {
+        router.replace("/");
+        router.refresh();
+        return;
+      }
+      signOut(clientAuth()).catch(() => {});
+      setComprobando(false);
+    });
+  }, [router]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -71,6 +83,8 @@ export function LoginForm({ serverConfigured }: { serverConfigured: boolean }) {
       </div>
     );
   }
+
+  if (comprobando) return <p className="py-6 text-center text-sm text-ink-400">Entrando…</p>;
 
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
