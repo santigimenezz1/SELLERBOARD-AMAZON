@@ -93,7 +93,7 @@ const PALABRAS_EN_PAGINA = 400;
 const MAX_RIVALES = 5;
 
 // Renamed when the cached shape changes, so a server reloaded in development doesn't reuse an old one.
-const g = globalThis as unknown as { __estudiosH10v3?: Map<string, Entrada> };
+const g = globalThis as unknown as { __estudiosH10v4?: Map<string, Entrada> };
 const col = () => adminDb().collection("estudiosH10");
 const ruta = (id: string, a: Pick<ArchivoH10, "id" | "nombre">) => `h10/${id}/${a.id}/${a.nombre}`;
 const texto = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -109,7 +109,7 @@ const sinAcentos = (t: string) =>
 const nombreArchivo = (n: string) => n.normalize("NFKD").replace(/[^\w.\- ]+/g, "").replace(/\s+/g, "_").slice(-120) || "archivo";
 
 async function cargar(): Promise<Map<string, Entrada>> {
-  if (g.__estudiosH10v3) return g.__estudiosH10v3;
+  if (g.__estudiosH10v4) return g.__estudiosH10v4;
   const snap = await col().get();
   contarLecturas(Math.max(snap.size, 1));
   const mapa = new Map<string, Entrada>();
@@ -123,7 +123,7 @@ async function cargar(): Promise<Map<string, Entrada>> {
       listings: new Map(listings.docs.map((x) => { const l = x.data() as ListingAmazon; return [`${l.codigoPais}|${l.asin}`, l]; })),
     });
   }
-  g.__estudiosH10v3 = mapa;
+  g.__estudiosH10v4 = mapa;
   return mapa;
 }
 
@@ -445,6 +445,33 @@ export async function releerArchivo(id: string, archivoId: string): Promise<Arch
   return nuevo;
 }
 
+/** Reviews per product the extension may send (the reader keeps at most 3000 anyway). */
+const MAX_RESENAS_EXTENSION = 5000;
+const COLUMNAS_RESENAS = ["review_id", "rating", "title", "body", "date", "date_text", "review_country", "verified", "variation", "author", "helpful", "url"] as const;
+
+/**
+ * Reviews of one competitor recorded by the browser extension: stored as a reviews CSV of that country (as if
+ * uploaded in «Datos»), replacing the one the extension sent before for the same country and ASIN.
+ */
+export async function guardarResenasExtension(id: string, pais: unknown, asin: unknown, resenas: unknown): Promise<ArchivoH10> {
+  if (!esCodigoPais(pais)) throw new Error("País no válido");
+  if (!esAsin(asin)) throw new Error("ASIN no válido");
+  if (!Array.isArray(resenas) || !resenas.length) throw new Error("No hay reseñas que guardar");
+  if (resenas.length > MAX_RESENAS_EXTENSION) throw new Error(`Son más de ${MAX_RESENAS_EXTENSION} reseñas`);
+  const e = await entrada(id);
+  const celda = (v: unknown) => {
+    const s = String(v ?? "").slice(0, 4000);
+    return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const filas = resenas
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
+    .map((r) => COLUMNAS_RESENAS.map((c) => celda(r[c])).join(","));
+  const csv = [COLUMNAS_RESENAS.join(","), ...filas].join("\r\n");
+  const nombre = `RESENAS_EXTENSION_${pais}_${asin}.csv`;
+  for (const a of e.estudio.archivos.filter((x) => x.nombre === nombre)) await borrarArchivo(id, a.id);
+  return subirArchivo(id, new File([csv], nombre, { type: "text/csv" }), { codigoPais: pais, herramienta: "resenas" });
+}
+
 /** Deletes a file and the data read from it. */
 export async function borrarArchivo(id: string, archivoId: string): Promise<void> {
   const e = await entrada(id);
@@ -500,8 +527,10 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
   for (const [, d] of lista) {
     if (!d.mercado || !d.codigoPais) continue;
     if (!mercados.has(d.codigoPais)) mercados.set(d.codigoPais, structuredClone(d.mercado));
-    // Older Xrays of the same country: only their totals, for revenue per search.
-    else (xraysAnteriores[d.codigoPais] ??= []).push({ ...d.mercado, competidores: [] });
+    // Older Xrays of the same search: only their totals, for revenue per search. A secondary search's Xray
+    // (another keyword) earns less and would lower the main search's revenue per search, so it doesn't count.
+    else if (sinAcentos(d.mercado.palabraClave) === sinAcentos(mercados.get(d.codigoPais)!.palabraClave))
+      (xraysAnteriores[d.codigoPais] ??= []).push({ ...d.mercado, competidores: [] });
   }
 
   const palabras: Record<string, PalabrasMercado> = {};
@@ -527,8 +556,10 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       .sort((a, b) => b.top10 - a.top10)
       .slice(0, MAX_RIVALES)
       .map((x) => x.c);
+    // Two ASINs of the same brand (variations, sizes) get the end of their ASIN, so their columns tell apart.
+    const nombres = rivales.map(marcaDe);
     palabras[pais] = {
-      rivales: rivales.map(marcaDe),
+      rivales: nombres.map((n, i) => (nombres.indexOf(n) !== nombres.lastIndexOf(n) ? `${n} ·${(rivales[i].match(/[A-Z0-9]{10}/i)?.[0] ?? rivales[i]).slice(-4)}` : n)),
       palabras: todas
         .sort((a, b) => b.busquedas - a.busquedas)
         .slice(0, PALABRAS_EN_PAGINA)

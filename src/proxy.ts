@@ -16,6 +16,7 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Everything except the login page, the session endpoint, the scheduled sync (own secret) and static assets.
-  matcher: ["/((?!login|api/session|api/cron|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)"],
+  // Everything except the login page, the session endpoint, the scheduled sync and the review extension (each with
+  // its own key) and static assets.
+  matcher: ["/((?!login|api/session|api/cron|api/extension/resenas|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)"],
 };

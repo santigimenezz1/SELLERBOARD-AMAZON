@@ -6,6 +6,7 @@ import type { CodigoPais, EstudioH10, PalabrasMercado } from "@/lib/datos/h10Tip
 import { EUR_POR_GBP, nombrePais } from "@/lib/datos/h10Analisis";
 import { auditarListing, colorNota, listingDe, resumenListings } from "@/lib/datos/h10Listings";
 import { formatMoneda, formatNumero } from "@/lib/format";
+import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Pais, Tarjeta } from "./comun";
 import { FotoGenerica } from "./FotoGenerica";
 
@@ -33,6 +34,8 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
           ? `Fotos y textos reales de Amazon en ${reales} de ${lideres.length} · los fallos y aciertos aún son de ejemplo (salvo el título, las fotos usadas, los bullets, el A+ y el vídeo)`
           : "Simulación · fotos genéricas y hallazgos de ejemplo; el título se analiza de verdad con las palabras clave del estudio"}
       </p>
+
+      <ConectarExtension />
 
       <div className="flex flex-wrap gap-1.5">
         {[null, ...estudio.mercados.map((m) => m.codigoPais)].map((p) => (
@@ -86,14 +89,35 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
                 </div>
               </>
             );
-            const clase = "flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-ink-950/40 transition-colors";
-            return enlace ? (
-              <Link key={`${m.codigoPais}-${c.asin}`} href={enlace} className={`${clase} hover:border-accent-500/50 hover:bg-white/[0.03]`}>
-                {contenido}
-              </Link>
-            ) : (
-              <div key={`${m.codigoPais}-${c.puesto}-${i}`} className={clase}>
-                {contenido}
+            // Reviews of this ASIN already in the study (the largest upload: Helium 10's or the extension's).
+            const guardadas = Math.max(0, ...(estudio.resenasCompletas ?? []).filter((r) => r.codigoPais === m.codigoPais && r.asin === c.asin).map((r) => r.total));
+            return (
+              <div key={`${m.codigoPais}-${c.asin ?? c.puesto}-${i}`} className="flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-ink-950/40 transition-colors hover:border-accent-500/50">
+                {enlace ? (
+                  <Link href={enlace} className="flex flex-1 flex-col hover:bg-white/[0.03]">
+                    {contenido}
+                  </Link>
+                ) : (
+                  <div className="flex flex-1 flex-col">{contenido}</div>
+                )}
+                {c.asin && (
+                  <div className="flex flex-col gap-1.5 border-t border-white/[0.06] p-3 pt-2.5">
+                    <span className={`text-[11px] ${guardadas ? "font-semibold text-success" : "text-ink-500"}`}>{guardadas ? `✓ ${formatNumero(guardadas)} reseñas guardadas` : "Sin reseñas guardadas"}</span>
+                    <a
+                      href={enlaceAmazon(m.codigoPais, c.asin)}
+                      target="_blank"
+                      rel="noopener"
+                      // The extension reads where to send the reviews from this mark (study, its name and this app's address).
+                      onClick={(e) => {
+                        const marca = new URLSearchParams({ evlc_estudio: estudio.id, evlc_nombre: estudio.nombre, evlc_app: window.location.origin });
+                        e.currentTarget.href = `${enlaceAmazon(m.codigoPais, c.asin)}#${marca}`;
+                      }}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-accent-500 px-2.5 text-xs font-semibold text-ink-950 transition-all hover:bg-accent-400 active:scale-[0.97]"
+                    >
+                      Abrir en Amazon ↗
+                    </a>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -148,6 +172,72 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
           </ol>
         </Tarjeta>
       </div>
+    </div>
+  );
+}
+
+/**
+ * «Conectar extensión»: shows the key the review-recorder extension signs with, to paste into it once, and this
+ * app's address. A new key stops the old one.
+ */
+function ConectarExtension() {
+  const [abierto, setAbierto] = useState(false);
+  const [clave, setClave] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [copiada, setCopiada] = useState(false);
+
+  const pedir = async (nueva: boolean) => {
+    if (nueva && !confirm("¿Generar una clave nueva? La extensión dejará de poder enviar hasta que pegues la nueva.")) return;
+    setError("");
+    try {
+      const r = await fetch("/api/extension/clave", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nueva }) });
+      const b = (await r.json().catch(() => ({}))) as { clave?: string; error?: string };
+      if (!r.ok || !b.clave) throw new Error(b.error ?? `error ${r.status}`);
+      setClave(b.clave);
+      setCopiada(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo obtener la clave");
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-ink-950/40 px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-ink-300">
+          <span className="font-semibold text-ink-100">Reseñas con la extensión:</span> «Abrir en Amazon» en un listing, entra en sus reseñas, grábalas y pulsa «Enviar a la app».
+        </span>
+        <button
+          onClick={() => {
+            setAbierto((x) => !x);
+            if (!clave) void pedir(false);
+          }}
+          className="h-8 rounded-lg border border-white/[0.12] px-3 text-xs font-medium text-ink-200 hover:text-ink-50"
+        >
+          {abierto ? "Ocultar" : "Conectar extensión"}
+        </button>
+      </div>
+      {abierto && (
+        <div className="mt-3 flex flex-col gap-2 border-t border-white/[0.06] pt-3">
+          <p className="text-xs text-ink-400">Pega esta clave en la extensión (⚙ del recuadro de Amazon). Solo hace falta una vez.</p>
+          {clave && (
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="rounded-md bg-ink-900 px-2.5 py-1.5 font-mono text-xs break-all text-ink-100">{clave}</code>
+              <button
+                onClick={() => {
+                  void navigator.clipboard.writeText(clave).then(() => setCopiada(true));
+                }}
+                className="h-8 rounded-lg bg-success px-3 text-xs font-semibold text-ink-950 hover:brightness-110"
+              >
+                {copiada ? "✓ Copiada" : "Copiar"}
+              </button>
+              <button onClick={() => void pedir(true)} className="h-8 rounded-lg border border-white/[0.12] px-3 text-xs text-ink-300 hover:text-ink-100">
+                Generar otra
+              </button>
+            </div>
+          )}
+          {error && <p className="text-xs text-danger">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }

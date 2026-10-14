@@ -21,7 +21,9 @@ export function resenasDesdeCsv(filas: string[][], nombreArchivo: string): { asi
   const iAutor = col(/author|reviewer|^name$|autor/i);
   const iUtil = col(/helpful|[uú]til/i);
   const iUrl = col(/url|link/i);
-  const asin = nombreArchivo.match(/B0[A-Z0-9]{8}/)?.[0] ?? datos.map((f) => f[iUrl] ?? "").join(" ").match(/B0[A-Z0-9]{8}/)?.[0] ?? null;
+  // Older ASINs start «B07…», «B08…» too, not only «B0…»: any «B» + digit + 8, not glued to other letters or digits.
+  const ASIN = /(?<![A-Z0-9])B\d[A-Z0-9]{8}(?![A-Z0-9])/;
+  const asin = nombreArchivo.toUpperCase().match(ASIN)?.[0] ?? datos.map((f) => f[iUrl] ?? "").join(" ").match(ASIN)?.[0] ?? null;
   const resenas: ResenaCompleta[] = [];
   let caracteres = 0;
   for (const f of datos) {
