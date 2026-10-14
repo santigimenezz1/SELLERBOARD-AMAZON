@@ -93,7 +93,7 @@ const PALABRAS_EN_PAGINA = 400;
 const MAX_RIVALES = 5;
 
 // Renamed when the cached shape changes, so a server reloaded in development doesn't reuse an old one.
-const g = globalThis as unknown as { __estudiosH10v4?: Map<string, Entrada> };
+const g = globalThis as unknown as { __estudiosH10v5?: Map<string, Entrada> };
 const col = () => adminDb().collection("estudiosH10");
 const ruta = (id: string, a: Pick<ArchivoH10, "id" | "nombre">) => `h10/${id}/${a.id}/${a.nombre}`;
 const texto = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -109,7 +109,7 @@ const sinAcentos = (t: string) =>
 const nombreArchivo = (n: string) => n.normalize("NFKD").replace(/[^\w.\- ]+/g, "").replace(/\s+/g, "_").slice(-120) || "archivo";
 
 async function cargar(): Promise<Map<string, Entrada>> {
-  if (g.__estudiosH10v4) return g.__estudiosH10v4;
+  if (g.__estudiosH10v5) return g.__estudiosH10v5;
   const snap = await col().get();
   contarLecturas(Math.max(snap.size, 1));
   const mapa = new Map<string, Entrada>();
@@ -123,7 +123,7 @@ async function cargar(): Promise<Map<string, Entrada>> {
       listings: new Map(listings.docs.map((x) => { const l = x.data() as ListingAmazon; return [`${l.codigoPais}|${l.asin}`, l]; })),
     });
   }
-  g.__estudiosH10v4 = mapa;
+  g.__estudiosH10v5 = mapa;
   return mapa;
 }
 

@@ -102,7 +102,13 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
                 )}
                 {c.asin && (
                   <div className="flex flex-col gap-1.5 border-t border-white/[0.06] p-3 pt-2.5">
-                    <span className={`text-[11px] ${guardadas ? "font-semibold text-success" : "text-ink-500"}`}>{guardadas ? `✓ ${formatNumero(guardadas)} reseñas guardadas` : "Sin reseñas guardadas"}</span>
+                    {guardadas ? (
+                      <Link href={`/analisis-h10/${estudio.id}/competidor/${m.codigoPais}/${c.asin}`} className="text-[11px] font-semibold text-success hover:underline" title="Ver todas sus reseñas y lo que dicen en cada estrella">
+                        ✓ {formatNumero(guardadas)} reseñas guardadas →
+                      </Link>
+                    ) : (
+                      <span className="text-[11px] text-ink-500">Sin reseñas guardadas</span>
+                    )}
                     <a
                       href={enlaceAmazon(m.codigoPais, c.asin)}
                       target="_blank"

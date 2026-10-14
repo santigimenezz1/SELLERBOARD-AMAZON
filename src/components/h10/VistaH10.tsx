@@ -173,10 +173,13 @@ export function VistaH10({
           <SinDatos texto="Para ver las palabras clave, sube el Cerebro o el Magnet (CSV o captura) de algún país." onIrADatos={datosAqui} />
         ))}
       {pestana === "resenas" &&
-        (estudio.resenasH10?.length ? (
+        (estudio.resenasH10?.length || estudio.resenasCompletas?.length ? (
           <PestanaResenas key={estudio.id} estudio={estudio} />
         ) : (
-          <SinDatos texto="Sube en «Datos» el «Review Analysis» de Helium 10 (Excel) de los competidores, uno por producto y país: aquí verás de qué se quejan, qué valoran y qué mejorar." onIrADatos={datosAqui} />
+          <SinDatos
+            texto="Graba las reseñas de los competidores con la extensión («Abrir en Amazon» en Listings → «Enviar a la app»), o sube en «Datos» el «Review Analysis» de Helium 10: aquí verás de qué se quejan, qué valoran y qué mejorar."
+            onIrADatos={datosAqui}
+          />
         ))}
       {pestana === "rentabilidad" &&
         CON_RENTABILIDAD &&
