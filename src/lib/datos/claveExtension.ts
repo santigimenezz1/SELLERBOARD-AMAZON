@@ -14,7 +14,8 @@ const g = globalThis as unknown as { __claveExtension?: string | null };
 const ref = () => adminDb().collection("config").doc("extensionResenas");
 
 async function leer(): Promise<string | null> {
-  if (g.__claveExtension !== undefined) return g.__claveExtension;
+  if (g.__claveExtension) return g.__claveExtension;
+  // Without a key it's read again next time (it may have been made since); a key, once read, stays in memory.
   const snap = await ref().get();
   contarLecturas(1);
   g.__claveExtension = (snap.get("clave") as string | undefined) ?? null;
