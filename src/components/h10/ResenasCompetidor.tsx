@@ -14,9 +14,40 @@ const Estrellas = ({ n }: { n: number }) => (
   </span>
 );
 
+const IDIOMAS: Record<string, string> = { en: "inglés", de: "alemán", fr: "francés", it: "italiano", nl: "neerlandés", sv: "sueco", pl: "polaco", pt: "portugués", tr: "turco", ar: "árabe" };
+
+/** One review: in Spanish (its translation when it was in another language), with its original a tap away. */
+function Resena({ r }: { r: ResenaCompleta }) {
+  const [original, setOriginal] = useState(false);
+  const traducida = !!r.textoEs || !!r.tituloEs;
+  const titulo = traducida && !original ? r.tituloEs || r.titulo : r.titulo;
+  const texto = traducida && !original ? r.textoEs || r.texto : r.texto;
+  return (
+    <li className="flex flex-col gap-1 py-3 text-sm">
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-400">
+        <Estrellas n={r.estrellas} />
+        {titulo && <span className="font-semibold text-ink-100">{titulo}</span>}
+      </span>
+      <span className="leading-relaxed whitespace-pre-line text-ink-200">{texto}</span>
+      <span className="flex flex-wrap gap-x-2 text-[11px] text-ink-500">
+        {r.autor && <span>{r.autor}</span>}
+        {r.fecha && <span>· {r.fecha}</span>}
+        {r.verificada && <span className="text-success">· Compra verificada</span>}
+        {r.variante && <span>· {r.variante}</span>}
+        {r.util ? <span>· {r.util} les resultó útil</span> : null}
+        {traducida && (
+          <button onClick={() => setOriginal((x) => !x)} className="text-accent-300 hover:text-accent-400">
+            · {original ? "Ver en español" : `Traducida del ${IDIOMAS[r.idioma ?? ""] ?? r.idioma} · Ver original`}
+          </button>
+        )}
+      </span>
+    </li>
+  );
+}
+
 /**
- * Every review of a competitor, in its original words: how many of each star (each bar filters the list), a text
- * search and the reviews themselves, the lowest stars first when filtering by them.
+ * Every review of a competitor, in Spanish (translated when needed, the original a tap away): how many of each star
+ * (each bar filters the list), a text search and the reviews themselves, the lowest stars first when filtering.
  */
 export function ResenasCompetidor({ resenas }: { resenas: ResenaCompleta[] }) {
   const [estrellas, setEstrellasElegidas] = useState<number | null>(null);
@@ -35,7 +66,8 @@ export function ResenasCompetidor({ resenas }: { resenas: ResenaCompleta[] }) {
   const cuantas = (n: number) => resenas.filter((r) => r.estrellas === n).length;
   const max = Math.max(1, ...[1, 2, 3, 4, 5].map(cuantas));
   const texto = busqueda.trim().toLowerCase();
-  const lista = resenas.filter((r) => (estrellas === null || r.estrellas === estrellas) && (!texto || `${r.titulo} ${r.texto}`.toLowerCase().includes(texto)));
+  // The search looks in the Spanish and in the original words.
+  const lista = resenas.filter((r) => (estrellas === null || r.estrellas === estrellas) && (!texto || `${r.titulo} ${r.texto} ${r.tituloEs ?? ""} ${r.textoEs ?? ""}`.toLowerCase().includes(texto)));
 
   return (
     <div className="flex flex-col gap-4">
@@ -77,7 +109,7 @@ export function ResenasCompetidor({ resenas }: { resenas: ResenaCompleta[] }) {
         <input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar en las reseñas (en su idioma: «Deckel», «leak»…)"
+          placeholder="Buscar en las reseñas (en español o en su idioma)"
           className="h-8 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 placeholder:text-ink-500 focus:border-accent-500/60 focus:outline-none"
         />
       </div>
@@ -93,20 +125,7 @@ export function ResenasCompetidor({ resenas }: { resenas: ResenaCompleta[] }) {
       ) : (
         <ul className="flex flex-col divide-y divide-white/[0.05]">
           {lista.slice(0, visibles).map((r, i) => (
-            <li key={i} className="flex flex-col gap-1 py-3 text-sm">
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-400">
-                <Estrellas n={r.estrellas} />
-                {r.titulo && <span className="font-semibold text-ink-100">{r.titulo}</span>}
-              </span>
-              <span className="leading-relaxed whitespace-pre-line text-ink-200">{r.texto}</span>
-              <span className="flex flex-wrap gap-x-2 text-[11px] text-ink-500">
-                {r.autor && <span>{r.autor}</span>}
-                {r.fecha && <span>· {r.fecha}</span>}
-                {r.verificada && <span className="text-success">· Compra verificada</span>}
-                {r.variante && <span>· {r.variante}</span>}
-                {r.util ? <span>· {r.util} les resultó útil</span> : null}
-              </span>
-            </li>
+            <Resena key={`${r.autor}|${r.fecha}|${i}`} r={r} />
           ))}
         </ul>
       )}

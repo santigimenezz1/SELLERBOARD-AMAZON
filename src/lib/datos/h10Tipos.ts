@@ -324,10 +324,25 @@ export type ResenaCompleta = {
   variante: string | null;
   autor: string | null;
   util: number | null;
+  /**
+   * The review's language (ISO 639-1, «es», «it»…) once the AI looked at it, and its Spanish translation when it isn't
+   * Spanish. Without `idioma` it hasn't been translated yet.
+   */
+  idioma?: string;
+  tituloEs?: string;
+  textoEs?: string;
 };
 
 /** A competitor whose reviews were all uploaded: how many and how many of each star (index 0 = 1 star). */
-export type ResumenResenasCompletas = { archivoId: string; codigoPais: CodigoPais; asin: string | null; total: number; porEstrellas: number[] };
+export type ResumenResenasCompletas = {
+  archivoId: string;
+  codigoPais: CodigoPais;
+  asin: string | null;
+  total: number;
+  porEstrellas: number[];
+  /** Reviews the AI hasn't translated yet (uploaded before translation existed, or a failed batch). */
+  sinTraducir?: number;
+};
 
 /** What the reviews of each star (1 to 5) of one competitor say (AI): complaints and praise, each with how many reviews say it. */
 export type QuejasPorEstrellas = {

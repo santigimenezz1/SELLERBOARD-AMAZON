@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   try {
     let analizadas: number;
     if (body.ambito === "TODOS" || esCodigoPais(body.ambito)) analizadas = (await analizarEstrellasAmbito(id, body.ambito)).analizadas;
-    else if (esCodigoPais(body.pais) && typeof body.asin === "string" && /^B0[A-Z0-9]{8}$/.test(body.asin)) analizadas = (await analizarEstrellas(id, body.pais, body.asin)).analizadas;
+    else if (esCodigoPais(body.pais) && typeof body.asin === "string" && /^B\d[A-Z0-9]{8}$/.test(body.asin)) analizadas = (await analizarEstrellas(id, body.pais, body.asin)).analizadas;
     else return NextResponse.json({ error: "País o ASIN no válido" }, { status: 400 });
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true, analizadas });

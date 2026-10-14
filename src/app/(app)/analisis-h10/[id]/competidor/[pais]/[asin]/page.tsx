@@ -98,7 +98,7 @@ export default async function CompetidorH10({ params }: PageProps<"/analisis-h10
 
       <Tarjeta
         titulo={resenas.length ? `Todas sus reseñas · ${formatNumero(resenas.length)}` : "Todas sus reseñas"}
-        subtitulo="En su idioma original, tal como salen en Amazon. Toca una barra de estrellas para ver solo esas."
+        subtitulo="En español (las de otros idiomas, traducidas: «Ver original» muestra el texto tal cual). Toca una barra de estrellas para ver solo esas."
       >
         {resenas.length ? (
           <div className="mt-3">

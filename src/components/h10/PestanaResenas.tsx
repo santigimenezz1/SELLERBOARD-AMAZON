@@ -61,6 +61,44 @@ function BotonAnalizar({
   );
 }
 
+/** Reviews uploaded before translations existed (or whose batch failed): one tap translates them into Spanish. */
+function AvisoTraducir({ estudioId, pendientes }: { estudioId: string; pendientes: number }) {
+  const router = useRouter();
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!pendientes) return null;
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-accent-500/30 bg-accent-500/[0.06] p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-ink-200">
+        Hay <strong className="text-ink-50">{formatNumero(pendientes)} reseñas</strong> sin traducir. Tradúcelas para verlas todas en español (el original se conserva).
+      </span>
+      <span className="flex flex-col items-start gap-1">
+        <button
+          disabled={ocupado}
+          onClick={async () => {
+            setOcupado(true);
+            setError(null);
+            try {
+              const r = await fetch(`/api/h10/estudios/${estudioId}/traducir`, { method: "POST" });
+              const j = await r.json().catch(() => ({}));
+              if (!r.ok) throw new Error(j.error ?? "No se pudo traducir");
+              router.refresh();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "No se pudo traducir");
+            } finally {
+              setOcupado(false);
+            }
+          }}
+          className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium whitespace-nowrap text-ink-950 hover:bg-accent-400 disabled:opacity-60"
+        >
+          {ocupado ? "Traduciendo… (≈ 1 min)" : "Traducir al español"}
+        </button>
+        {error && <span className="text-xs text-danger">{error}</span>}
+      </span>
+    </div>
+  );
+}
+
 /** One theme: how many products and countries mention it, its effect on the rating, and the reviews' own words. */
 export function FilaTema({ t }: { t: TemaResenas }) {
   const queja = t.tipo === "queja";
@@ -393,6 +431,8 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
           />
         </div>
       )}
+
+      <AvisoTraducir estudioId={estudio.id} pendientes={todasCompletas.reduce((t, r) => t + (r.sinTraducir ?? 0), 0)} />
 
       {/* Country picker: everything below shows that country only. */}
       <div className="flex flex-wrap gap-1.5">

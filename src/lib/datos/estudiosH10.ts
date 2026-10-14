@@ -41,6 +41,7 @@ import {
   type ListingAmazon,
 } from "./h10Tipos";
 import { listingsDesdeJson } from "./h10Fichas";
+import { traducirResenas } from "@/lib/ia/traducirResenas";
 
 /*
  * Stored Helium 10 studies.
@@ -278,9 +279,11 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
         };
       }
       // Every review of a competitor (Helium 10's «Review Downloader»): read straight from the file, no AI.
-      const completas = resenasDesdeCsv(filas, archivo.name);
-      if (completas) {
+      const leidas = resenasDesdeCsv(filas, archivo.name);
+      if (leidas) {
         if (!pista.codigoPais) return sinPais("resenas");
+        // Shown in Spanish: the ones in other languages get their translation (the original stays).
+        const completas = { ...leidas, resenas: (await traducirResenas(leidas.resenas)).resenas };
         const n = (e: number) => completas.resenas.filter((r) => r.estrellas === e).length;
         return {
           meta: {
@@ -607,7 +610,8 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       resenasCompletas: lista.flatMap(([archivoId, d]): ResumenResenasCompletas[] => {
         if (!d.resenasCompletas || !d.codigoPais) return [];
         const porEstrellas = [1, 2, 3, 4, 5].map((e) => d.resenasCompletas!.resenas.filter((r) => r.estrellas === e).length);
-        return [{ archivoId, codigoPais: d.codigoPais, asin: d.resenasCompletas.asin, total: d.resenasCompletas.resenas.length, porEstrellas }];
+        const sinTraducir = d.resenasCompletas.resenas.filter((r) => !r.idioma).length;
+        return [{ archivoId, codigoPais: d.codigoPais, asin: d.resenasCompletas.asin, total: d.resenasCompletas.resenas.length, porEstrellas, sinTraducir }];
       }),
       supuestos: estudio.supuestos ?? SUPUESTOS_INICIALES,
       // The page only needs the last months of the follow-up.
@@ -717,6 +721,29 @@ export async function todasLasResenas(id: string): Promise<(ResenaCompleta & { p
   for (const d of e.datos.values()) if (d.resenasCompletas?.asin && d.codigoPais) productos.set(`${d.codigoPais}_${d.resenasCompletas.asin}`, { pais: d.codigoPais, asin: d.resenasCompletas.asin });
   const listas = await Promise.all([...productos.values()].map(async (p) => (await resenasCompletasDe(id, p.pais, p.asin)).map((r) => ({ ...r, ...p }))));
   return listas.flat();
+}
+
+/**
+ * Translates into Spanish the competitors' reviews of a study still untranslated (uploaded before translations
+ * existed, or a batch that failed). Saves each file's reviews as it goes.
+ */
+export async function traducirResenasEstudio(id: string): Promise<{ traducidas: number; fallos: number; archivos: number }> {
+  const e = await entrada(id);
+  let traducidas = 0;
+  let fallos = 0;
+  let archivos = 0;
+  for (const [archivoId, d] of e.datos) {
+    if (!d.resenasCompletas?.resenas.some((r) => !r.idioma)) continue;
+    const r = await traducirResenas(d.resenasCompletas.resenas);
+    traducidas += r.traducidas;
+    fallos += r.fallos;
+    archivos++;
+    const nuevo: DatosArchivo = { ...d, resenasCompletas: { ...d.resenasCompletas, resenas: r.resenas } };
+    await col().doc(id).collection("datos").doc(archivoId).set(JSON.parse(JSON.stringify(nuevo)));
+    contarEscrituras(1);
+    e.datos.set(archivoId, nuevo);
+  }
+  return { traducidas, fallos, archivos };
 }
 
 /** Saves the research agent's report in the study. */
