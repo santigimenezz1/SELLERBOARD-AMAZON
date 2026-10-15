@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
 import { PestanaDatos } from "./PestanaDatos";
@@ -55,76 +56,60 @@ function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => voi
   );
 }
 
-/** «Análisis H10»: the stored Helium 10 studies, each with its data and analysis. */
+/** The page of one study («/analisis-h10/<id>»), opening on a tab when it's given. */
+export const enlaceEstudio = (id: string, pestana?: string) => `/analisis-h10/${id}${pestana ? `?pestana=${pestana}` : ""}`;
+
+/**
+ * «Análisis H10»: only the studies, as cards with their picture. Each one opens its study in a new browser tab;
+ * a new one opens its own page right away.
+ */
+export function ListaEstudios({ estudios, archivos }: { estudios: EstudioH10[]; archivos: Record<string, number> }) {
+  const router = useRouter();
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {estudios.map((e) => (
+          <TarjetaEstudio key={e.id} e={e} archivos={archivos[e.id] ?? 0} />
+        ))}
+        <NuevoEstudio onCreado={(id) => router.push(enlaceEstudio(id))} />
+      </div>
+      {!estudios.length && <p className="text-sm text-ink-400">Aún no hay estudios. Crea uno por producto y sube sus archivos de Helium 10.</p>}
+    </div>
+  );
+}
+
+/** One study with its tabs (Datos, Mercado, Competidores…), on its own page. */
 export function VistaH10({
-  estudios,
-  palabras,
-  archivos,
+  estudio,
+  palabras: palabrasEstudio,
+  archivos: archivosEstudio,
   costesPropios,
   paresAmazon,
   inicial,
 }: {
-  estudios: EstudioH10[];
-  palabras: Record<string, Record<string, PalabrasMercado>>;
-  /** Uploaded files of each stored study. */
-  archivos: Record<string, ArchivoH10[]>;
-  /** Stored studies whose owner already saved their own costs. */
-  costesPropios: Record<string, boolean>;
-  /** Competitor ASINs × countries «Traer datos de Amazon» fetches, per stored study. */
-  paresAmazon: Record<string, { asin: string; codigoPais: CodigoPais }[]>;
-  /** Study and tab to open first (from the URL). */
-  inicial?: { estudio?: string; pestana?: string };
+  estudio: EstudioH10;
+  palabras: Record<string, PalabrasMercado>;
+  /** Its uploaded files. */
+  archivos: ArchivoH10[];
+  /** Whether its owner already saved their own costs. */
+  costesPropios: boolean;
+  /** Competitor ASINs × countries «Traer datos de Amazon» fetches. */
+  paresAmazon: { asin: string; codigoPais: CodigoPais }[];
+  /** Tab to open first (from the URL). */
+  inicial?: { pestana?: string };
 }) {
   const router = useRouter();
-  const [elegido, setElegido] = useState<string | null>(inicial?.estudio && estudios.some((e) => e.id === inicial.estudio) ? inicial.estudio : null);
-  const estudio = estudios.find((e) => e.id === elegido) ?? estudios[0];
-  // The open tab of each study: «Datos» until it has an Xray, then «Mercado».
-  const [pestanas, setPestanas] = useState<Record<string, Pestana>>(() => {
-    const p = PESTANAS.find((x) => x.id === inicial?.pestana)?.id;
-    return inicial?.estudio && p ? { [inicial.estudio]: p } : {};
-  });
-  if (!estudio)
-    return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <NuevoEstudio
-          onCreado={(id) => {
-            setElegido(id);
-            router.refresh();
-          }}
-        />
-        <p className="self-center text-sm text-ink-400 sm:col-span-1 lg:col-span-2">Aún no hay estudios. Crea uno por producto y sube sus archivos de Helium 10.</p>
-      </div>
-    );
-  const pestana = pestanas[estudio.id] ?? (estudio.ejemplo || estudio.mercados.length ? "mercado" : "datos");
-  const irA = (p: Pestana) => setPestanas({ ...pestanas, [estudio.id]: p });
+  // «Datos» until it has an Xray, then «Mercado».
+  const [elegida, setElegida] = useState<Pestana | undefined>(() => PESTANAS.find((x) => x.id === inicial?.pestana)?.id);
+  const pestana = elegida ?? (estudio.ejemplo || estudio.mercados.length ? "mercado" : "datos");
+  const irA = (p: Pestana) => setElegida(p);
   const resumen = estudio.mercados.length ? resumirEstudio(estudio) : null;
-  const palabrasEstudio = palabras[estudio.id] ?? {};
   const paisInicial = resumen?.mejor.mercado.codigoPais ?? Object.keys(palabrasEstudio)[0] ?? "ES";
   const datosAqui = estudio.ejemplo ? undefined : () => irA("datos");
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Studies */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {estudios.map((e) => (
-          <TarjetaEstudio key={e.id} e={e} activo={e.id === estudio.id} archivos={archivos[e.id]?.length ?? 0} onElegir={() => setElegido(e.id)} />
-        ))}
-        <NuevoEstudio
-          onCreado={(id) => {
-            setElegido(id);
-            router.refresh();
-          }}
-        />
-      </div>
-
-      <CabeceraEstudio
-        key={`cabecera-${estudio.id}`}
-        estudio={estudio}
-        onBorrado={() => {
-          setElegido(null);
-          router.refresh();
-        }}
-      />
+      <CabeceraEstudio key={`cabecera-${estudio.id}`} estudio={estudio} onBorrado={() => router.push("/analisis-h10")} />
 
       {/* Tabs */}
       <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.06]">
@@ -136,7 +121,7 @@ export function VistaH10({
             className={`-mb-px border-b-2 px-3 py-2 text-sm whitespace-nowrap transition-colors ${pestana === p.id ? "border-accent-500 text-ink-100" : "border-transparent text-ink-400 hover:text-ink-100"}`}
           >
             {p.texto}
-            {p.id === "datos" && <span className="ml-1.5 text-xs text-ink-500">{archivos[estudio.id]?.length ?? 0}</span>}
+            {p.id === "datos" && <span className="ml-1.5 text-xs text-ink-500">{archivosEstudio.length}</span>}
           </button>
         ))}
       </nav>
@@ -144,8 +129,8 @@ export function VistaH10({
       {pestana === "datos" && !estudio.ejemplo && <PestanaDatos
           key={estudio.id}
           estudioId={estudio.id}
-          archivos={archivos[estudio.id] ?? []}
-          costesPropios={!!costesPropios[estudio.id]}
+          archivos={archivosEstudio}
+          costesPropios={costesPropios}
           cajaPropia={cajaCompleta(estudio.supuestos?.miCaja)}
           tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
           paisesXray={estudio.mercados.map((m) => m.codigoPais)}
@@ -162,7 +147,7 @@ export function VistaH10({
         ) : <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />)}
       {pestana === "competidores" && (
         <div className="flex flex-col gap-4">
-          {CON_DATOS_AMAZON && (!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon[estudio.id] ?? []} />}
+          {CON_DATOS_AMAZON && (!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon} />}
           {resumen ? <PestanaCompetidores key={estudio.id} estudio={estudio} palabras={palabrasEstudio} /> : <SinDatos texto="La tabla de competidores sale del Xray: súbelo en «Datos»." onIrADatos={datosAqui} />}
         </div>
       )}
@@ -217,16 +202,26 @@ export function VistaH10({
   );
 }
 
-/** A study in the list: the product's score (every country together) and the money at stake, or what's missing. */
-function TarjetaEstudio({ e, activo, archivos, onElegir }: { e: EstudioH10; activo: boolean; archivos: number; onElegir: () => void }) {
+/** Every study's picture for now: each one will get its own. */
+const IMAGEN_POR_DEFECTO = "/h10/estudio-por-defecto.svg";
+
+/**
+ * A study in the list: its picture, the product's score (every country together) and the money at stake, or what's
+ * missing. Opens the study in a new browser tab.
+ */
+function TarjetaEstudio({ e, archivos }: { e: EstudioH10; archivos: number }) {
   const r = e.mercados.length ? resumirEstudio(e) : null;
   const nota = r ? notaProducto(r, analizarResenas(e)).nota : null;
   return (
-    <button
-      onClick={onElegir}
-      aria-pressed={activo}
-      className={`flex flex-col gap-2 rounded-xl border p-4 text-left transition-colors ${activo ? "border-accent-500/60 bg-accent-500/[0.06]" : "border-white/[0.06] bg-ink-900/80 hover:border-white/[0.14]"}`}
+    <Link
+      href={enlaceEstudio(e.id)}
+      target="_blank"
+      rel="noopener"
+      className="group flex flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-ink-900/80 text-left transition-colors hover:border-accent-500/50"
     >
+      {/* eslint-disable-next-line @next/next/no-img-element -- a small local picture */}
+      <img src={IMAGEN_POR_DEFECTO} alt="" className="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
+      <span className="flex flex-col gap-2 p-4">
       <span className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-semibold text-ink-100">{e.nombre}</span>
         {nota !== null ? <Nota valor={nota} /> : <span className="text-xs text-ink-500">sin datos</span>}
@@ -246,7 +241,9 @@ function TarjetaEstudio({ e, activo, archivos, onElegir }: { e: EstudioH10; acti
           </>
         )}
       </span>
-    </button>
+      <span className="text-xs font-medium text-accent-300 group-hover:text-accent-400">Abrir el estudio ↗</span>
+      </span>
+    </Link>
   );
 }
 
@@ -261,7 +258,7 @@ function NuevoEstudio({ onCreado }: { onCreado: (id: string) => void }) {
     return (
       <button
         onClick={() => setAbierto(true)}
-        className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/[0.12] p-4 text-center text-sm text-ink-300 transition-colors hover:border-accent-500/50 hover:text-ink-100"
+        className="flex min-h-48 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/[0.12] p-4 text-center text-sm text-ink-300 transition-colors hover:border-accent-500/50 hover:text-ink-100"
       >
         <span className="text-lg text-accent-400">＋</span>
         Nuevo estudio

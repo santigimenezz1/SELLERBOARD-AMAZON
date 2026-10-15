@@ -2,25 +2,52 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { CodigoPais, EstudioH10, PalabrasMercado } from "@/lib/datos/h10Tipos";
 import { EUR_POR_GBP, nombrePais } from "@/lib/datos/h10Analisis";
 import { auditarListing, colorNota, listingDe, resumenListings } from "@/lib/datos/h10Listings";
-import { formatMoneda, formatNumero } from "@/lib/format";
+import { formatMoneda, formatNumero, formatPorcentaje } from "@/lib/format";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Pais, Tarjeta } from "./comun";
 import { FotoGenerica } from "./FotoGenerica";
 
 /**
  * «Listings»: the 10 leaders of the niche as cards, from the one that earns most, each opening its listing audit; at the
- * end, what the leaders get wrong and what they get right. Photos and texts are the real ones when a «ficha» JSON
+ * end, what the leaders get wrong and what they get right. A card's ✕ takes that listing out (kept per study) and the
+ * next one by revenue fills its place. Each card shows its revenue and its share of the market: of every product of
+ * every country under «Todos», of that country's otherwise (as in «Competidores»). Photos and texts are the real ones when a «ficha» JSON
  * brought the listing; the findings are a mock-up until the listing agent exists.
  */
 export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado> }) {
+  const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
-  const lideres = estudio.mercados
+  // Shown at once; saved in the study in the background.
+  const [quitados, setQuitados] = useState<string[]>(estudio.listingsQuitados ?? []);
+  const [errorQuitar, setErrorQuitar] = useState("");
+  const todos = estudio.mercados
     .filter((m) => !pais || m.codigoPais === pais)
     .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
-    .sort((a, b) => b.eur - a.eur)
+    .sort((a, b) => b.eur - a.eur);
+  // The whole market of the view, taken-out listings included: taking one out doesn't change the market.
+  const totalMercado = todos.reduce((t, x) => t + x.eur, 0);
+  const clave = (x: { m: { codigoPais: string }; c: { asin?: string | null } }) => `${x.m.codigoPais}|${x.c.asin}`;
+  const quitadosAqui = todos.filter((x) => x.c.asin && quitados.includes(clave(x))).length;
+  const guardar = async (cambio: { quitarListing: string } | { restaurarListings: true }, despues: string[]) => {
+    const antes = quitados;
+    setQuitados(despues);
+    setErrorQuitar("");
+    try {
+      const r = await fetch(`/api/h10/estudios/${estudio.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cambio) });
+      const b = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) throw new Error(b.error ?? `error ${r.status}`);
+      router.refresh();
+    } catch (e) {
+      setQuitados(antes);
+      setErrorQuitar(`No se pudo guardar: ${e instanceof Error ? e.message : "inténtalo otra vez"}`);
+    }
+  };
+  const lideres = todos
+    .filter((x) => !x.c.asin || !quitados.includes(clave(x)))
     .slice(0, 10)
     .map((x) => ({ ...x, a: auditarListing(x.c, x.m, palabras[x.m.codigoPais], listingDe(estudio.listings, x.m.codigoPais, x.c.asin)) }));
   const { fallos, aciertos } = resumenListings(lideres.map((x) => x.a));
@@ -50,14 +77,45 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
         ))}
       </div>
 
-      <Tarjeta titulo={`Los 10 listings líderes ${donde}`} subtitulo="De más a menos facturación · entra en uno para ver todo lo que hace bien y mal">
+      <Tarjeta
+        titulo={`Los 10 listings líderes ${donde}`}
+        subtitulo="De más a menos facturación · entra en uno para ver todo lo que hace bien y mal · ✕ para quitarlo: su sitio lo ocupa el siguiente"
+      >
+        {(quitadosAqui > 0 || errorQuitar) && (
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-400">
+            {quitadosAqui > 0 && (
+              <>
+                {quitadosAqui} {quitadosAqui === 1 ? "listing quitado" : "listings quitados"} {donde}
+                <button
+                  onClick={() => void guardar({ restaurarListings: true }, [])}
+                  className="rounded-md border border-white/[0.12] px-2 py-0.5 font-medium text-ink-200 hover:text-ink-50"
+                  title="Vuelve a mostrar todos los listings quitados de este estudio (en todos los países)"
+                >
+                  Volver a mostrarlos
+                </button>
+              </>
+            )}
+            {errorQuitar && <span className="text-danger">{errorQuitar}</span>}
+          </p>
+        )}
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {lideres.map(({ m, c, a }, i) => {
+          {lideres.map(({ m, c, a, eur }, i) => {
             const enlace = c.asin ? `/analisis-h10/${estudio.id}/listing/${m.codigoPais}/${c.asin}` : null;
             const malos = a.partes.reduce((t, p) => t + p.mal.length, 0);
             const buenos = a.partes.reduce((t, p) => t + p.bien.length, 0);
             const contenido = (
               <>
+                <div className="flex items-baseline justify-between gap-2 px-3 pt-2.5 pb-2 pr-10">
+                  <span
+                    className="tabular text-lg leading-none font-bold text-success"
+                    title={m.moneda === "GBP" ? `Al mes, pasado a euros (${formatMoneda(c.facturacion, m.moneda)})` : "Facturación al mes (Xray)"}
+                  >
+                    {formatNumero(eur)} €
+                  </span>
+                  <span className="tabular text-xs font-semibold text-ink-200" title={pais ? `Parte de lo que factura el mercado de ${nombrePais(pais)}` : "Parte de lo que factura el mercado de todos los países juntos"}>
+                    {formatPorcentaje(totalMercado ? (eur / totalMercado) * 100 : null)}
+                  </span>
+                </div>
                 <div className="relative">
                   <FotoGenerica tono={i} url={a.real?.fotos[0]} />
                   <span className="absolute top-2 left-2 flex size-7 items-center justify-center rounded-full bg-ink-950/85 text-xs font-bold text-ink-50">{i + 1}</span>
@@ -81,7 +139,6 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
                     ) : null}
                     <span>{formatNumero(c.resenas)} reseñas</span>
                   </span>
-                  <span className="tabular text-sm font-semibold text-success">{formatMoneda(c.facturacion, m.moneda)}/mes</span>
                   <span className="flex gap-1.5 text-[11px]">
                     <span className="rounded bg-danger/10 px-1.5 py-0.5 font-medium text-danger">{malos} fallos</span>
                     <span className="rounded bg-success/10 px-1.5 py-0.5 font-medium text-success">{buenos} aciertos</span>
@@ -92,7 +149,20 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
             // Reviews of this ASIN already in the study (the largest upload: Helium 10's or the extension's).
             const guardadas = Math.max(0, ...(estudio.resenasCompletas ?? []).filter((r) => r.codigoPais === m.codigoPais && r.asin === c.asin).map((r) => r.total));
             return (
-              <div key={`${m.codigoPais}-${c.asin ?? c.puesto}-${i}`} className="flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-ink-950/40 transition-colors hover:border-accent-500/50">
+              <div key={`${m.codigoPais}-${c.asin ?? c.puesto}-${i}`} className="relative flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-ink-950/40 transition-colors hover:border-accent-500/50">
+                {c.asin && (
+                  <button
+                    onClick={() => {
+                      const k = `${m.codigoPais}|${c.asin}`;
+                      void guardar({ quitarListing: k }, [...quitados, k]);
+                    }}
+                    aria-label={`Quitar ${c.marca} del top 10`}
+                    title="Quitar del top 10: lo sustituye el siguiente por facturación"
+                    className="absolute top-1.5 right-1.5 z-10 flex size-7 items-center justify-center rounded-full text-base leading-none text-ink-400 transition-colors hover:bg-danger/15 hover:text-danger"
+                  >
+                    ✕
+                  </button>
+                )}
                 {enlace ? (
                   <Link href={enlace} className="flex flex-1 flex-col hover:bg-white/[0.03]">
                     {contenido}

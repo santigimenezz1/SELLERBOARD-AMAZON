@@ -28,7 +28,7 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
 
   return (
     <div className="flex flex-col gap-5">
-      <Link href={`/analisis-h10?estudio=${id}&pestana=listings`} className="text-sm text-ink-400 hover:text-ink-100">
+      <Link href={`/analisis-h10/${id}?pestana=listings`} className="text-sm text-ink-400 hover:text-ink-100">
         ← {v.estudio.nombre} · Listings
       </Link>
 
@@ -117,36 +117,37 @@ export default async function ListingH10({ params }: PageProps<"/analisis-h10/[i
       <Tarjeta titulo="Análisis de cada foto" subtitulo="Lo que cumple, lo que está bien, lo que falla y lo que le falta mostrar">
         <ol className="mt-3 flex flex-col divide-y divide-white/[0.06]">
           {a.fotos.map((f) => (
-            <li key={f.n} className="grid gap-4 py-4 first:pt-1 sm:grid-cols-[120px_1fr]">
+            <li key={f.n} className="grid gap-5 py-5 first:pt-1 sm:grid-cols-[140px_1fr]">
               <div className="flex flex-col gap-1.5">
                 <FotoGenerica n={f.n} tipo={f.tipo} tono={f.n} url={f.url} className={`border-2 ${BORDE_FOTO[f.estado]}`} />
                 <span className={`w-fit rounded px-1.5 text-sm font-bold ${colorNota(f.nota)}`}>{f.nota.toLocaleString("es-ES")}</span>
               </div>
-              <div className="flex min-w-0 flex-col gap-2 text-sm">
-                <p className="font-semibold text-ink-50">
+              {/* Bigger than the rest of the page: this is what's read closely, photo by photo. */}
+              <div className="flex min-w-0 flex-col gap-3 text-base leading-relaxed">
+                <p className="text-lg font-semibold text-ink-50">
                   {f.n}. {f.tipo}
                 </p>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {f.checks.map((c) => (
-                    <span key={c.texto} className={`rounded-md px-2 py-0.5 text-[11px] ${c.ok ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>
+                    <span key={c.texto} className={`rounded-md px-2.5 py-1 text-sm ${c.ok ? "bg-success/10 text-success" : "bg-danger/10 text-danger"}`}>
                       {c.ok ? "✓" : "✕"} {c.texto}
                     </span>
                   ))}
                 </div>
                 {f.bien.map((t) => (
-                  <p key={t} className="text-ink-200">
+                  <p key={t} className="text-ink-100">
                     <span className="font-bold text-success">+ </span>
                     {t}
                   </p>
                 ))}
                 {f.mal.map((t) => (
-                  <p key={t} className="text-ink-200">
+                  <p key={t} className="text-ink-100">
                     <span className="font-bold text-danger">− </span>
                     {t}
                   </p>
                 ))}
                 {f.falta && (
-                  <p className="border-l-2 border-accent-500 bg-accent-500/[0.07] px-3 py-1.5 text-[13px] text-ink-200">
+                  <p className="border-l-2 border-accent-500 bg-accent-500/[0.07] px-3.5 py-2.5 text-base text-ink-100">
                     <span className="font-semibold text-accent-300">Le falta mostrar: </span>
                     {f.falta}
                   </p>

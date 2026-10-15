@@ -6,7 +6,10 @@ import { volcarConsumo } from "@/lib/datos/consumo";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Changes a study. Body: any of { nombre, descripcion, supuestos } (supuestos: the owner's costs for the profitability tab). */
+/**
+ * Changes a study. Body: any of { nombre, descripcion, supuestos, quitarListing, restaurarListings } (supuestos: the
+ * owner's costs for the profitability tab; quitarListing: «ES|B0…» out of the «Listings» top 10; restaurarListings: true).
+ */
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
   if (!(await getSessionUser(true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });

@@ -62,6 +62,8 @@ type EstudioGuardado = {
   archivos: ArchivoH10[];
   supuestos?: SupuestosRentabilidad;
   asinsManuales?: string[];
+  /** «ES|B0…» taken out of the «Listings» top 10. */
+  listingsQuitados?: string[];
   resenasAgrupadas?: ResenasAgrupadas;
   /** Complaints of each competitor's 1–3 star reviews (AI), by «country_ASIN». */
   quejasEstrellas?: Record<string, QuejasPorEstrellas>;
@@ -179,10 +181,23 @@ function leerSupuestos(v: unknown, actual: SupuestosRentabilidad): SupuestosRent
   };
 }
 
-export async function editarEstudio(id: string, cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown }): Promise<void> {
+/** «ES|B0DS9VCV6L»: a listing of the study in one country. */
+const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(ES|DE|FR|IT|GB)\|[A-Z0-9]{10}$/.test(v);
+
+/**
+ * Changes a study. `quitarListing` («ES|B0…») takes a listing out of the «Listings» top 10 (kept per study);
+ * `restaurarListings` brings them all back.
+ */
+export async function editarEstudio(
+  id: string,
+  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown },
+): Promise<void> {
   const e = await entrada(id);
+  if (cambios.quitarListing !== undefined && !esClaveListing(cambios.quitarListing)) throw new Error("Listing no válido");
+  const quitados = cambios.restaurarListings === true ? [] : [...new Set([...(e.estudio.listingsQuitados ?? []), ...(esClaveListing(cambios.quitarListing) ? [cambios.quitarListing] : [])])];
   e.estudio = {
     ...e.estudio,
+    listingsQuitados: quitados,
     nombre: texto(cambios.nombre, 80) || e.estudio.nombre,
     descripcion: cambios.descripcion !== undefined ? texto(cambios.descripcion, 200) : e.estudio.descripcion,
     ...(cambios.supuestos !== undefined && { supuestos: leerSupuestos(cambios.supuestos, e.estudio.supuestos ?? SUPUESTOS_INICIALES) }),
@@ -230,6 +245,18 @@ function mercadoDesdeCaptura(c: CapturaLeida, codigoPais: CodigoPais, fecha: str
   };
 }
 
+/**
+ * A CSV saved without its «.csv» (e.g. «XRAY_ALEMANIA_GRINDERS»): no known extension, text, and a first line of
+ * quoted or separated columns. Images, PDFs and Excel files start with their own signature and never match.
+ */
+function pareceCsv(nombre: string, datos: Buffer): boolean {
+  if (/\.(png|jpe?g|webp|gif|pdf|xlsx?|json)$/i.test(nombre)) return false;
+  const inicio = datos.subarray(0, 2048);
+  if (inicio.includes(0)) return false;
+  const primera = inicio.toString("utf8").replace(/^﻿/, "").split(/\r?\n/)[0] ?? "";
+  return /^"[^"]*"[,;]/.test(primera) || (primera.split(/[,;]/).length >= 2 && /\r?\n/.test(inicio.toString("utf8")));
+}
+
 const nombreHerramienta = (h: HerramientaH10) => HERRAMIENTAS_H10.find((x) => x.id === h)?.nombre ?? h;
 
 /** Reads a file (AI) and returns what goes into the study. Never throws: a file it can't read is kept with an error. */
@@ -259,7 +286,7 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
         datos: { herramienta: "ficha", codigoPais: paises.length === 1 ? paises[0] : null, listings },
       };
     }
-    const esCsv = /\.csv$/i.test(archivo.name) || archivo.type === "text/csv";
+    const esCsv = /\.csv$/i.test(archivo.name) || archivo.type === "text/csv" || pareceCsv(archivo.name, datos);
     if (esCsv) {
       const filas = leerCsv(datos.toString("utf8"));
       if (filas.length < 2) throw new Error("El CSV está vacío");
@@ -617,6 +644,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       // The page only needs the last months of the follow-up.
       amazon: [...amazon.values()].map((v) => ({ ficha: v.ficha, puntos: v.puntos.slice(-PUNTOS_EN_PAGINA) })),
       asinsManuales: estudio.asinsManuales ?? [],
+      listingsQuitados: estudio.listingsQuitados ?? [],
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],
     },

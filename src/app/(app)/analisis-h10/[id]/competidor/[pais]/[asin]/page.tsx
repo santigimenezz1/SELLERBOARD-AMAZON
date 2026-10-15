@@ -19,7 +19,7 @@ export default async function CompetidorH10({ params }: PageProps<"/analisis-h10
   const c = m?.competidores.find((x) => x.asin === asin);
   if (!v || !m || !c) notFound();
   const e = v.estudio;
-  const volver = `/analisis-h10?estudio=${id}&pestana=resenas`;
+  const volver = `/analisis-h10/${id}?pestana=resenas`;
 
   const resenas = await resenasCompletasDe(id, pais, asin);
   const porEstrellas = await quejasEstrellasDe(id, pais, asin);

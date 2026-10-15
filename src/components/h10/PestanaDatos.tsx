@@ -44,8 +44,8 @@ const GRUPOS: { ambito: Ambito; titulo: string }[] = [
   { ambito: "principal", titulo: "Una vez, en tu país principal" },
   { ambito: "producto", titulo: "Una vez por producto (tuyo)" },
 ];
-/** The countries the list asks for: the four big ones, plus Italy once something of it is uploaded. */
-const PAISES_LISTA = ["ES", "DE", "FR", "GB"] as const;
+/** The countries the list asks for, in the order of the rest of the module. */
+const PAISES_LISTA = PAISES_H10;
 
 /** «Rebounder für Fußball» → «rebounder fur fussball»: the same search however it was written. */
 const normalizar = (t: string) =>
@@ -133,7 +133,7 @@ export function PestanaDatos({
     router.refresh();
   };
 
-  const columnas: string[] = [...PAISES_LISTA, ...(archivos.some((a) => a.codigoPais === "IT") ? ["IT"] : [])];
+  const columnas: string[] = [...PAISES_LISTA];
   const validos = archivos.filter((a) => a.estado !== "error");
   /** Files that tick an item (in a country, or anywhere for the once-only ones). */
   const cuantos = (it: ItemLista, pais?: string): number => {
@@ -266,7 +266,7 @@ export function PestanaDatos({
                     <td className="px-2 py-2" title={it.ayuda}>
                       <span className="font-medium text-ink-100">{it.texto}</span>
                       <span className="block text-[11px] text-ink-500">{it.ayuda}</span>
-                      {it.id === "ficha" && paisesXray.length > 0 && <CargarListings estudioId={estudioId} paises={paisesXray} />}
+                      {it.id === "ficha" && <CargarListings estudioId={estudioId} paises={paisesXray} />}
                     </td>
                     <td className={`px-2 py-2 text-xs whitespace-nowrap ${it.necesidad.startsWith("Imprescindible") ? "text-accent-300" : "text-ink-400"}`}>{it.necesidad}</td>
                     {it.ambito === "pais" ? (
@@ -299,7 +299,8 @@ export function PestanaDatos({
 
 /**
  * «Cargar datos»: brings from Amazon the leaders' listings of every country with an Xray, one country after another,
- * and says how it went in each.
+ * and says how it went in each. In every study: without any Xray read yet it's disabled and says why (the leaders
+ * come from the Xray).
  */
 function CargarListings({ estudioId, paises }: { estudioId: string; paises: string[] }) {
   const router = useRouter();
@@ -330,8 +331,12 @@ function CargarListings({ estudioId, paises }: { estudioId: string; paises: stri
     <span className="mt-1.5 flex flex-col items-start gap-1">
       <button
         onClick={() => void cargar()}
-        disabled={!!enCurso}
-        title="Trae de Amazon el título, las viñetas, la descripción y las fotos de los 5 líderes de cada país (uno por familia de variantes). Se ven en «Listings»"
+        disabled={!!enCurso || !paises.length}
+        title={
+          paises.length
+            ? "Trae de Amazon el título, las viñetas, la descripción y las fotos de los 5 líderes de cada país (uno por familia de variantes). Se ven en «Listings»"
+            : "Primero sube el Xray de algún país: de él salen los líderes que se cargan"
+        }
         className="inline-flex h-7 items-center gap-1.5 rounded-md bg-success px-2.5 text-xs font-semibold text-ink-950 transition-all hover:brightness-110 active:scale-[0.97] disabled:opacity-60"
       >
         {enCurso ? (
@@ -342,6 +347,7 @@ function CargarListings({ estudioId, paises }: { estudioId: string; paises: stri
           "Cargar datos"
         )}
       </button>
+      {!paises.length && <span className="text-[11px] text-ink-500">Se activa cuando haya un Xray leído</span>}
       {resultado.map((x) => (
         <span key={x.pais} className={`text-[11px] ${x.ok ? "text-success" : "text-danger"}`}>
           {nombrePais(x.pais)}: {x.texto}

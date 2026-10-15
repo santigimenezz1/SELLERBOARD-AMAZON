@@ -62,6 +62,8 @@ export type EstudioH10 = {
   amazon?: SeguimientoAmazon[];
   /** ASINs added by hand to the Amazon follow-up (they're fetched in every country). */
   asinsManuales?: string[];
+  /** Listings taken out of the «Listings» top 10 by hand, as «ES|B0…»: the next one by revenue takes their place. */
+  listingsQuitados?: string[];
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
   busquedas?: Partial<Record<CodigoPais, HistorialBusquedas>>;
   /** Each competitor's Helium 10 «Review Analysis», and the themes the AI put together from all of them. */

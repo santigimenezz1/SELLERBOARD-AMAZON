@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" role="img" aria-label="Estudio de producto">
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c1917"/>
+      <stop offset="1" stop-color="#2a1d0e"/>
+    </linearGradient>
+    <linearGradient id="caja" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#fondo)"/>
+  <g stroke="#ffffff" stroke-opacity="0.04">
+    <path d="M0 60H640M0 120H640M0 180H640M0 240H640M0 300H640M80 0V360M160 0V360M240 0V360M320 0V360M400 0V360M480 0V360M560 0V360"/>
+  </g>
+  <!-- A box: the product -->
+  <g transform="translate(250 92)">
+    <path d="M70 0 140 35 70 70 0 35Z" fill="#fbbf24"/>
+    <path d="M0 35 70 70V160L0 125Z" fill="url(#caja)"/>
+    <path d="M140 35 70 70V160L140 125Z" fill="#92400e"/>
+    <path d="M35 17.5 105 52.5V78" fill="none" stroke="#fde68a" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <!-- Rising bars: the market -->
+  <g fill="#22c55e" fill-opacity="0.85">
+    <rect x="440" y="214" width="22" height="46" rx="4"/>
+    <rect x="470" y="190" width="22" height="70" rx="4"/>
+    <rect x="500" y="160" width="22" height="100" rx="4"/>
+  </g>
+  <!-- A magnifier: the study -->
+  <g transform="translate(118 150)" fill="none" stroke="#e7e5e4" stroke-width="10" stroke-linecap="round">
+    <circle cx="40" cy="40" r="34"/>
+    <path d="M65 65 96 96"/>
+  </g>
+</svg>
