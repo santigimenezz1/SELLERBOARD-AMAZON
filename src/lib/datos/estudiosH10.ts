@@ -10,7 +10,7 @@ import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, resenasD
 import { agruparTemasResenas, quejasPorEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
 import { resenasDesdeExcel } from "./h10Excel";
 import { mensajeError } from "@/lib/ia/errores";
-import { fichasCompetidores, fichasConFamilia, ofertasCompetidor, preciosCompetidores, tarifasCompetidor, type ItemCatalogoConFamilia } from "@/lib/amazon/apis";
+import { fichasCompetidores, fichasConFamilia, imagenesCatalogo, ofertasCompetidor, preciosCompetidores, tarifasCompetidor, type ItemCatalogoConFamilia } from "@/lib/amazon/apis";
 import { marketplaceConocido } from "./marketplacesConocidos";
 import {
   HERRAMIENTAS_H10,
@@ -64,6 +64,8 @@ type EstudioGuardado = {
   asinsManuales?: string[];
   /** «ES|B0…» taken out of the «Listings» top 10. */
   listingsQuitados?: string[];
+  /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
+  portada?: { asin: string; codigoPais: CodigoPais; url: string };
   resenasAgrupadas?: ResenasAgrupadas;
   /** Complaints of each competitor's 1–3 star reviews (AI), by «country_ASIN». */
   quejasEstrellas?: Record<string, QuejasPorEstrellas>;
@@ -473,6 +475,39 @@ export async function releerArchivo(id: string, archivoId: string): Promise<Arch
   e.estudio = { ...e.estudio, archivos: e.estudio.archivos.map((x) => (x.id === a.id ? nuevo : x)), actualizadoEn: new Date().toISOString() };
   await guardarEstudio(e.estudio);
   return nuevo;
+}
+
+/**
+ * The picture of each study's card: the main photo of the product that makes most in its market (every country, in
+ * euros). From its listing when «Cargar datos» brought it; else asked once to Amazon's catalog (free, read-only) and
+ * kept in the study, until another product leads. null: no Xray yet, or Amazon had no photo.
+ */
+export async function portadasEstudios(): Promise<Record<string, string | null>> {
+  const mapa = await cargar();
+  const portadas: Record<string, string | null> = {};
+  for (const [id, e] of mapa) {
+    const { mercados } = ensamblar(e).estudio;
+    const lider = mercados
+      .flatMap((m) => m.competidores.filter((c) => c.asin && esAsin(c.asin)).map((c) => ({ asin: c.asin!, pais: m.codigoPais, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
+      .sort((a, b) => b.eur - a.eur)[0];
+    if (!lider) {
+      portadas[id] = null;
+      continue;
+    }
+    const guardada = e.estudio.portada;
+    if (guardada?.asin === lider.asin && guardada.codigoPais === lider.pais) {
+      portadas[id] = guardada.url;
+      continue;
+    }
+    const delListing = e.listings.get(`${lider.pais}|${lider.asin}`)?.fotos[0];
+    const url = delListing ?? (await imagenesCatalogo([lider.asin], mkDe(lider.pais)).catch(() => []))[0]?.imagen ?? null;
+    portadas[id] = url;
+    if (url) {
+      e.estudio = { ...e.estudio, portada: { asin: lider.asin, codigoPais: lider.pais, url } };
+      await guardarEstudio(e.estudio);
+    }
+  }
+  return portadas;
 }
 
 /** Reviews per product the extension may send (the reader keeps at most 3000 anyway). */

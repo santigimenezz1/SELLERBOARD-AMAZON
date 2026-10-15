@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { estudiosParaVista } from "@/lib/datos/estudiosH10";
+import { estudiosParaVista, portadasEstudios } from "@/lib/datos/estudiosH10";
 import { enlaceEstudio, ListaEstudios } from "@/components/h10/VistaH10";
 
 /** Helium 10 analysis: the studies (one per product) as cards; each opens on its own page. */
@@ -11,13 +11,15 @@ export default async function AnalisisH10Page({ searchParams }: PageProps<"/anal
   if (estudio) redirect(enlaceEstudio(estudio, uno(sp.pestana)));
 
   const guardados = await estudiosParaVista();
+  // Each card's picture: the main photo of its market's leader (asked to Amazon once per leader).
+  const portadas = await portadasEstudios().catch(() => ({}));
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Análisis H10</h1>
         <p className="mt-1 text-sm text-ink-400">Estudios de producto con los datos de Helium 10: qué país conviene, a qué precio y contra quién compites.</p>
       </div>
-      <ListaEstudios estudios={guardados.map((g) => g.estudio)} archivos={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.archivos.length]))} />
+      <ListaEstudios estudios={guardados.map((g) => g.estudio)} archivos={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.archivos.length]))} portadas={portadas} />
     </div>
   );
 }

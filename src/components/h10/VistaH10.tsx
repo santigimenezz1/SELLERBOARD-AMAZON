@@ -63,13 +63,13 @@ export const enlaceEstudio = (id: string, pestana?: string) => `/analisis-h10/${
  * «Análisis H10»: only the studies, as cards with their picture. Each one opens its study's page inside the app;
  * a new one opens its own page right away.
  */
-export function ListaEstudios({ estudios, archivos }: { estudios: EstudioH10[]; archivos: Record<string, number> }) {
+export function ListaEstudios({ estudios, archivos, portadas }: { estudios: EstudioH10[]; archivos: Record<string, number>; portadas: Record<string, string | null> }) {
   const router = useRouter();
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {estudios.map((e) => (
-          <TarjetaEstudio key={e.id} e={e} archivos={archivos[e.id] ?? 0} />
+          <TarjetaEstudio key={e.id} e={e} archivos={archivos[e.id] ?? 0} portada={portadas[e.id] ?? null} />
         ))}
         <NuevoEstudio onCreado={(id) => router.push(enlaceEstudio(id))} />
       </div>
@@ -202,14 +202,14 @@ export function VistaH10({
   );
 }
 
-/** Every study's picture for now: each one will get its own. */
+/** The picture of a study without its leader's photo yet (no Xray, or Amazon had none). */
 const IMAGEN_POR_DEFECTO = "/h10/estudio-por-defecto.svg";
 
 /**
- * A study in the list: its picture, the product's score (every country together) and the money at stake, or what's
+ * A study in the list: the main photo of its market's leader, the product's score (every country together) and the money at stake, or what's
  * missing. Opens the study's page inside the app.
  */
-function TarjetaEstudio({ e, archivos }: { e: EstudioH10; archivos: number }) {
+function TarjetaEstudio({ e, archivos, portada }: { e: EstudioH10; archivos: number; portada: string | null }) {
   const r = e.mercados.length ? resumirEstudio(e) : null;
   const nota = r ? notaProducto(r, analizarResenas(e)).nota : null;
   return (
@@ -217,8 +217,16 @@ function TarjetaEstudio({ e, archivos }: { e: EstudioH10; archivos: number }) {
       href={enlaceEstudio(e.id)}
       className="group flex flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-ink-900/80 text-left transition-colors hover:border-accent-500/50"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- a small local picture */}
-      <img src={IMAGEN_POR_DEFECTO} alt="" className="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
+      {portada ? (
+        // Amazon's product photos come on white: shown whole, on white.
+        <span className="flex aspect-video w-full items-center justify-center overflow-hidden bg-white p-3">
+          {/* eslint-disable-next-line @next/next/no-img-element -- Amazon's own photo */}
+          <img src={portada} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.04]" />
+        </span>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- a small local picture
+        <img src={IMAGEN_POR_DEFECTO} alt="" className="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
+      )}
       <span className="flex flex-col gap-2 p-4">
       <span className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-semibold text-ink-100">{e.nombre}</span>
