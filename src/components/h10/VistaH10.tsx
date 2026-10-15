@@ -60,7 +60,7 @@ function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => voi
 export const enlaceEstudio = (id: string, pestana?: string) => `/analisis-h10/${id}${pestana ? `?pestana=${pestana}` : ""}`;
 
 /**
- * «Análisis H10»: only the studies, as cards with their picture. Each one opens its study in a new browser tab;
+ * «Análisis H10»: only the studies, as cards with their picture. Each one opens its study's page inside the app;
  * a new one opens its own page right away.
  */
 export function ListaEstudios({ estudios, archivos }: { estudios: EstudioH10[]; archivos: Record<string, number> }) {
@@ -207,7 +207,7 @@ const IMAGEN_POR_DEFECTO = "/h10/estudio-por-defecto.svg";
 
 /**
  * A study in the list: its picture, the product's score (every country together) and the money at stake, or what's
- * missing. Opens the study in a new browser tab.
+ * missing. Opens the study's page inside the app.
  */
 function TarjetaEstudio({ e, archivos }: { e: EstudioH10; archivos: number }) {
   const r = e.mercados.length ? resumirEstudio(e) : null;
@@ -215,8 +215,6 @@ function TarjetaEstudio({ e, archivos }: { e: EstudioH10; archivos: number }) {
   return (
     <Link
       href={enlaceEstudio(e.id)}
-      target="_blank"
-      rel="noopener"
       className="group flex flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-ink-900/80 text-left transition-colors hover:border-accent-500/50"
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- a small local picture */}
@@ -241,7 +239,7 @@ function TarjetaEstudio({ e, archivos }: { e: EstudioH10; archivos: number }) {
           </>
         )}
       </span>
-      <span className="text-xs font-medium text-accent-300 group-hover:text-accent-400">Abrir el estudio ↗</span>
+      <span className="text-xs font-medium text-accent-300 group-hover:text-accent-400">Abrir el estudio →</span>
       </span>
     </Link>
   );

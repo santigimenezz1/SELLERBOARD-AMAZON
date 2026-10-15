@@ -15,7 +15,7 @@ export default async function AnalisisH10Page({ searchParams }: PageProps<"/anal
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Análisis H10</h1>
-        <p className="mt-1 text-sm text-ink-400">Estudios de producto con los datos de Helium 10: qué país conviene, a qué precio y contra quién compites. Cada estudio se abre en una pestaña nueva.</p>
+        <p className="mt-1 text-sm text-ink-400">Estudios de producto con los datos de Helium 10: qué país conviene, a qué precio y contra quién compites.</p>
       </div>
       <ListaEstudios estudios={guardados.map((g) => g.estudio)} archivos={Object.fromEntries(guardados.map((g) => [g.estudio.id, g.archivos.length]))} />
     </div>
