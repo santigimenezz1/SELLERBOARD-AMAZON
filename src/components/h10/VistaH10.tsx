@@ -10,7 +10,7 @@ import { TamanoMercado } from "./TamanoMercado";
 import { PestanaRentabilidad } from "./PestanaRentabilidad";
 import { cajaCompleta, rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
 import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado } from "@/lib/datos/h10Tipos";
-import { analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
+import { xraySecundarias, analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
 import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
@@ -134,6 +134,16 @@ export function VistaH10({
           cajaPropia={cajaCompleta(estudio.supuestos?.miCaja)}
           tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
           paisesXray={estudio.mercados.map((m) => m.codigoPais)}
+          // From each country's Cerebro: the searches worth a secondary Xray, leaving out the ones already uploaded.
+          sugerenciasXray={Object.fromEntries(
+            Object.entries(palabrasEstudio).map(([p, pm]) => {
+              const m = estudio.mercados.find((x) => x.codigoPais === p);
+              const hechas = [m?.palabraClave ?? "", ...archivosEstudio.filter((a) => a.herramienta === "xray" && a.codigoPais === p && a.estado !== "error").map((a) => a.palabraClave ?? "")];
+              return [p, xraySecundarias(pm, hechas, m?.competidores.map((c) => c.marca) ?? [])];
+            }),
+          )}
+          // Xrays read without their search (screenshots): the main one can't be left out of the suggestions.
+          sinPrincipal={estudio.mercados.filter((m) => !/\p{L}/u.test(m.palabraClave)).map((m) => m.codigoPais)}
           listingsAuto={(estudio.listings ?? []).filter((l) => l.fuente === "catalogo").reduce<Record<string, number>>((t, l) => ({ ...t, [l.codigoPais]: (t[l.codigoPais] ?? 0) + 1 }), {})}
         />}
       {pestana === "mercado" &&

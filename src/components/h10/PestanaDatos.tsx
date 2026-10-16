@@ -65,7 +65,8 @@ const busquedasXray = (archivos: ArchivoH10[], pais: string) =>
  * «Datos»: upload the study's Helium 10 files, see what's missing per country, and the files kept. `tarifasAuto`:
  * countries with Amazon fees read automatically («Traer datos de Amazon»), which count as the calculator.
  * `paisesXray`: countries with an Xray, whose leaders' listings «Cargar datos» brings from Amazon; `listingsAuto`:
- * how many it brought per country, which count as competitors' listings.
+ * how many it brought per country, which count as competitors' listings. `sugerenciasXray`: per country with
+ * Cerebro, the searches worth a secondary Xray (shown in that row, a click copies one).
  */
 export function PestanaDatos({
   estudioId,
@@ -75,6 +76,8 @@ export function PestanaDatos({
   tarifasAuto,
   paisesXray,
   listingsAuto,
+  sugerenciasXray,
+  sinPrincipal,
 }: {
   estudioId: string;
   archivos: ArchivoH10[];
@@ -83,6 +86,9 @@ export function PestanaDatos({
   tarifasAuto: string[];
   paisesXray: string[];
   listingsAuto: Record<string, number>;
+  sugerenciasXray: Record<string, { texto: string; busquedas: number }[]>;
+  /** Countries whose Xray didn't say its search: one of the suggestions may be the main one. */
+  sinPrincipal: string[];
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
@@ -267,6 +273,7 @@ export function PestanaDatos({
                       <span className="font-medium text-ink-100">{it.texto}</span>
                       <span className="block text-[11px] text-ink-500">{it.ayuda}</span>
                       {it.id === "ficha" && <CargarListings estudioId={estudioId} paises={paisesXray} />}
+                      {it.id === "xray2" && <SugerenciasXray paises={columnas} sugerencias={sugerenciasXray} sinPrincipal={sinPrincipal} />}
                     </td>
                     <td className={`px-2 py-2 text-xs whitespace-nowrap ${it.necesidad.startsWith("Imprescindible") ? "text-accent-300" : "text-ink-400"}`}>{it.necesidad}</td>
                     {it.ambito === "pais" ? (
@@ -353,6 +360,54 @@ function CargarListings({ estudioId, paises }: { estudioId: string; paises: stri
           {nombrePais(x.pais)}: {x.texto}
         </span>
       ))}
+    </span>
+  );
+}
+
+/**
+ * The searches to Xray as secondary ones, per country, from its Cerebro (most searched first). A click copies one, to
+ * paste in Helium 10. Countries without Cerebro say so.
+ */
+function SugerenciasXray({ paises, sugerencias, sinPrincipal }: { paises: string[]; sugerencias: Record<string, { texto: string; busquedas: number }[]>; sinPrincipal: string[] }) {
+  const [copiada, setCopiada] = useState<string | null>(null);
+  const copiar = (t: string) =>
+    void navigator.clipboard.writeText(t).then(() => {
+      setCopiada(t);
+      setTimeout(() => setCopiada((x) => (x === t ? null : x)), 1500);
+    });
+  return (
+    <span className="mt-2 flex flex-col gap-1.5">
+      <span className="text-[11px] font-semibold text-ink-300">Búsquedas para el Xray secundario, sacadas de tu Cerebro (toca una para copiarla):</span>
+      {paises.map((p) => {
+        const lista = sugerencias[p];
+        return (
+          <span key={p} className="flex flex-wrap items-center gap-1.5">
+            <Pais codigo={p} corto />
+            {!lista ? (
+              <span className="text-[11px] text-ink-500">Sube el Cerebro de {nombrePais(p)} para sugerirlas</span>
+            ) : !lista.length ? (
+              <span className="text-[11px] text-ink-500">Ya tienes las principales</span>
+            ) : (
+              lista.map((x) => (
+                <button
+                  key={x.texto}
+                  onClick={() => copiar(x.texto)}
+                  title="Copiar para buscarla en Helium 10 Xray"
+                  className="rounded-md border border-accent-500/30 bg-accent-500/[0.08] px-2 py-0.5 text-xs text-ink-100 hover:border-accent-500/60"
+                >
+                  {copiada === x.texto ? "✓ Copiada" : x.texto}
+                  <span className="ml-1.5 text-[10px] text-ink-400">{x.busquedas.toLocaleString("es-ES")}/mes</span>
+                </button>
+              ))
+            )}
+            {!!lista?.length && sinPrincipal.includes(p) && (
+              <span className="text-[11px] text-warning" title="El Xray de este país no dice qué búsqueda era">
+                No sé tu búsqueda principal aquí: si una de estas ya la buscaste, sáltatela
+              </span>
+            )}
+          </span>
+        );
+      })}
     </span>
   );
 }

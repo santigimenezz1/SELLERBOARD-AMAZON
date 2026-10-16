@@ -282,6 +282,45 @@ const VACIAS = new Set(["de", "la", "el", "para", "con", "y", "für", "mit", "un
 
 export type PalabraTitulo = { palabra: string; busquedas: number; frases: number };
 
+const normalizarPalabras = (t: string) =>
+  t
+    .toLowerCase()
+    .replace(/ß/g, "ss")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/[^\p{L}\p{N}]+/u);
+const VACIAS_NORMALIZADAS = new Set([...VACIAS].flatMap(normalizarPalabras));
+/** «Rebounder für Fußball» → the set {rebounder, fussball}: the same search however it's written. */
+const palabrasDe = (t: string) => new Set(normalizarPalabras(t).filter((w) => w.length >= 2 && !VACIAS_NORMALIZADAS.has(w)));
+const contiene = (a: Set<string>, b: Set<string>) => [...b].every((w) => a.has(w));
+
+/**
+ * The searches worth a secondary Xray in a country, from its Cerebro: the most searched ones that would bring other
+ * products. Leaves out the main search and its variants (one containing the other, e.g. «… kinder»: mostly the same
+ * products), searches with a competitor's brand, the ones already with an Xray and those overlapping one already
+ * chosen. `hechas`: the keywords of the Xrays already uploaded in that country (the main one included).
+ */
+export function xraySecundarias(m: PalabrasMercado, hechas: string[], marcas: string[], cuantas = 3): { texto: string; busquedas: number }[] {
+  const usadas = hechas.map(palabrasDe).filter((s) => s.size);
+  const marcasW = new Set(marcas.flatMap((x) => [...palabrasDe(x)]).filter((w) => w.length >= 3));
+  const elegidas: { texto: string; busquedas: number; w: Set<string> }[] = [];
+  // The same kind of product: the competitors the Cerebro tracked rank for it (when it brings their positions); a
+  // very searched but broader search («drenaje linfático» for a wood-therapy kit) has none of them.
+  const conPosiciones = m.palabras.some((p) => p.posiciones.some((x) => x !== null));
+  const minimo = Math.min(2, m.rivales.length);
+  const delNicho = (p: PalabraClave) => !conPosiciones || p.posiciones.filter((x) => x !== null && x <= 30).length >= minimo;
+  for (const p of [...m.palabras].sort((a, b) => b.busquedas - a.busquedas)) {
+    if (elegidas.length === cuantas) break;
+    const w = palabrasDe(p.texto);
+    // «…ball rebounder»: cut in the export.
+    if (!p.busquedas || !w.size || /\bb0[a-z0-9]{8}\b/i.test(p.texto) || /…|\.\.\./.test(p.texto) || !delNicho(p)) continue;
+    if ([...w].some((x) => marcasW.has(x))) continue;
+    if ([...usadas, ...elegidas.map((e) => e.w)].some((u) => contiene(w, u) || contiene(u, w))) continue;
+    elegidas.push({ texto: p.texto, busquedas: p.busquedas, w });
+  }
+  return elegidas.map(({ texto, busquedas }) => ({ texto, busquedas }));
+}
+
 /** The words worth having in the title: each word's searches summed over the phrases that contain it. */
 export function palabrasParaTitulo(palabras: PalabraClave[], max = 12): PalabraTitulo[] {
   const suma = new Map<string, PalabraTitulo>();
