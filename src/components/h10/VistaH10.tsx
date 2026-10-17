@@ -41,6 +41,8 @@ type Pestana = (typeof PESTANAS)[number]["id"];
 const CON_RENTABILIDAD = false;
 /** «Datos de Amazon» in Competidores is hidden too (the daily follow-up still runs); true brings the card back. */
 const CON_DATOS_AMAZON = false;
+/** «Comparativa por país» in Mercado is hidden too (the score still counts every country); true brings it back. */
+const CON_COMPARATIVA = false;
 
 /** Empty tab of a study without that data yet. */
 function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => void }) {
@@ -481,6 +483,7 @@ function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; res
       {tamano}
 
       {/* Country comparison */}
+      {CON_COMPARATIVA && (
       <Tarjeta titulo="Comparativa por país" subtitulo={`Ordenada por oportunidad. Libras pasadas a euros (1 £ = ${EUR_POR_GBP.toLocaleString("es-ES")} € de ejemplo).`}>
         <div className="-mx-4 overflow-x-auto px-4">
           <table className="tabular w-full min-w-[960px] text-sm">
@@ -521,6 +524,7 @@ function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; res
           </p>
         </details>
       </Tarjeta>
+      )}
 
       <Tarjeta titulo="¿A qué precio se vende más?" subtitulo="Facturación de los competidores visibles por rango de precio">
         <div className="mb-3 flex flex-wrap gap-1.5">
