@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { DatosTendencias } from "@/lib/datos/tendencias";
+import type { DatosTendencias, VentaHora } from "@/lib/datos/tendencias";
 import { formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 
@@ -71,7 +71,14 @@ function Tarjeta({ titulo, subtitulo, total, className = "", children }: { titul
 }
 
 /** «Tendencias»: when buyers purchase, by time of day and weekday, in their local time. */
-export function VistaTendencias({ datos }: { datos: DatosTendencias }) {
+export function VistaTendencias({ datos: compactos }: { datos: DatosTendencias }) {
+  // The order lines come compact (see comprimirVentas): rebuilt once, as they were.
+  const datos = useMemo(() => {
+    const { mks, asins, filas } = compactos.ventas;
+    const ventas: VentaHora[] = [];
+    for (let i = 0; i < filas.length; i += 4) ventas.push({ t: filas[i], mk: mks[filas[i + 1]], asin: asins[filas[i + 2]], u: filas[i + 3] });
+    return { ...compactos, ventas };
+  }, [compactos]);
   const [dias, setDias] = useState(182);
   const [asin, setAsin] = useState<string | null>(null);
   const [mk, setMk] = useState<string | null>(null);

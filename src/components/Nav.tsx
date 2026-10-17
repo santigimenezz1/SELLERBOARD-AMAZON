@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -32,6 +32,20 @@ function PuntoSuscripciones({ href, avisos }: { href: string; avisos: number }) 
   return <span aria-hidden title={avisos === 1 ? "1 pago próximo" : `${avisos} pagos próximos`} className="size-1.5 shrink-0 rounded-full bg-accent-500" />;
 }
 
+/**
+ * The section just clicked, while it loads: a thin bar under it that shows only after 120 ms (fast changes don't
+ * flicker). Must be inside the <Link>.
+ */
+function Cargando() {
+  const { pending } = useLinkStatus();
+  return (
+    <span
+      aria-hidden
+      className={`pointer-events-none absolute inset-x-1.5 bottom-0 h-0.5 rounded-full bg-accent-500 transition-opacity delay-[120ms] duration-200 ${pending ? "animate-pulse opacity-100" : "opacity-0 delay-0"}`}
+    />
+  );
+}
+
 /** Green or red dot of «Estado de la cuenta»: every country at 200+ points, or any below. */
 function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
   if (href !== "/cuenta" || !estadoCuenta) return null;
@@ -59,11 +73,12 @@ export function Nav({ estadoCuenta, avisosSuscripciones }: { estadoCuenta: Estad
             key={e.href}
             href={e.href}
             aria-current={activo ? "page" : undefined}
-            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-[13px] transition-colors xl:px-2.5 xl:text-sm ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
+            className={`relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-1.5 py-1.5 text-[13px] transition-colors xl:px-2.5 xl:text-sm ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
           >
             <Punto href={e.href} estadoCuenta={estadoCuenta} />
             <PuntoSuscripciones href={e.href} avisos={avisosSuscripciones} />
             {e.texto}
+            <Cargando />
           </Link>
         );
       })}
@@ -120,11 +135,12 @@ export function MenuMovil({ estadoCuenta, avisosSuscripciones, email }: { estado
                       href={e.href}
                       onClick={() => setAbierto(false)}
                       aria-current={activo ? "page" : undefined}
-                      className={`flex items-center gap-2.5 rounded-lg px-3 py-3 text-[15px] transition-colors ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-300 hover:bg-white/[0.04] hover:text-ink-100"}`}
+                      className={`relative flex items-center gap-2.5 rounded-lg px-3 py-3 text-[15px] transition-colors ${activo ? "bg-white/[0.07] text-ink-100" : "text-ink-300 hover:bg-white/[0.04] hover:text-ink-100"}`}
                     >
                       <Punto href={e.href} estadoCuenta={estadoCuenta} />
                       <PuntoSuscripciones href={e.href} avisos={avisosSuscripciones} />
                       {e.texto}
+                      <Cargando />
                     </Link>
                   </li>
                 );

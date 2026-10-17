@@ -10,13 +10,11 @@ export default async function EstudioH10Page({ params, searchParams }: PageProps
   if (!g) notFound();
   const pestana = (await searchParams).pestana;
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <Link href="/analisis-h10" className="text-sm text-ink-400 hover:text-ink-100">
-          ← Todos los estudios
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">{g.estudio.nombre}</h1>
-      </div>
+    <div className="flex flex-col gap-4">
+      {/* The study's name, rename and delete are in its header, inside the view. */}
+      <Link href="/analisis-h10" className="w-fit text-sm text-ink-400 hover:text-ink-100">
+        ← Todos los estudios
+      </Link>
       <VistaH10
         key={g.estudio.id}
         estudio={g.estudio}

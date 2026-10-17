@@ -63,13 +63,28 @@ export const enlaceEstudio = (id: string, pestana?: string) => `/analisis-h10/${
  * «Análisis H10»: only the studies, as cards with their picture. Each one opens its study's page inside the app;
  * a new one opens its own page right away.
  */
-export function ListaEstudios({ estudios, archivos, portadas }: { estudios: EstudioH10[]; archivos: Record<string, number>; portadas: Record<string, string | null> }) {
+/** What a study's card shows, worked out on the server: the page gets this, not the whole studies. */
+export type ResumenEstudio = {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  ejemplo: boolean;
+  /** The product's score (every country together); null without an Xray. */
+  nota: number | null;
+  paises: CodigoPais[];
+  mercadoEur: number | null;
+  archivos: number;
+  /** Main photo of its market's leader. */
+  portada: string | null;
+};
+
+export function ListaEstudios({ estudios }: { estudios: ResumenEstudio[] }) {
   const router = useRouter();
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {estudios.map((e) => (
-          <TarjetaEstudio key={e.id} e={e} archivos={archivos[e.id] ?? 0} portada={portadas[e.id] ?? null} />
+          <TarjetaEstudio key={e.id} e={e} />
         ))}
         <NuevoEstudio onCreado={(id) => router.push(enlaceEstudio(id))} />
       </div>
@@ -219,9 +234,8 @@ const IMAGEN_POR_DEFECTO = "/h10/estudio-por-defecto.svg";
  * A study in the list: the main photo of its market's leader, the product's score (every country together) and the money at stake, or what's
  * missing. Opens the study's page inside the app.
  */
-function TarjetaEstudio({ e, archivos, portada }: { e: EstudioH10; archivos: number; portada: string | null }) {
-  const r = e.mercados.length ? resumirEstudio(e) : null;
-  const nota = r ? notaProducto(r, analizarResenas(e)).nota : null;
+function TarjetaEstudio({ e }: { e: ResumenEstudio }) {
+  const { nota, portada, archivos } = e;
   return (
     <Link
       href={enlaceEstudio(e.id)}
@@ -247,13 +261,13 @@ function TarjetaEstudio({ e, archivos, portada }: { e: EstudioH10; archivos: num
         <span className="truncate">{e.descripcion || (e.ejemplo ? "" : `${archivos} ${archivos === 1 ? "archivo" : "archivos"}`)}</span>
       </span>
       <span className="flex items-center gap-2 text-xs text-ink-300">
-        {e.mercados.map((m) => (
-          <Bandera key={m.codigoPais} codigo={m.codigoPais} />
+        {e.paises.map((p) => (
+          <Bandera key={p} codigo={p} />
         ))}
-        {r && (
+        {e.mercadoEur !== null && (
           <>
             <span className="text-ink-500">·</span>
-            <span className="tabular">{euros(r.mercadoTotalEur)}/mes</span>
+            <span className="tabular">{euros(e.mercadoEur)}/mes</span>
           </>
         )}
       </span>

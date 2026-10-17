@@ -50,6 +50,27 @@ export async function datosTendencias() {
     .map((m) => ({ id: m.id, pais: m.pais, codigoPais: m.codigoPais, zona: ZONA_POR_PAIS[m.codigoPais] ?? "Europe/Madrid" }));
 
   const primera = ventas.reduce((min, v) => Math.min(min, v.t), Infinity);
-  return { ventas, listings, paises, generadoEn: Date.now(), desde: Number.isFinite(primera) ? primera : null };
+  return { ventas: comprimirVentas(ventas), listings, paises, generadoEn: Date.now(), desde: Number.isFinite(primera) ? primera : null };
 }
 export type DatosTendencias = Awaited<ReturnType<typeof datosTendencias>>;
+
+/**
+ * Thousands of order lines repeat the same marketplace ids and ASINs: they travel to the page once each, and every
+ * line as four numbers (time, marketplace, ASIN, units). About a third of the size; the page rebuilds them as they were.
+ */
+export type VentasCompactas = { mks: string[]; asins: string[]; filas: number[] };
+
+function comprimirVentas(ventas: VentaHora[]): VentasCompactas {
+  const mks: string[] = [];
+  const asins: string[] = [];
+  const indice = (lista: string[], mapa: Map<string, number>, v: string) => {
+    let i = mapa.get(v);
+    if (i === undefined) mapa.set(v, (i = lista.push(v) - 1));
+    return i;
+  };
+  const iMk = new Map<string, number>();
+  const iAsin = new Map<string, number>();
+  const filas: number[] = [];
+  for (const v of ventas) filas.push(v.t, indice(mks, iMk, v.mk), indice(asins, iAsin, v.asin), v.u);
+  return { mks, asins, filas };
+}
