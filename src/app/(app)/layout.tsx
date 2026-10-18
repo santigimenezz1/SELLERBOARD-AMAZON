@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
-  // A guest (accesos.ts) only has «Análisis H10»: no menu of the owner's sections, no data chat, nothing of theirs.
+  // A guest (accesos.ts): the owner's sections show empty (demo); no data chat, nothing of the owner's.
   const invitado = user.rol === "invitado";
   // Colours the «Estado de la cuenta» menu item (from memory after the first load).
   const estadoCuenta = invitado ? null : await resumenEstadoCuenta().catch(() => null);
@@ -37,11 +37,11 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
               {/* <ContadorConsumo /> */}
               <LogoutButton />
               {/* Phones only: a hamburger opens the menu. */}
-              <MenuMovil estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} email={user.email ?? null} soloH10={invitado} />
+              <MenuMovil estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} email={user.email ?? null} />
             </div>
           </div>
           {/* From tablets up: the full menu on its own row under the logo. */}
-          <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} soloH10={invitado} />
+          <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} />
         </div>
       </header>
       {!invitado && <RefrescoAutomatico />}

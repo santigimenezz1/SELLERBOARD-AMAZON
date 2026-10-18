@@ -11,6 +11,9 @@ import { AvisoSuscripciones } from "@/components/suscripciones/AvisoSuscripcione
 import { listarSuscripciones } from "@/lib/datos/suscripciones";
 import { CON_SUSCRIPCIONES } from "@/lib/datos/suscripcionesCalc";
 import { diaMadrid } from "@/lib/datos/fechas";
+import { modoDemo } from "@/lib/auth/demo";
+import { AvisoDemo } from "@/components/AvisoDemo";
+import type { DatosVentas } from "@/lib/datos/almacen";
 
 const texto = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
 
@@ -22,22 +25,27 @@ const texto = (v: string | string[] | undefined) => (typeof v === "string" ? v :
  */
 export default async function PanelPage({ searchParams }: PageProps<"/">) {
   const sp = await searchParams;
-  const [marketplaces, ultimaSync, enCurso] = await Promise.all([cargarMarketplaces(), cargarUltimaSync(), syncEnCurso()]);
+  // A guest sees the panel empty: nothing of the owner's is loaded.
+  const demo = await modoDemo();
+  const [marketplaces, ultimaSync, enCurso] = demo
+    ? ([[], null, false] as [Awaited<ReturnType<typeof cargarMarketplaces>>, null, boolean])
+    : await Promise.all([cargarMarketplaces(), cargarUltimaSync(), syncEnCurso()]);
 
   const panel = resolverPanel(
     { p: texto(sp.p), e: texto(sp.e), desde: texto(sp.desde), hasta: texto(sp.hasta), pais: texto(sp.pais), mes: texto(sp.mes) },
     marketplaces.map((m) => m.id),
   );
   // ~3 Firestore reads per load: the sales data comes from the in-memory mirror (lib/datos/almacen.ts).
-  const { lineas, reembolsos, imagenes } = await datosVentas(ultimaSync?.id ?? null);
-  const consumo = await consumoDeHoy();
+  const vacio: DatosVentas = { lineas: [], reembolsos: [], imagenes: new Map() };
+  const { lineas, reembolsos, imagenes } = demo ? vacio : await datosVentas(ultimaSync?.id ?? null);
+  const consumo = demo ? { lecturas: 0, escrituras: 0 } : await consumoDeHoy();
   const { tarjetas, productos, serie, pedidos } = construirPanel(lineas, reembolsos, panel);
   const fotosPedidos = Object.fromEntries([...new Set(pedidos.pedidos.flatMap((p) => p.lineas.map((l) => l.asin)))].flatMap((a) => (imagenes.has(a) ? [[a, imagenes.get(a)!]] : [])));
   const conVentas = new Set(lineas.map((l) => l.marketplaceId));
   // Seller Central's «Saldo total»: the selected marketplace's, or all of them in euros.
-  const saldo = await saldoTotal(panel.estado.pais);
+  const saldo = demo ? null : await saldoTotal(panel.estado.pais);
   // Payments about to be charged, shown on top (from memory after the first load).
-  const suscripciones = CON_SUSCRIPCIONES ? await listarSuscripciones().catch(() => []) : [];
+  const suscripciones = !demo && CON_SUSCRIPCIONES ? await listarSuscripciones().catch(() => []) : [];
 
   return (
     <VistaPanel
@@ -54,6 +62,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
       // The filter only lists markets with sales: Amazon enrols the account in many more.
       marketplaces={marketplaces.filter((m) => conVentas.has(m.id))}
       acciones={
+        demo ? null : (
         <BotonSync
           ultima={ultimaSync ? formatFechaHora(ultimaSync.fecha) : null}
           enCurso={enCurso}
@@ -66,8 +75,12 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
             )
           }
         />
+        )
       }
       avisos={
+        demo ? (
+          <AvisoDemo />
+        ) : (
         <>
           {CON_SUSCRIPCIONES && <AvisoSuscripciones lista={suscripciones} hoy={diaMadrid(new Date())} />}
           {!isAmazonConfigured && (
@@ -81,6 +94,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
             </p>
           )}
         </>
+        )
       }
     />
   );

@@ -70,13 +70,20 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
       {conExtension && (
       <CargaAutomatica
         estudio={estudio}
-        items={lideres
-          .filter((x) => x.c.asin)
-          .map((x) => ({
-            pais: x.m.codigoPais,
-            asin: x.c.asin!,
-            guardadas: Math.max(0, ...(estudio.resenasCompletas ?? []).filter((r) => r.codigoPais === x.m.codigoPais && r.asin === x.c.asin).map((r) => r.total)),
-          }))}
+        // Each country's own top (by revenue, without the ones taken out with ✕), whatever the view shows.
+        porPais={estudio.mercados.map((m) => ({
+          pais: m.codigoPais,
+          items: [...m.competidores]
+            .filter((c) => c.asin && !quitados.includes(`${m.codigoPais}|${c.asin}`))
+            .sort((a, b) => b.facturacion - a.facturacion)
+            .filter((c, i, l) => l.findIndex((x) => x.asin === c.asin) === i)
+            .slice(0, TOP)
+            .map((c) => ({
+              pais: m.codigoPais,
+              asin: c.asin!,
+              guardadas: Math.max(0, ...(estudio.resenasCompletas ?? []).filter((r) => r.codigoPais === m.codigoPais && r.asin === c.asin).map((r) => r.total)),
+            })),
+        }))}
       />
       )}
 
@@ -270,18 +277,24 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
 
 const DOMINIO_AMAZON: Record<string, string> = { ES: "amazon.es", DE: "amazon.de", FR: "amazon.fr", IT: "amazon.it", GB: "amazon.co.uk" };
 
+type ItemCarga = { pais: CodigoPais; asin: string; guardadas: number };
+
 /**
- * «Cargar reseñas automáticamente»: opens the first listing's reviews in Amazon with the whole list in the link
- * (#evlc_auto=…). The review extension (1.5+) then goes through every product by itself (1★ to 5★, up to 10 pages each,
- * at a person's pace), sends each one to this study and moves on; it waits whenever Amazon asks to sign in.
+ * «Cargar reseñas automáticamente»: every country's top listings one country after another, or one country's. Opens
+ * the first one's reviews in Amazon with the whole list in the link (#evlc_auto=…); the review extension (1.5+) then
+ * goes through every product by itself (1★ to 5★, up to 10 pages each, at a person's pace), sends each one to this
+ * study and moves on, to the next country too; it waits whenever Amazon asks to sign in.
  */
-function CargaAutomatica({ estudio, items }: { estudio: EstudioH10; items: { pais: CodigoPais; asin: string; guardadas: number }[] }) {
+function CargaAutomatica({ estudio, porPais }: { estudio: EstudioH10; porPais: { pais: CodigoPais; items: ItemCarga[] }[] }) {
   const [saltarGuardados, setSaltarGuardados] = useState(true);
-  const [confirmar, setConfirmar] = useState(false);
-  const cola = items.filter((x) => !saltarGuardados || !x.guardadas);
-  const minutos = Math.round(cola.length * 2);
+  /** The list about to start: every country («todos») or one; null while none is picked. */
+  const [elegida, setElegida] = useState<"todos" | CodigoPais | null>(null);
+  const pendientes = (items: ItemCarga[]) => items.filter((x) => !saltarGuardados || !x.guardadas);
+  const deTodos = porPais.flatMap((p) => pendientes(p.items));
+  const cola = elegida === "todos" ? deTodos : pendientes(porPais.find((p) => p.pais === elegida)?.items ?? []);
+  const minutos = (n: number) => (n * 2 >= 60 ? `≈ ${Math.round((n * 2) / 6) / 10} h` : `≈ ${n * 2} min`);
   const empezar = () => {
-    setConfirmar(false);
+    setElegida(null);
     const primero = cola[0];
     if (!primero) return;
     const marca = JSON.stringify({ e: estudio.id, n: estudio.nombre, a: window.location.origin, c: cola.map((x) => [x.pais, x.asin]) });
@@ -293,34 +306,51 @@ function CargaAutomatica({ estudio, items }: { estudio: EstudioH10; items: { pai
     <div className="rounded-xl border border-accent-500/30 bg-accent-500/[0.05] px-4 py-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-ink-300">
-          <span className="font-semibold text-ink-100">Carga automática de reseñas:</span> la extensión abre Amazon y recorre sola las reseñas de {cola.length}{" "}
-          {cola.length === 1 ? "listing" : "listings"} (≈ {minutos} min). Si Amazon pide iniciar sesión, lo haces tú y sigue.
+          <span className="font-semibold text-ink-100">Carga automática de reseñas:</span> la extensión abre Amazon y recorre sola las reseñas de los {TOP} listings más fuertes de cada
+          país, uno tras otro. Si Amazon pide iniciar sesión, lo haces tú y sigue.
         </span>
-        <span className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-ink-400">
-            <input type="checkbox" checked={saltarGuardados} onChange={(e) => setSaltarGuardados(e.target.checked)} />
-            Saltar los que ya tienen reseñas
-          </label>
-          <button
-            onClick={() => setConfirmar(true)}
-            disabled={!cola.length}
-            className="h-8 rounded-lg bg-accent-500 px-3 text-xs font-semibold text-ink-950 hover:bg-accent-400 disabled:opacity-50"
-          >
-            Cargar reseñas automáticamente
-          </button>
-        </span>
+        <label className="flex items-center gap-1.5 text-xs text-ink-400">
+          <input type="checkbox" checked={saltarGuardados} onChange={(e) => setSaltarGuardados(e.target.checked)} />
+          Saltar los que ya tienen reseñas
+        </label>
       </div>
-      {confirmar && (
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setElegida("todos")}
+          disabled={!deTodos.length}
+          className="h-8 rounded-lg bg-accent-500 px-3 text-xs font-semibold text-ink-950 hover:bg-accent-400 disabled:opacity-50"
+          title="Todos los países, uno detrás de otro"
+        >
+          Todos los países · {deTodos.length} listings ({minutos(deTodos.length)})
+        </button>
+        {porPais.map((p) => {
+          const n = pendientes(p.items).length;
+          return (
+            <button
+              key={p.pais}
+              onClick={() => setElegida(p.pais)}
+              disabled={!n}
+              title={n ? `Los ${n} de ${nombrePais(p.pais)} (${minutos(n)})` : `Los de ${nombrePais(p.pais)} ya tienen reseñas`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.12] px-2.5 text-xs font-medium text-ink-100 hover:border-accent-500/60 disabled:opacity-40"
+            >
+              <Pais codigo={p.pais} corto /> Cargar {n === p.items.length ? `los ${n}` : `${n} de ${p.items.length}`}
+            </button>
+          );
+        })}
+      </div>
+      {elegida && (
         <div role="alertdialog" className="mt-3 flex flex-col gap-2 border-t border-white/[0.06] pt-3 text-xs text-ink-300">
           <p>
+            Vas a cargar <strong className="text-ink-100">{cola.length} listings</strong>{" "}
+            {elegida === "todos" ? `de ${porPais.filter((p) => pendientes(p.items).length).map((p) => nombrePais(p.pais)).join(", ")}, país por país` : `de ${nombrePais(elegida)}`} ({minutos(cola.length)}).
             Antes de empezar: la extensión tiene que estar en la <strong className="text-ink-100">versión 1.5</strong> (↻ en chrome://extensions) y con la clave pegada en ⚙. Usa una{" "}
             <strong className="text-ink-100">cuenta de comprador de Amazon, no la de vendedor</strong>. Deja esa pestaña trabajar; puedes usar otras.
           </p>
           <span className="flex gap-2">
-            <button onClick={empezar} className="h-8 rounded-lg bg-accent-500 px-3 font-semibold text-ink-950 hover:bg-accent-400">
-              Empezar con {cola.length} {cola.length === 1 ? "listing" : "listings"}
+            <button onClick={empezar} disabled={!cola.length} className="h-8 rounded-lg bg-accent-500 px-3 font-semibold text-ink-950 hover:bg-accent-400 disabled:opacity-50">
+              Empezar
             </button>
-            <button onClick={() => setConfirmar(false)} className="h-8 rounded-lg border border-white/[0.12] px-3 text-ink-300 hover:text-ink-100">
+            <button onClick={() => setElegida(null)} className="h-8 rounded-lg border border-white/[0.12] px-3 text-ink-300 hover:text-ink-100">
               Cancelar
             </button>
           </span>

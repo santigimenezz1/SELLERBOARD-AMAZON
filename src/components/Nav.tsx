@@ -24,8 +24,6 @@ const ENLACES = [
 ] as const;
 
 type Estado = "ok" | "mal" | null;
-/** A guest's menu (accesos.ts): only the studies. */
-const enlacesDe = (soloH10: boolean) => (soloH10 ? ENLACES.filter((e) => e.href === "/analisis-h10") : ENLACES);
 const esActivo = (href: string, ruta: string) => (href === "/" ? ruta === "/" : ruta.startsWith(href));
 
 /** Orange dot of «Suscripciones» while a payment is within its warning days. */
@@ -64,11 +62,11 @@ function Punto({ href, estadoCuenta }: { href: string; estadoCuenta: Estado }) {
  * The full menu, from tablet width up (phones use <MenuMovil>), on its own row under the logo: with every section it
  * no longer fits next to the logo and «Cerrar sesión» even at the widest page (about 1,050 px of links).
  */
-export function Nav({ estadoCuenta, avisosSuscripciones, soloH10 = false }: { estadoCuenta: Estado; avisosSuscripciones: number; soloH10?: boolean }) {
+export function Nav({ estadoCuenta, avisosSuscripciones }: { estadoCuenta: Estado; avisosSuscripciones: number }) {
   const ruta = usePathname();
   return (
     <nav className="-mx-2 hidden items-center gap-0.5 overflow-x-auto pb-2 md:flex">
-      {enlacesDe(soloH10).map((e) => {
+      {ENLACES.map((e) => {
         const activo = esActivo(e.href, ruta);
         return (
           <Link
@@ -89,17 +87,7 @@ export function Nav({ estadoCuenta, avisosSuscripciones, soloH10 = false }: { es
 }
 
 /** Hamburger button and the menu it opens under the header, on phones only (under 768 px). */
-export function MenuMovil({
-  estadoCuenta,
-  avisosSuscripciones,
-  email,
-  soloH10 = false,
-}: {
-  estadoCuenta: Estado;
-  avisosSuscripciones: number;
-  email: string | null;
-  soloH10?: boolean;
-}) {
+export function MenuMovil({ estadoCuenta, avisosSuscripciones, email }: { estadoCuenta: Estado; avisosSuscripciones: number; email: string | null }) {
   const ruta = usePathname();
   const [abierto, setAbierto] = useState(false);
   const [rutaAbierta, setRutaAbierta] = useState(ruta);
@@ -139,7 +127,7 @@ export function MenuMovil({
           <div className="fixed inset-x-0 top-16 bottom-0 z-30 bg-ink-950/60 backdrop-blur-sm" onClick={() => setAbierto(false)} aria-hidden />
           <nav id="menu-movil" className="fixed inset-x-0 top-16 z-40 max-h-[calc(100dvh-4rem)] overflow-y-auto border-b border-white/[0.06] bg-ink-950 px-4 pt-2 pb-4 shadow-soft">
             <ul className="flex flex-col">
-              {enlacesDe(soloH10).map((e) => {
+              {ENLACES.map((e) => {
                 const activo = esActivo(e.href, ruta);
                 return (
                   <li key={e.href}>

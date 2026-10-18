@@ -6,6 +6,8 @@ import { formatEuros, formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 import { TablaInscripciones } from "@/components/vine/TablaInscripciones";
 import { imagenesCatalogo } from "@/lib/amazon/apis";
+import { modoDemo } from "@/lib/auth/demo";
+import { AvisoDemo } from "@/components/AvisoDemo";
 
 // Photos of enrolled ASINs the app doesn't follow (a parent ASIN, an old listing), asked to the catalog once.
 const g = globalThis as unknown as { __fotosVine?: Map<string, string | null> };
@@ -28,7 +30,11 @@ export default async function VinePage({ searchParams }: PageProps<"/vine">) {
   const sp = await searchParams;
   const mk = typeof sp.mk === "string" && MERCADOS.includes(sp.mk) ? sp.mk : MERCADOS[0];
   const info = marketplaceConocido(mk)!;
-  const [{ pedidos: todos }, inscripciones, { productos }] = await Promise.all([datosVine(), inscripcionesVine(), listarProductos()]);
+  // A guest sees it empty: nothing of the owner's is loaded.
+  const demo = await modoDemo();
+  const [{ pedidos: todos }, inscripciones, { productos }] = demo
+    ? [{ pedidos: [] as Awaited<ReturnType<typeof datosVine>>["pedidos"] }, { porMercado: {} as Awaited<ReturnType<typeof inscripcionesVine>>["porMercado"] }, { productos: [] as Awaited<ReturnType<typeof listarProductos>>["productos"] }]
+    : await Promise.all([datosVine(), inscripcionesVine(), listarProductos()]);
   const pedidos = todos.filter((p) => p.marketplaceId === mk);
   const unidades = pedidos.reduce((s, p) => s + p.unidades, 0);
   const conocidas = Object.fromEntries(productos.filter((p) => p.imagen).map((p) => [p.asin, p.imagen!]));
@@ -41,6 +47,7 @@ export default async function VinePage({ searchParams }: PageProps<"/vine">) {
         <h1 className="text-2xl font-semibold tracking-tight">Vine</h1>
         <p className="mt-1 text-sm text-ink-400">Tus productos en Amazon Vine y las unidades que Amazon entrega a los reseñadores, país por país.</p>
       </div>
+      {demo && <AvisoDemo />}
 
       {/* Country */}
       <nav aria-label="País" className="flex flex-wrap gap-1.5">

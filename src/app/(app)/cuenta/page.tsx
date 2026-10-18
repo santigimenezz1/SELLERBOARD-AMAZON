@@ -3,11 +3,26 @@ import { CATEGORIAS_POLITICAS, obtenerEstadoCuenta } from "@/lib/datos/estadoCue
 import { problemasNormativos } from "@/lib/datos/saludListings";
 import { estadoNotificaciones } from "@/lib/datos/notificaciones";
 import { VistaCuenta } from "@/components/cuenta/VistaCuenta";
+import { modoDemo } from "@/lib/auth/demo";
+import { AvisoDemo } from "@/components/AvisoDemo";
 
 const ES = "A1RKKUPIHCS9HS";
 
 /** Account health per country: policy compliance and performance notifications. All from memory after the first load. */
 export default async function CuentaPage() {
+  // A guest sees it empty (no countries with a report): nothing of the owner's is loaded.
+  const demo = await modoDemo();
+  if (demo)
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Estado de la cuenta</h1>
+          <p className="mt-1 text-sm text-ink-400">Cumplimiento de políticas y notificaciones de performance de Amazon, país por país.</p>
+        </div>
+        <AvisoDemo />
+        <p className="rounded-xl border border-white/[0.06] bg-ink-900/70 px-4 py-10 text-center text-sm text-ink-400">Aún no hay datos del estado de la cuenta.</p>
+      </div>
+    );
   const [marketplaces, estado, normativos, notificaciones] = await Promise.all([cargarMarketplaces(), obtenerEstadoCuenta(), problemasNormativos(), estadoNotificaciones()]);
   // Countries with a report, amazon.es first.
   const mercados = marketplaces

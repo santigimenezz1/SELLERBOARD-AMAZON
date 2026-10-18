@@ -10,12 +10,29 @@ import { InventarioPaises } from "@/components/stock/InventarioPaises";
 import { conEuros, costesPorEnvio, obtenerCostesEnvios } from "@/lib/datos/costesEnvios";
 import { obtenerCapacidad } from "@/lib/datos/capacidad";
 import { CapacidadStock } from "@/components/stock/CapacidadStock";
+import type { DatosVentas } from "@/lib/datos/almacen";
+import { modoDemo } from "@/lib/auth/demo";
+import { AvisoDemo } from "@/components/AvisoDemo";
+
+const cargarTodo = () => Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises(), obtenerCostesEnvios(), obtenerCapacidad()]);
 
 /** FBA stock per region and inbound shipments. Everything comes from memory after the first load. */
 export default async function StockPage() {
-  const [stock, ultima, envios, inventario, costesDoc, capacidad] = await Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises(), obtenerCostesEnvios(), obtenerCapacidad()]);
-  const costes = await conEuros(costesPorEnvio(costesDoc), Object.fromEntries(envios.envios.map((e) => [e.id, e.creado])));
-  const { imagenes, lineas } = await datosVentas(ultima?.id ?? null);
+  // A guest sees it empty: nothing of the owner's is loaded.
+  const demo = await modoDemo();
+  const [stock, ultima, envios, inventario, costesDoc, capacidad] = demo
+    ? ([
+        null,
+        null,
+        { envios: [], actualizadoEn: null },
+        { filas: [], actualizadoEn: null },
+        { cargos: {}, manuales: {}, historico: false },
+        { uso: null, limites: { ue: null, uk: null }, usoActualizadoEn: null, limitesActualizadosEn: null },
+      ] as unknown as Awaited<ReturnType<typeof cargarTodo>>)
+    : await cargarTodo();
+  const costes = demo ? {} : await conEuros(costesPorEnvio(costesDoc), Object.fromEntries(envios.envios.map((e) => [e.id, e.creado])));
+  const vacio: DatosVentas = { lineas: [], reembolsos: [], imagenes: new Map() };
+  const { imagenes, lineas } = demo ? vacio : await datosVentas(ultima?.id ?? null);
 
   // Titles from the orders when Amazon's inventory report has none (skipping its "-" placeholders).
   const titulos: Record<string, string> = {};
@@ -33,6 +50,7 @@ export default async function StockPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Stock FBA</h1>
         <p className="mt-1 text-sm text-ink-400">Unidades en los almacenes de Amazon, por región. Se actualiza en cada sincronización o con el botón.</p>
       </div>
+      {demo && <AvisoDemo />}
       {!isAmazonConfigured ? (
         <p className="rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning">Faltan las credenciales de Amazon en .env.local.</p>
       ) : (

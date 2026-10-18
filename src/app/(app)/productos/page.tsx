@@ -5,12 +5,16 @@ import { formatMoneda, formatNumero } from "@/lib/format";
 import { Bandera } from "@/components/Bandera";
 import { saludDeProducto } from "@/lib/datos/saludListings";
 import { panEuropeoDe } from "@/lib/datos/panEuropeo";
+import { modoDemo } from "@/lib/auth/demo";
+import { AvisoDemo } from "@/components/AvisoDemo";
 
 /** Every listing we know of, as cards. Built from memory: ~3 Firestore reads per load. */
 export default async function ProductosPage({ searchParams }: PageProps<"/productos">) {
   const sp = await searchParams;
   const verTodos = sp.todos === "1";
-  const { productos, marketplaces } = await listarProductos();
+  // A guest sees it empty: nothing of the owner's is loaded.
+  const demo = await modoDemo();
+  const { productos, marketplaces } = demo ? { productos: [], marketplaces: [] } : await listarProductos();
   const mk = new Map(marketplaces.map((m) => [m.id, m]));
   const activos = productos.filter((p) => p.activo);
   const visibles = verTodos ? productos : activos;
@@ -29,6 +33,11 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Productos</h1>
           <p className="mt-1 text-sm text-ink-400">Tus listings tal como los ve un comprador. Pulsa uno para ver la ficha completa.</p>
+          {demo && (
+            <div className="mt-3">
+              <AvisoDemo />
+            </div>
+          )}
         </div>
         {productos.length !== activos.length && (
           <Link href={verTodos ? "/productos" : "/productos?todos=1"} className="text-sm text-ink-400 underline-offset-4 hover:text-ink-100 hover:underline">

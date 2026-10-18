@@ -5,14 +5,20 @@ import { idUltimaSync } from "@/lib/datos/panel";
 import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketplacesConocidos";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
 import { Bandera } from "@/components/Bandera";
+import { modoDemo } from "@/lib/auth/demo";
+import { AvisoDemo } from "@/components/AvisoDemo";
 
 const fechaHora = (f: string) => new Date(f).toLocaleString("es-ES", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
 
 /** Buyer messages, newest first, by country: what the customer wrote, about which order and product. */
 export default async function MensajesPage({ searchParams }: PageProps<"/mensajes">) {
   const sp = await searchParams;
-  const [{ lista, actualizadoEn }] = await Promise.all([obtenerMensajes(), asegurarAlmacen(await idUltimaSync())]);
-  const pedidos = new Map([...pedidosEnAlmacen().values()].map((p) => [p.amazonOrderId, p]));
+  // A guest sees it empty: nothing of the owner's is loaded.
+  const demo = await modoDemo();
+  const [{ lista, actualizadoEn }] = demo
+    ? [{ lista: [] as Awaited<ReturnType<typeof obtenerMensajes>>["lista"], actualizadoEn: null }]
+    : await Promise.all([obtenerMensajes(), asegurarAlmacen(await idUltimaSync())]);
+  const pedidos = new Map(demo ? [] : [...pedidosEnAlmacen().values()].map((p) => [p.amazonOrderId, p]));
 
   const mensajes = lista.map((m) => {
     const id = m.marketplaceId ?? marketplacePorNombre(m.dominio);
@@ -34,6 +40,7 @@ export default async function MensajesPage({ searchParams }: PageProps<"/mensaje
         <h1 className="text-2xl font-semibold tracking-tight">Mensajes</h1>
         <p className="mt-1 text-sm text-ink-400">Lo que te escriben los clientes, país por país. Amazon pide responder en menos de 24 horas.</p>
       </div>
+      {demo && <AvisoDemo />}
 
       <nav aria-label="País" className="flex flex-wrap gap-1.5">
         <Link href="/mensajes" scroll={false} className={chip(elegido === null)}>
