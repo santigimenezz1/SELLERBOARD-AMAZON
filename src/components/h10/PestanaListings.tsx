@@ -12,12 +12,15 @@ import { Pais, Tarjeta } from "./comun";
 import { FotoGenerica } from "./FotoGenerica";
 
 /**
- * «Listings»: the 10 leaders of the niche as cards, from the one that earns most, each opening its listing audit; at the
+ * «Listings»: the leaders of the niche (TOP) as cards, from the one that earns most, each opening its listing audit; at the
  * end, what the leaders get wrong and what they get right. A card's ✕ takes that listing out (kept per study) and the
  * next one by revenue fills its place. Each card shows its revenue and its share of the market: of every product of
  * every country under «Todos», of that country's otherwise (as in «Competidores»). Photos and texts are the real ones when a «ficha» JSON
  * brought the listing; the findings are a mock-up until the listing agent exists.
  */
+/** How many leaders the tab shows. */
+const TOP = 15;
+
 export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado> }) {
   const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
@@ -48,7 +51,7 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
   };
   const lideres = todos
     .filter((x) => !x.c.asin || !quitados.includes(clave(x)))
-    .slice(0, 10)
+    .slice(0, TOP)
     .map((x) => ({ ...x, a: auditarListing(x.c, x.m, palabras[x.m.codigoPais], listingDe(estudio.listings, x.m.codigoPais, x.c.asin)) }));
   const { fallos, aciertos } = resumenListings(lideres.map((x) => x.a));
   const donde = pais ? `en ${nombrePais(pais)}` : "del nicho";
@@ -78,7 +81,7 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
       </div>
 
       <Tarjeta
-        titulo={`Los 10 listings líderes ${donde}`}
+        titulo={`Los ${TOP} listings líderes ${donde}`}
         subtitulo="De más a menos facturación · entra en uno para ver todo lo que hace bien y mal · ✕ para quitarlo: su sitio lo ocupa el siguiente"
       >
         {(quitadosAqui > 0 || errorQuitar) && (
@@ -156,8 +159,8 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
                       const k = `${m.codigoPais}|${c.asin}`;
                       void guardar({ quitarListing: k }, [...quitados, k]);
                     }}
-                    aria-label={`Quitar ${c.marca} del top 10`}
-                    title="Quitar del top 10: lo sustituye el siguiente por facturación"
+                    aria-label={`Quitar ${c.marca} del top ${TOP}`}
+                    title={`Quitar del top ${TOP}: lo sustituye el siguiente por facturación`}
                     className="absolute top-1.5 right-1.5 z-10 flex size-7 items-center justify-center rounded-full text-base leading-none text-ink-400 transition-colors hover:bg-danger/15 hover:text-danger"
                   >
                     ✕
@@ -201,7 +204,7 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
       </Tarjeta>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Tarjeta titulo={`En qué fallan los líderes ${donde}`} subtitulo="Lo que más se repite entre los 10: cada fallo es una oportunidad para tu listing">
+        <Tarjeta titulo={`En qué fallan los líderes ${donde}`} subtitulo={`Lo que más se repite entre los ${lideres.length}: cada fallo es una oportunidad para tu listing`}>
           <ol className="mt-3 flex flex-col gap-2.5">
             {fallos.slice(0, 10).map((f) => (
               <li key={`${f.parte}-${f.texto}`} className="flex flex-col gap-1">
