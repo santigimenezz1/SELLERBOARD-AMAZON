@@ -66,6 +66,16 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
       </p>
 
       <ConectarExtension />
+      <CargaAutomatica
+        estudio={estudio}
+        items={lideres
+          .filter((x) => x.c.asin)
+          .map((x) => ({
+            pais: x.m.codigoPais,
+            asin: x.c.asin!,
+            guardadas: Math.max(0, ...(estudio.resenasCompletas ?? []).filter((r) => r.codigoPais === x.m.codigoPais && r.asin === x.c.asin).map((r) => r.total)),
+          }))}
+      />
 
       <div className="flex flex-wrap gap-1.5">
         {[null, ...estudio.mercados.map((m) => m.codigoPais)].map((p) => (
@@ -251,6 +261,68 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
           </ol>
         </Tarjeta>
       </div>
+    </div>
+  );
+}
+
+const DOMINIO_AMAZON: Record<string, string> = { ES: "amazon.es", DE: "amazon.de", FR: "amazon.fr", IT: "amazon.it", GB: "amazon.co.uk" };
+
+/**
+ * «Cargar reseñas automáticamente»: opens the first listing's reviews in Amazon with the whole list in the link
+ * (#evlc_auto=…). The review extension (1.5+) then goes through every product by itself (1★ to 5★, up to 10 pages each,
+ * at a person's pace), sends each one to this study and moves on; it waits whenever Amazon asks to sign in.
+ */
+function CargaAutomatica({ estudio, items }: { estudio: EstudioH10; items: { pais: CodigoPais; asin: string; guardadas: number }[] }) {
+  const [saltarGuardados, setSaltarGuardados] = useState(true);
+  const [confirmar, setConfirmar] = useState(false);
+  const cola = items.filter((x) => !saltarGuardados || !x.guardadas);
+  const minutos = Math.round(cola.length * 2);
+  const empezar = () => {
+    setConfirmar(false);
+    const primero = cola[0];
+    if (!primero) return;
+    const marca = JSON.stringify({ e: estudio.id, n: estudio.nombre, a: window.location.origin, c: cola.map((x) => [x.pais, x.asin]) });
+    // The same page the extension starts from: the first product's 1-star reviews, newest first.
+    const url = `https://www.${DOMINIO_AMAZON[primero.pais]}/product-reviews/${primero.asin}/?ie=UTF8&reviewerType=all_reviews&filterByStar=one_star&sortBy=recent&pageNumber=1#evlc_auto=${encodeURIComponent(marca)}`;
+    window.open(url, "_blank", "noopener");
+  };
+  return (
+    <div className="rounded-xl border border-accent-500/30 bg-accent-500/[0.05] px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-ink-300">
+          <span className="font-semibold text-ink-100">Carga automática de reseñas:</span> la extensión abre Amazon y recorre sola las reseñas de {cola.length}{" "}
+          {cola.length === 1 ? "listing" : "listings"} (≈ {minutos} min). Si Amazon pide iniciar sesión, lo haces tú y sigue.
+        </span>
+        <span className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-ink-400">
+            <input type="checkbox" checked={saltarGuardados} onChange={(e) => setSaltarGuardados(e.target.checked)} />
+            Saltar los que ya tienen reseñas
+          </label>
+          <button
+            onClick={() => setConfirmar(true)}
+            disabled={!cola.length}
+            className="h-8 rounded-lg bg-accent-500 px-3 text-xs font-semibold text-ink-950 hover:bg-accent-400 disabled:opacity-50"
+          >
+            Cargar reseñas automáticamente
+          </button>
+        </span>
+      </div>
+      {confirmar && (
+        <div role="alertdialog" className="mt-3 flex flex-col gap-2 border-t border-white/[0.06] pt-3 text-xs text-ink-300">
+          <p>
+            Antes de empezar: la extensión tiene que estar en la <strong className="text-ink-100">versión 1.5</strong> (↻ en chrome://extensions) y con la clave pegada en ⚙. Usa una{" "}
+            <strong className="text-ink-100">cuenta de comprador de Amazon, no la de vendedor</strong>. Deja esa pestaña trabajar; puedes usar otras.
+          </p>
+          <span className="flex gap-2">
+            <button onClick={empezar} className="h-8 rounded-lg bg-accent-500 px-3 font-semibold text-ink-950 hover:bg-accent-400">
+              Empezar con {cola.length} {cola.length === 1 ? "listing" : "listings"}
+            </button>
+            <button onClick={() => setConfirmar(false)} className="h-8 rounded-lg border border-white/[0.12] px-3 text-ink-300 hover:text-ink-100">
+              Cancelar
+            </button>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
