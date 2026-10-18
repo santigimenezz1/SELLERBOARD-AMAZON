@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { estudiosParaVista, quejasEstrellasDe, resenasCompletasDe } from "@/lib/datos/estudiosH10";
+import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { analizarResenas, nombrePais } from "@/lib/datos/h10Analisis";
 import { esCodigoPais } from "@/lib/datos/h10Tipos";
 import { formatMoneda, formatNumero } from "@/lib/format";
@@ -13,7 +14,8 @@ import { QuejasEstrellas } from "@/components/h10/QuejasEstrellas";
 /** One competitor of a study in one country: its Xray figures, what its customers say and every review uploaded. */
 export default async function CompetidorH10({ params }: PageProps<"/analisis-h10/[id]/competidor/[pais]/[asin]">) {
   const { id, pais, asin } = await params;
-  if (!esCodigoPais(pais)) notFound();
+  // Another user's study is as if it didn't exist.
+  if (!esCodigoPais(pais) || !(await usuarioDelEstudio(id))) notFound();
   const v = (await estudiosParaVista()).find((x) => x.estudio.id === id);
   const m = v?.estudio.mercados.find((x) => x.codigoPais === pais);
   const c = m?.competidores.find((x) => x.asin === asin);

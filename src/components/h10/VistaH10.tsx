@@ -103,6 +103,7 @@ export function VistaH10({
   costesPropios,
   paresAmazon,
   inicial,
+  invitado = false,
 }: {
   estudio: EstudioH10;
   palabras: Record<string, PalabrasMercado>;
@@ -114,6 +115,8 @@ export function VistaH10({
   paresAmazon: { asin: string; codigoPais: CodigoPais }[];
   /** Tab to open first (from the URL). */
   inicial?: { pestana?: string };
+  /** A guest (accesos.ts): without what runs on the owner's keys (the reviews extension, the agents' test bench). */
+  invitado?: boolean;
 }) {
   const router = useRouter();
   // «Datos» until it has an Xray, then «Mercado».
@@ -211,10 +214,10 @@ export function VistaH10({
         ) : (
           <SinDatos texto="La rentabilidad necesita el Xray de al menos un país; la calculadora de Amazon la hace mucho más precisa." onIrADatos={datosAqui} />
         ))}
-      {pestana === "agentes" && <PestanaAgentes key={`agentes-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} />}
+      {pestana === "agentes" && <PestanaAgentes key={`agentes-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} conBanco={!invitado} />}
       {pestana === "listings" &&
         (resumen ? (
-          <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} />
+          <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} conExtension={!invitado} />
         ) : (
           <SinDatos texto="Para ver los listings líderes, sube el Xray (CSV) de al menos un país." onIrADatos={datosAqui} />
         ))}

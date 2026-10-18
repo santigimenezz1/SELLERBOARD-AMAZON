@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { estudiosParaVista } from "@/lib/datos/estudiosH10";
+import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { nombrePais } from "@/lib/datos/h10Analisis";
 import { auditarListing, colorNota, listingDe } from "@/lib/datos/h10Listings";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
@@ -14,7 +15,8 @@ const BORDE_FOTO = { bien: "border-success/60", regular: "border-warning/60", ma
 /** One leader's listing, piece by piece: photos, title, bullets, description, A+, video, price and reviews. */
 export default async function ListingH10({ params }: PageProps<"/analisis-h10/[id]/listing/[pais]/[asin]">) {
   const { id, pais, asin } = await params;
-  if (!esCodigoPais(pais)) notFound();
+  // Another user's study is as if it didn't exist.
+  if (!esCodigoPais(pais) || !(await usuarioDelEstudio(id))) notFound();
   const v = (await estudiosParaVista()).find((x) => x.estudio.id === id);
   const m = v?.estudio.mercados.find((x) => x.codigoPais === pais);
   const c = m?.competidores.find((x) => x.asin === asin);

@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { estudiosParaVista } from "@/lib/datos/estudiosH10";
+import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { VistaH10 } from "@/components/h10/VistaH10";
 
 /** One Helium 10 study with all its tabs. «?pestana=…» opens on that tab (coming back from a competitor's page). */
 export default async function EstudioH10Page({ params, searchParams }: PageProps<"/analisis-h10/[id]">) {
   const { id } = await params;
-  const g = (await estudiosParaVista()).find((x) => x.estudio.id === id);
-  if (!g) notFound();
+  // Another user's study is as if it didn't exist.
+  const user = await usuarioDelEstudio(id);
+  const g = user ? (await estudiosParaVista()).find((x) => x.estudio.id === id) : undefined;
+  if (!g || !user) notFound();
   const pestana = (await searchParams).pestana;
   return (
     <div className="flex flex-col gap-4">
@@ -23,6 +26,7 @@ export default async function EstudioH10Page({ params, searchParams }: PageProps
         costesPropios={g.costesPropios}
         paresAmazon={g.paresAmazon}
         inicial={{ pestana: typeof pestana === "string" ? pestana : undefined }}
+        invitado={user.rol === "invitado"}
       />
     </div>
   );

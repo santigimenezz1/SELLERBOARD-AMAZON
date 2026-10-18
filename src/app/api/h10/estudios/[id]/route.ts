@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
-import { getSessionUser } from "@/lib/auth/session";
+import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { borrarEstudio, editarEstudio } from "@/lib/datos/estudiosH10";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> };
  */
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
-  if (!(await getSessionUser(true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  if (!(await usuarioDelEstudio((await params).id, true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
   try {
     await editarEstudio((await params).id, (await req.json().catch(() => ({}))) as Record<string, unknown>);
     await volcarConsumo().catch(() => {});
@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 /** Deletes a study with all its files and data. */
 export async function DELETE(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
-  if (!(await getSessionUser(true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  if (!(await usuarioDelEstudio((await params).id, true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
   try {
     await borrarEstudio((await params).id);
     await volcarConsumo().catch(() => {});

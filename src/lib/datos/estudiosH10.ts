@@ -66,6 +66,8 @@ type EstudioGuardado = {
   listingsQuitados?: string[];
   /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
   portada?: { asin: string; codigoPais: CodigoPais; url: string };
+  /** The guest who made it (accesos.ts): only they see it. The owners' studies have none and are shared by them. */
+  dueno?: string;
   resenasAgrupadas?: ResenasAgrupadas;
   /** Complaints of each competitor's 1–3 star reviews (AI), by «country_ASIN». */
   quejasEstrellas?: Record<string, QuejasPorEstrellas>;
@@ -146,11 +148,34 @@ async function guardarEstudio(e: EstudioGuardado) {
 
 // ---------- Studies ----------
 
-export async function crearEstudio(datos: { nombre?: unknown; descripcion?: unknown }): Promise<string> {
+/** Who's asking, to tell their studies apart: a guest sees only the ones they made, the owners only theirs. */
+export type QuienPide = { uid: string; rol: "dueno" | "invitado" };
+const visiblePara = (e: EstudioGuardado, quien: QuienPide) => (quien.rol === "invitado" ? e.dueno === quien.uid : !e.dueno);
+
+/** Whether this user may see and change this study. */
+export async function estudioVisible(id: string, quien: QuienPide): Promise<boolean> {
+  const e = (await cargar()).get(id);
+  return !!e && visiblePara(e.estudio, quien);
+}
+
+/** The ids of the studies this user may see. */
+export async function estudiosVisibles(quien: QuienPide): Promise<Set<string>> {
+  return new Set([...(await cargar()).values()].filter((e) => visiblePara(e.estudio, quien)).map((e) => e.estudio.id));
+}
+
+export async function crearEstudio(datos: { nombre?: unknown; descripcion?: unknown }, quien: QuienPide): Promise<string> {
   const nombre = texto(datos.nombre, 80);
   if (!nombre) throw new Error("Ponle un nombre al estudio");
   const ahora = new Date().toISOString();
-  const estudio: EstudioGuardado = { id: randomUUID(), nombre, descripcion: texto(datos.descripcion, 200), creadoEn: ahora, actualizadoEn: ahora, archivos: [] };
+  const estudio: EstudioGuardado = {
+    id: randomUUID(),
+    nombre,
+    descripcion: texto(datos.descripcion, 200),
+    creadoEn: ahora,
+    actualizadoEn: ahora,
+    archivos: [],
+    ...(quien.rol === "invitado" && { dueno: quien.uid }),
+  };
   await guardarEstudio(estudio);
   (await cargar()).set(estudio.id, { estudio, datos: new Map(), amazon: new Map(), listings: new Map() });
   return estudio.id;

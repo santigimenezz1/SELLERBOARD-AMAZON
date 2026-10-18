@@ -21,7 +21,8 @@ import { FotoGenerica } from "./FotoGenerica";
 /** How many leaders the tab shows. */
 const TOP = 15;
 
-export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado> }) {
+/** `conExtension`: the reviews extension's boxes (it signs with the owner's key: not for guests). */
+export function PestanaListings({ estudio, palabras, conExtension = true }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado>; conExtension?: boolean }) {
   const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
   // Shown at once; saved in the study in the background.
@@ -65,7 +66,8 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
           : "Simulación · fotos genéricas y hallazgos de ejemplo; el título se analiza de verdad con las palabras clave del estudio"}
       </p>
 
-      <ConectarExtension />
+      {conExtension && <ConectarExtension />}
+      {conExtension && (
       <CargaAutomatica
         estudio={estudio}
         items={lideres
@@ -76,6 +78,7 @@ export function PestanaListings({ estudio, palabras }: { estudio: EstudioH10; pa
             guardadas: Math.max(0, ...(estudio.resenasCompletas ?? []).filter((r) => r.codigoPais === x.m.codigoPais && r.asin === x.c.asin).map((r) => r.total)),
           }))}
       />
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         {[null, ...estudio.mercados.map((m) => m.codigoPais)].map((p) => (

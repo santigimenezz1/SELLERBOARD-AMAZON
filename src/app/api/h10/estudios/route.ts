@@ -7,9 +7,10 @@ import { volcarConsumo } from "@/lib/datos/consumo";
 /** Creates a Helium 10 study. Body: { nombre, descripcion }. */
 export async function POST(req: NextRequest) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
-  if (!(await getSessionUser(true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const user = await getSessionUser(true);
+  if (!user) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
   try {
-    const id = await crearEstudio((await req.json().catch(() => ({}))) as Record<string, unknown>);
+    const id = await crearEstudio((await req.json().catch(() => ({}))) as Record<string, unknown>, user);
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true, id });
   } catch (e) {

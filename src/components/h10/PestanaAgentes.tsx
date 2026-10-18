@@ -44,7 +44,8 @@ function trabajoDe(m: MiembroEquipo, pasos: PasoEquipo[], ahora: number, enCurso
  * worked when (the four specialists at once, then the director); and a column of task cards per member, with their
  * full analysis. Live while the team works, and kept with the report afterwards.
  */
-export function PestanaAgentes({ estudioId, informe }: { estudioId: string; informe: InformeEstrategico | null }) {
+/** `conBanco`: the agents' test bench (it spends the owner's AI credits: not for guests). */
+export function PestanaAgentes({ estudioId, informe, conBanco = true }: { estudioId: string; informe: InformeEstrategico | null; conBanco?: boolean }) {
   const router = useRouter();
   const [estado, setEstado] = useState<EstadoInforme | null>(null);
   const [ahora, setAhora] = useState(() => Date.now());
@@ -273,7 +274,7 @@ export function PestanaAgentes({ estudioId, informe }: { estudioId: string; info
         })}
       </div>
 
-      <BancoPruebas estudioId={estudioId} />
+      {conBanco && <BancoPruebas estudioId={estudioId} />}
     </div>
   );
 }

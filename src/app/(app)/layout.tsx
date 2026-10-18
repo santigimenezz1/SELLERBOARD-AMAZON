@@ -18,10 +18,12 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
+  // A guest (accesos.ts) only has «Análisis H10»: no menu of the owner's sections, no data chat, nothing of theirs.
+  const invitado = user.rol === "invitado";
   // Colours the «Estado de la cuenta» menu item (from memory after the first load).
-  const estadoCuenta = await resumenEstadoCuenta().catch(() => null);
+  const estadoCuenta = invitado ? null : await resumenEstadoCuenta().catch(() => null);
   // Orange dot on «Suscripciones» while a payment is close (from memory after the first load).
-  const avisosSuscripciones = CON_SUSCRIPCIONES ? porVencer(await listarSuscripciones().catch(() => []), diaMadrid(new Date())).length : 0;
+  const avisosSuscripciones = !invitado && CON_SUSCRIPCIONES ? porVencer(await listarSuscripciones().catch(() => []), diaMadrid(new Date())).length : 0;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
@@ -35,18 +37,18 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
               {/* <ContadorConsumo /> */}
               <LogoutButton />
               {/* Phones only: a hamburger opens the menu. */}
-              <MenuMovil estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} email={user.email ?? null} />
+              <MenuMovil estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} email={user.email ?? null} soloH10={invitado} />
             </div>
           </div>
           {/* From tablets up: the full menu on its own row under the logo. */}
-          <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} />
+          <Nav estadoCuenta={estadoCuenta} avisosSuscripciones={avisosSuscripciones} soloH10={invitado} />
         </div>
       </header>
-      <RefrescoAutomatico />
+      {!invitado && <RefrescoAutomatico />}
       <RenovarSesion />
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
-      {/* «Pregunta a tu app»: the data chat, on every page. */}
-      <Chat />
+      {/* «Pregunta a tu app»: the data chat, on every page (not for guests: it reads the owner's data). */}
+      {!invitado && <Chat />}
     </div>
   );
 }

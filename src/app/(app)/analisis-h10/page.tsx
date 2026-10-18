@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { estudiosParaVista, portadasEstudios } from "@/lib/datos/estudiosH10";
+import { estudiosParaVista, estudiosVisibles, portadasEstudios } from "@/lib/datos/estudiosH10";
+import { requireUser } from "@/lib/auth/session";
 import { analizarResenas, notaProducto, resumirEstudio } from "@/lib/datos/h10Analisis";
 import { enlaceEstudio, ListaEstudios, type ResumenEstudio } from "@/components/h10/VistaH10";
 
@@ -11,7 +12,9 @@ export default async function AnalisisH10Page({ searchParams }: PageProps<"/anal
   const estudio = uno(sp.estudio);
   if (estudio) redirect(enlaceEstudio(estudio, uno(sp.pestana)));
 
-  const guardados = await estudiosParaVista();
+  // Only this user's studies: a guest's own, or the owners' shared ones.
+  const visibles = await estudiosVisibles(await requireUser());
+  const guardados = (await estudiosParaVista()).filter((g) => visibles.has(g.estudio.id));
   // Each card's picture: the main photo of its market's leader (asked to Amazon once per leader).
   const portadas: Record<string, string | null> = await portadasEstudios().catch(() => ({}));
   // Only what the cards show: the whole studies would weigh half a megabyte for four cards.
