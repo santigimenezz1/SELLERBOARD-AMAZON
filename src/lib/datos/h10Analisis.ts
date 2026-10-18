@@ -294,6 +294,13 @@ const VACIAS_NORMALIZADAS = new Set([...VACIAS].flatMap(normalizarPalabras));
 const palabrasDe = (t: string) => new Set(normalizarPalabras(t).filter((w) => w.length >= 2 && !VACIAS_NORMALIZADAS.has(w)));
 const contiene = (a: Set<string>, b: Set<string>) => [...b].every((w) => a.has(w));
 
+/** Whether two searches are the same however they're written («Portería fútbol» = «porteria futbol»), or one is the other with more words. */
+export function mismaBusqueda(a: string, b: string): boolean {
+  const wa = palabrasDe(a);
+  const wb = palabrasDe(b);
+  return wa.size > 0 && wb.size > 0 && (contiene(wa, wb) || contiene(wb, wa));
+}
+
 /**
  * The searches worth a secondary Xray in a country, from its Cerebro: the most searched ones that would bring other
  * products. Leaves out the main search and its variants (one containing the other, e.g. «… kinder»: mostly the same
@@ -319,6 +326,83 @@ export function xraySecundarias(m: PalabrasMercado, hechas: string[], marcas: st
     elegidas.push({ texto: p.texto, busquedas: p.busquedas, w });
   }
   return elegidas.map(({ texto, busquedas }) => ({ texto, busquedas }));
+}
+
+/**
+ * The 10 strongest ASINs of a country's niche, to paste into Cerebro (it takes 10 at most): the ones that make most in
+ * its Xray, one per listing (variants of a product share their title and would waste a place).
+ */
+export function asinsParaCerebro(m: MercadoXray, cuantos = 10): string[] {
+  const vistos = new Set<string>();
+  const titulos = new Set<string>();
+  const elegidos: string[] = [];
+  for (const c of [...m.competidores].sort((a, b) => b.facturacion - a.facturacion)) {
+    if (elegidos.length === cuantos) break;
+    const asin = c.asin?.trim().toUpperCase();
+    if (!asin || !/^[A-Z0-9]{10}$/.test(asin) || vistos.has(asin)) continue;
+    const titulo = normalizarPalabras(c.titulo).join(" ").slice(0, 60);
+    if (titulo && titulos.has(titulo)) continue;
+    vistos.add(asin);
+    titulos.add(titulo);
+    elegidos.push(asin);
+  }
+  return elegidos;
+}
+
+// Words that don't make a search on their own in titles: units, sizes and filler, in the five languages.
+const RELLENO = new Set(
+  [
+    ...["x", "cm", "mm", "m", "kg", "g", "ml", "l", "inch", "zoll", "pcs", "pz", "stk", "stuck", "pack", "pieces", "piezas", "pezzi", "teile", "teilig", "pieces", "unidades", "uds"],
+    ...["con", "per", "da", "di", "del", "della", "e", "en", "y", "o", "a", "al", "un", "una", "il", "lo", "gli", "le", "des", "avec", "pour", "et", "in", "to", "or", "im", "zum", "zur", "fur", "fuer", "ein", "eine", "inkl", "incl", "including", "inklusive", "nuevo", "new", "neu"],
+  ].flatMap(normalizarPalabras),
+);
+
+/**
+ * Without a Cerebro: the searches worth a secondary Xray, from the titles of the country's leaders. The 2–3 word
+ * phrases most of them repeat are how sellers (and buyers) name the product in that language. Same exclusions as
+ * from the Cerebro; `titulos`: how many of the leaders' titles carry it (searches unknown without a Cerebro).
+ */
+export function xrayDesdeTitulos(m: MercadoXray, hechas: string[], cuantas = 3): { texto: string; titulos: number }[] {
+  const usadas = hechas.map(palabrasDe).filter((s) => s.size);
+  const marcasW = new Set(m.competidores.flatMap((c) => [...palabrasDe(c.marca)]).filter((w) => w.length >= 3));
+  const lideres = [...m.competidores].sort((a, b) => b.facturacion - a.facturacion).slice(0, 20);
+  const veces = new Map<string, number>();
+  // Each normalised word as it's written («krautermuhle» → «kräutermühle»), to show the search as it's typed.
+  const escrita = new Map<string, string>();
+  for (const c of lideres) {
+    const palabras = c.titulo
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .map((orig) => ({ orig, w: normalizarPalabras(orig).join("") }))
+      .filter(({ w }) => w.length >= 3 && !/\d/.test(w) && !VACIAS_NORMALIZADAS.has(w) && !RELLENO.has(w) && !marcasW.has(w))
+      // Titles start with what the product is; features and materials come later.
+      .slice(0, 7);
+    for (const p of palabras) if (!escrita.has(p.w)) escrita.set(p.w, p.orig);
+    const frases = new Set<string>();
+    for (let n = 2; n <= 3; n++)
+      for (let i = 0; i + n <= palabras.length; i++) {
+        const trozo = palabras.slice(i, i + n).map((p) => p.w);
+        if (new Set(trozo).size === n) frases.add(trozo.join(" "));
+      }
+    for (const f of frases) veces.set(f, (veces.get(f) ?? 0) + 1);
+  }
+  // What the product is called: the words most leaders' titles start with. A search has to name it («double sided»
+  // alone doesn't).
+  const porPalabra = new Map<string, number>();
+  for (const [f, n] of veces) if (!f.includes(" ", f.indexOf(" ") + 1)) for (const w of f.split(" ")) porPalabra.set(w, Math.max(porPalabra.get(w) ?? 0, n));
+  const nucleo = new Set([...porPalabra.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([w]) => w));
+  // In several titles; a three-word phrase beats its two-word part when about as many carry it.
+  const candidatas = [...veces.entries()]
+    .filter(([f, n]) => n >= 3 && f.split(" ").some((w) => nucleo.has(w)))
+    .map(([texto, n]) => ({ texto, titulos: n, w: palabrasDe(texto), puntos: n * (texto.split(" ").length === 3 ? 1.25 : 1) }))
+    .sort((a, b) => b.puntos - a.puntos);
+  const elegidas: typeof candidatas = [];
+  for (const c of candidatas) {
+    if (elegidas.length === cuantas) break;
+    if ([...usadas, ...elegidas.map((e) => e.w)].some((u) => contiene(c.w, u) || contiene(u, c.w))) continue;
+    elegidas.push(c);
+  }
+  return elegidas.map(({ texto, titulos }) => ({ texto: texto.split(" ").map((w) => escrita.get(w) ?? w).join(" "), titulos }));
 }
 
 /** The words worth having in the title: each word's searches summed over the phrases that contain it. */

@@ -21,7 +21,8 @@ const conectar = () => {
   return cliente;
 };
 
-export type Pista = { codigoPais: CodigoPais | null; herramienta: HerramientaH10 | null };
+/** What the owner says of a file: its country, tool and, for an Xray, the search it was made for (the CSV doesn't say). */
+export type Pista = { codigoPais: CodigoPais | null; herramienta: HerramientaH10 | null; palabraClave?: string | null };
 
 const HERRAMIENTAS = HERRAMIENTAS_H10.map((h) => h.id);
 const PAISES = ["ES", "DE", "FR", "IT", "GB", "desconocido"];

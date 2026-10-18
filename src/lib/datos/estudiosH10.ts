@@ -327,7 +327,7 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
       const r = await reconocerCsv(archivo.name, filas, pista);
       if (r.herramienta === "xray") {
         if (!r.codigoPais) return sinPais("xray");
-        const mercado = mercadoDesdeCsv(filas, r.xray, { codigoPais: r.codigoPais, moneda: r.moneda, palabraClave: r.palabraClave || "—", fecha });
+        const mercado = mercadoDesdeCsv(filas, r.xray, { codigoPais: r.codigoPais, moneda: r.moneda, palabraClave: pista.palabraClave || r.palabraClave || "—", fecha });
         return {
           meta: { herramienta: "xray", codigoPais: r.codigoPais, estado: "procesado", palabraClave: mercado.palabraClave, resumen: `Xray · ${r.codigoPais} · ${mercado.palabraClave} · ${mercado.asins} productos` },
           datos: { herramienta: "xray", codigoPais: r.codigoPais, mercado },
@@ -378,7 +378,7 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
       if (c.herramienta === "busquedas") return await busquedas();
       if (c.herramienta === "xray" && c.competidores.length) {
         if (!c.codigoPais) return sinPais("xray");
-        const mercado = mercadoDesdeCaptura(c, c.codigoPais, fecha);
+        const mercado = { ...mercadoDesdeCaptura(c, c.codigoPais, fecha), ...(pista.palabraClave && { palabraClave: pista.palabraClave }) };
         return {
           meta: { herramienta: "xray", codigoPais: c.codigoPais, estado: "procesado", palabraClave: mercado.palabraClave, resumen: `Xray (captura) · ${c.codigoPais} · ${mercado.palabraClave} · ${mercado.competidores.length} productos visibles` },
           datos: { herramienta: "xray", codigoPais: c.codigoPais, mercado },
@@ -464,7 +464,12 @@ export async function releerArchivo(id: string, archivoId: string): Promise<Arch
   if (!a) throw new Error("Archivo no encontrado");
   const [datos] = await bucket().file(ruta(id, a)).download();
   const archivo = new File([new Uint8Array(datos)], a.nombre, { type: a.tipo });
-  const r = await procesar(archivo, datos, { codigoPais: a.codigoPais, herramienta: a.herramienta === "otro" ? null : a.herramienta }, a.subidoEn.slice(0, 10));
+  const r = await procesar(
+    archivo,
+    datos,
+    { codigoPais: a.codigoPais, herramienta: a.herramienta === "otro" ? null : a.herramienta, palabraClave: a.palabraClave && /\p{L}/u.test(a.palabraClave) ? a.palabraClave : null },
+    a.subidoEn.slice(0, 10),
+  );
   const nuevo: ArchivoH10 = { ...a, ...r.meta };
   if (!r.meta.error) delete nuevo.error;
   if (r.datos) {
@@ -587,10 +592,15 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
   const busquedas: Partial<Record<CodigoPais, HistorialBusquedas>> = {};
   for (const [, d] of lista) if (d.historial && d.codigoPais && !busquedas[d.codigoPais]) busquedas[d.codigoPais] = d.historial;
 
+  // Each country's main search is its first Xray's (uploaded first); its newest Xray is the market. Xrays of other
+  // searches are secondary: they add their searches to the «Datos» list but never replace the market.
+  const principal = new Map<CodigoPais, string>();
+  for (const [, d] of [...lista].reverse()) if (d.mercado && d.codigoPais && !principal.has(d.codigoPais)) principal.set(d.codigoPais, sinAcentos(d.mercado.palabraClave));
   const mercados = new Map<CodigoPais, MercadoXray>();
   const xraysAnteriores: Partial<Record<CodigoPais, MercadoXray[]>> = {};
   for (const [, d] of lista) {
     if (!d.mercado || !d.codigoPais) continue;
+    if (sinAcentos(d.mercado.palabraClave) !== principal.get(d.codigoPais)) continue;
     if (!mercados.has(d.codigoPais)) mercados.set(d.codigoPais, structuredClone(d.mercado));
     // Older Xrays of the same search: only their totals, for revenue per search. A secondary search's Xray
     // (another keyword) earns less and would lower the main search's revenue per search, so it doesn't count.

@@ -25,7 +25,7 @@ const LISTA: ItemLista[] = [
   { id: "xray", herramienta: "xray", texto: "Xray de la búsqueda principal", necesidad: "Imprescindible", ambito: "pais", ayuda: "Helium 10 → Xray → Export (CSV)" },
   { id: "xray2", herramienta: "xray", texto: "Xray de búsquedas secundarias", necesidad: "Recomendable", ambito: "pais", ayuda: "Xray de 1–2 búsquedas más (por ejemplo «fußball trainingsgerät»), en CSV" },
   { id: "busquedas", herramienta: "busquedas", texto: "Historial de búsquedas (3 años)", necesidad: "Muy recomendable", ambito: "pais", ayuda: "Xray → minigráfica junto a «Search Volume» → «3 Years» (captura): para estimar todo el año" },
-  { id: "cerebro", herramienta: "cerebro", texto: "Cerebro de los competidores", necesidad: "Muy recomendable", ambito: "pais", ayuda: "Cerebro con los 3–5 ASIN líderes a la vez, en CSV" },
+  { id: "cerebro", herramienta: "cerebro", texto: "Cerebro de los competidores", necesidad: "Muy recomendable", ambito: "pais", ayuda: "Cerebro con los 10 ASIN líderes a la vez (cópialos aquí abajo), en CSV" },
   { id: "resenas", herramienta: "resenas", texto: "Reseñas de los competidores", necesidad: "Recomendable", ambito: "pais", ayuda: "De los 3–5 líderes: Helium 10 → «Review Analysis» → descargar el Excel, uno por producto. La IA los analiza en la pestaña «Reseñas»" },
   { id: "calculadora", herramienta: "calculadora", texto: "Calculadora de Amazon", necesidad: "Imprescindible en 1 país", ambito: "pais", ayuda: "Calculadora de ingresos con el ASIN del líder (captura), o «Traer datos de Amazon» en Competidores, que trae las tarifas de los 5 países solo" },
   { id: "historial", herramienta: "historial", texto: "Historial de ventas (12 meses)", necesidad: "Recomendable", ambito: "pais", ayuda: "Gráficas de ventas, precio y BSR de los 2–3 líderes, en Xray (captura). Imprescindible en tu país principal; en los demás, para ver si la temporada coincide" },
@@ -65,8 +65,9 @@ const busquedasXray = (archivos: ArchivoH10[], pais: string) =>
  * «Datos»: upload the study's Helium 10 files, see what's missing per country, and the files kept. `tarifasAuto`:
  * countries with Amazon fees read automatically («Traer datos de Amazon»), which count as the calculator.
  * `paisesXray`: countries with an Xray, whose leaders' listings «Cargar datos» brings from Amazon; `listingsAuto`:
- * how many it brought per country, which count as competitors' listings. `sugerenciasXray`: per country with
- * Cerebro, the searches worth a secondary Xray (shown in that row, a click copies one).
+ * how many it brought per country, which count as competitors' listings. `sugerenciasXray`: per country, the
+ * searches worth a secondary Xray, from its Cerebro (with searches) or its leaders' titles (shown in that row, a click
+ * copies one).
  */
 export function PestanaDatos({
   estudioId,
@@ -78,6 +79,7 @@ export function PestanaDatos({
   listingsAuto,
   sugerenciasXray,
   sinPrincipal,
+  asinsCerebro,
 }: {
   estudioId: string;
   archivos: ArchivoH10[];
@@ -86,14 +88,18 @@ export function PestanaDatos({
   tarifasAuto: string[];
   paisesXray: string[];
   listingsAuto: Record<string, number>;
-  sugerenciasXray: Record<string, { texto: string; busquedas: number }[]>;
+  sugerenciasXray: Record<string, Sugerencia[]>;
   /** Countries whose Xray didn't say its search: one of the suggestions may be the main one. */
   sinPrincipal: string[];
+  /** Per country with an Xray: its 10 strongest ASINs, for Cerebro. */
+  asinsCerebro: Record<string, string[]>;
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [pais, setPais] = useState("");
   const [herramienta, setHerramienta] = useState("");
+  // The search an Xray was made for: its CSV doesn't carry it (else it's guessed from the file's name).
+  const [busqueda, setBusqueda] = useState("");
   const [encima, setEncima] = useState(false);
   const [cola, setCola] = useState<{ hecho: number; total: number } | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
@@ -122,6 +128,7 @@ export function PestanaDatos({
           f.set("archivo", a);
           if (pais) f.set("pais", pais);
           if (herramienta) f.set("herramienta", herramienta);
+          if (herramienta === "xray" && busqueda.trim()) f.set("palabraClave", busqueda.trim());
           const r = await fetch(`/api/h10/estudios/${estudioId}/archivos`, { method: "POST", body: f });
           const b = (await r.json().catch(() => ({}))) as { error?: string; archivo?: ArchivoH10 };
           if (!r.ok) throw new Error(b.error ?? `error ${r.status}`);
@@ -136,6 +143,8 @@ export function PestanaDatos({
     await Promise.all(Array.from({ length: Math.min(SIMULTANEOS, lista.length) }, trabajador));
     setErrores(fallos);
     setCola(null);
+    // One search per Xray: the next upload doesn't carry it.
+    setBusqueda("");
     router.refresh();
   };
 
@@ -158,6 +167,13 @@ export function PestanaDatos({
   const preparar = (it: ItemLista, pais?: string) => {
     setHerramienta(it.herramienta);
     setPais(pais ?? "");
+    document.getElementById(`subir-${estudioId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  /** A suggested search picked: ready to upload its Xray, so it's kept with that exact search (and turns green). */
+  const prepararXray = (pais: string, texto: string) => {
+    setHerramienta("xray");
+    setPais(pais);
+    setBusqueda(texto);
     document.getElementById(`subir-${estudioId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -188,6 +204,19 @@ export function PestanaDatos({
               ))}
             </select>
           </label>
+          {herramienta === "xray" && (
+            <label className="flex min-w-64 flex-1 items-center gap-2 text-xs text-ink-400">
+              Búsqueda
+              <input
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                disabled={!!cola}
+                maxLength={100}
+                placeholder="La que buscaste en Xray (el CSV no la trae)"
+                className={`${campo} flex-1`}
+              />
+            </label>
+          )}
         </div>
         <div
           onDragOver={(e) => {
@@ -273,7 +302,8 @@ export function PestanaDatos({
                       <span className="font-medium text-ink-100">{it.texto}</span>
                       <span className="block text-[11px] text-ink-500">{it.ayuda}</span>
                       {it.id === "ficha" && <CargarListings estudioId={estudioId} paises={paisesXray} />}
-                      {it.id === "xray2" && <SugerenciasXray paises={columnas} sugerencias={sugerenciasXray} sinPrincipal={sinPrincipal} />}
+                      {it.id === "cerebro" && <AsinsCerebro paises={columnas} asins={asinsCerebro} />}
+                      {it.id === "xray2" && <SugerenciasXray paises={columnas} sugerencias={sugerenciasXray} sinPrincipal={sinPrincipal} onElegir={prepararXray} />}
                     </td>
                     <td className={`px-2 py-2 text-xs whitespace-nowrap ${it.necesidad.startsWith("Imprescindible") ? "text-accent-300" : "text-ink-400"}`}>{it.necesidad}</td>
                     {it.ambito === "pais" ? (
@@ -365,10 +395,62 @@ function CargarListings({ estudioId, paises }: { estudioId: string; paises: stri
 }
 
 /**
- * The searches to Xray as secondary ones, per country, from its Cerebro (most searched first). A click copies one, to
- * paste in Helium 10. Countries without Cerebro say so.
+ * Per country, a button that copies its 10 strongest ASINs (from its Xray), comma-separated, ready to paste into
+ * Helium 10 Cerebro. Countries without an Xray yet say so.
  */
-function SugerenciasXray({ paises, sugerencias, sinPrincipal }: { paises: string[]; sugerencias: Record<string, { texto: string; busquedas: number }[]>; sinPrincipal: string[] }) {
+function AsinsCerebro({ paises, asins }: { paises: string[]; asins: Record<string, string[]> }) {
+  const [copiado, setCopiado] = useState<string | null>(null);
+  const copiar = (p: string, lista: string[]) =>
+    void navigator.clipboard.writeText(lista.join(", ")).then(() => {
+      setCopiado(p);
+      setTimeout(() => setCopiado((x) => (x === p ? null : x)), 1500);
+    });
+  return (
+    <span className="mt-2 flex flex-col gap-1.5">
+      <span className="text-[11px] font-semibold text-ink-300">Los 10 ASIN que más facturan en tu Xray de cada país: cópialos y pégalos en Cerebro.</span>
+      <span className="flex flex-wrap gap-1.5">
+        {paises.map((p) => {
+          const lista = asins[p] ?? [];
+          return lista.length ? (
+            <button
+              key={p}
+              onClick={() => copiar(p, lista)}
+              title={lista.join(", ")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-accent-500/30 bg-accent-500/[0.08] px-2 py-0.5 text-xs text-ink-100 hover:border-accent-500/60"
+            >
+              <Pais codigo={p} corto />
+              {copiado === p ? <span className="text-success">✓ Copiados</span> : <span>Copiar {lista.length} ASIN</span>}
+            </button>
+          ) : (
+            <span key={p} className="inline-flex items-center gap-1.5 px-1 text-[11px] text-ink-500">
+              <Pais codigo={p} corto /> sin Xray
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
+
+/** A search to Xray: with its monthly searches (from the Cerebro) or how many leaders' titles carry it. */
+type Sugerencia = { texto: string; busquedas?: number; titulos?: number; hecha?: boolean };
+
+/**
+ * The searches to Xray as secondary ones, per country: from its Cerebro (most searched first) or, without one, from
+ * its leaders' titles. A click copies one, to paste in Helium 10. Countries without any Xray yet say so.
+ */
+function SugerenciasXray({
+  paises,
+  sugerencias,
+  sinPrincipal,
+  onElegir,
+}: {
+  paises: string[];
+  sugerencias: Record<string, Sugerencia[]>;
+  sinPrincipal: string[];
+  /** Copies it and gets the upload ready for its Xray. */
+  onElegir: (pais: string, texto: string) => void;
+}) {
   const [copiada, setCopiada] = useState<string | null>(null);
   const copiar = (t: string) =>
     void navigator.clipboard.writeText(t).then(() => {
@@ -377,28 +459,41 @@ function SugerenciasXray({ paises, sugerencias, sinPrincipal }: { paises: string
     });
   return (
     <span className="mt-2 flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold text-ink-300">Búsquedas para el Xray secundario, sacadas de tu Cerebro (toca una para copiarla):</span>
+      <span className="text-[11px] font-semibold text-ink-300">
+        Búsquedas para el Xray secundario. Toca una roja: se copia y deja lista la subida con esa búsqueda. <span className="text-danger">En rojo, por subir</span> ·{" "}
+        <span className="text-success">en verde, ya subida</span>
+      </span>
       {paises.map((p) => {
         const lista = sugerencias[p];
         return (
           <span key={p} className="flex flex-wrap items-center gap-1.5">
             <Pais codigo={p} corto />
             {!lista ? (
-              <span className="text-[11px] text-ink-500">Sube el Cerebro de {nombrePais(p)} para sugerirlas</span>
+              <span className="text-[11px] text-ink-500">Sube primero el Xray principal de {nombrePais(p)}</span>
             ) : !lista.length ? (
               <span className="text-[11px] text-ink-500">Ya tienes las principales</span>
             ) : (
               lista.map((x) => (
                 <button
                   key={x.texto}
-                  onClick={() => copiar(x.texto)}
-                  title="Copiar para buscarla en Helium 10 Xray"
-                  className="rounded-md border border-accent-500/30 bg-accent-500/[0.08] px-2 py-0.5 text-xs text-ink-100 hover:border-accent-500/60"
+                  onClick={() => {
+                    copiar(x.texto);
+                    if (!x.hecha) onElegir(p, x.texto);
+                  }}
+                  title={x.hecha ? "Ya subiste su Xray · copiar" : "Aún no has subido su Xray: la copia y deja lista la subida (país, Xray y esta búsqueda)"}
+                  className={`rounded-md border px-2 py-0.5 text-xs text-ink-100 ${x.hecha ? "border-success/40 bg-success/10 hover:border-success/70" : "border-danger/40 bg-danger/10 hover:border-danger/70"}`}
                 >
-                  {copiada === x.texto ? "✓ Copiada" : x.texto}
-                  <span className="ml-1.5 text-[10px] text-ink-400">{x.busquedas.toLocaleString("es-ES")}/mes</span>
+                  {copiada === x.texto ? "✓ Copiada" : <>{x.hecha && <span className="mr-1 text-success">✓</span>}{x.texto}</>}
+                  <span className="ml-1.5 text-[10px] text-ink-400">
+                    {x.busquedas !== undefined ? `${x.busquedas.toLocaleString("es-ES")}/mes` : `en ${x.titulos} títulos`}
+                  </span>
                 </button>
               ))
+            )}
+            {!!lista?.length && lista[0].busquedas === undefined && (
+              <span className="text-[11px] text-ink-500" title="Sin Cerebro no se sabe cuántas búsquedas tienen: salen de lo que más repiten los títulos de los líderes">
+                · de los títulos de los líderes
+              </span>
             )}
             {!!lista?.length && sinPrincipal.includes(p) && (
               <span className="text-[11px] text-warning" title="El Xray de este país no dice qué búsqueda era">

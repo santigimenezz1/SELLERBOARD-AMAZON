@@ -10,7 +10,7 @@ import { TamanoMercado } from "./TamanoMercado";
 import { PestanaRentabilidad } from "./PestanaRentabilidad";
 import { cajaCompleta, rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
 import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado } from "@/lib/datos/h10Tipos";
-import { xraySecundarias, analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
+import { asinsParaCerebro, mismaBusqueda, xrayDesdeTitulos, xraySecundarias, analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
 import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
@@ -151,12 +151,23 @@ export function VistaH10({
           cajaPropia={cajaCompleta(estudio.supuestos?.miCaja)}
           tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
           paisesXray={estudio.mercados.map((m) => m.codigoPais)}
-          // From each country's Cerebro: the searches worth a secondary Xray, leaving out the ones already uploaded.
+          // The searches worth a secondary Xray in each country: from its Cerebro (with their searches) or, without
+          // one, from its leaders' titles. Only the main search is left out (the first Xray uploaded there), so the
+          // list stays put and each one turns «hecha» once an Xray of it is uploaded.
+          // The 10 strongest ASINs of each country's Xray, to copy into Cerebro.
+          asinsCerebro={Object.fromEntries(estudio.mercados.map((m) => [m.codigoPais, asinsParaCerebro(m)]))}
           sugerenciasXray={Object.fromEntries(
-            Object.entries(palabrasEstudio).map(([p, pm]) => {
+            [...new Set([...Object.keys(palabrasEstudio), ...estudio.mercados.map((m) => m.codigoPais)])].map((p) => {
               const m = estudio.mercados.find((x) => x.codigoPais === p);
-              const hechas = [m?.palabraClave ?? "", ...archivosEstudio.filter((a) => a.herramienta === "xray" && a.codigoPais === p && a.estado !== "error").map((a) => a.palabraClave ?? "")];
-              return [p, xraySecundarias(pm, hechas, m?.competidores.map((c) => c.marca) ?? [])];
+              const pm = palabrasEstudio[p];
+              const xrays = archivosEstudio
+                .filter((a) => a.herramienta === "xray" && a.codigoPais === p && a.estado !== "error" && a.palabraClave)
+                .sort((a, b) => a.subidoEn.localeCompare(b.subidoEn))
+                .map((a) => a.palabraClave!);
+              const principal = xrays[0] ?? m?.palabraClave ?? "";
+              const subidas = xrays.filter((k) => !mismaBusqueda(k, principal));
+              const lista = pm?.palabras.length ? xraySecundarias(pm, [principal], m?.competidores.map((c) => c.marca) ?? []) : m ? xrayDesdeTitulos(m, [principal]) : [];
+              return [p, lista.map((x) => ({ ...x, hecha: subidas.some((k) => mismaBusqueda(k, x.texto)) }))];
             }),
           )}
           // Xrays read without their search (screenshots): the main one can't be left out of the suggestions.
