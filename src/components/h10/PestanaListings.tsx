@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CodigoPais, EstudioH10, PalabrasMercado } from "@/lib/datos/h10Tipos";
@@ -12,14 +12,15 @@ import { Pais, Tarjeta } from "./comun";
 import { FotoGenerica } from "./FotoGenerica";
 
 /**
- * «Listings»: the leaders of the niche (TOP) as cards, from the one that earns most, each opening its listing audit; at the
+ * «Listings»: the leaders of the niche (TOP at first, MAS more per click) as cards, from the one that earns most, each opening its listing audit; at the
  * end, what the leaders get wrong and what they get right. A card's ✕ takes that listing out (kept per study) and the
  * next one by revenue fills its place. Each card shows its revenue and its share of the market: of every product of
  * every country under «Todos», of that country's otherwise (as in «Competidores»). Photos and texts are the real ones when a «ficha» JSON
  * brought the listing; the findings are a mock-up until the listing agent exists.
  */
-/** How many leaders the tab shows. */
-const TOP = 15;
+/** How many leaders the tab shows at first; «Agregar 10 competidores más» adds MAS each time (remembered per study, in this browser). */
+const TOP = 25;
+const MAS = 10;
 
 /**
  * `conExtension`: «Conectar extensión», which hands out the extension's key (the owner's: not for guests). The
@@ -32,6 +33,21 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
   // Shown at once; saved in the study in the background.
   const [quitados, setQuitados] = useState<string[]>(estudio.listingsQuitados ?? []);
   const [errorQuitar, setErrorQuitar] = useState("");
+  const [cuantos, setCuantos] = useState(TOP);
+  const memoria = `h10-listings-cuantos-${estudio.id}`;
+  useEffect(() => {
+    try {
+      const n = Number(localStorage.getItem(memoria));
+      if (n > TOP) setCuantos(n);
+    } catch {}
+  }, [memoria]);
+  const agregarMas = () => {
+    const n = cuantos + MAS;
+    setCuantos(n);
+    try {
+      localStorage.setItem(memoria, String(n));
+    } catch {}
+  };
   const todos = estudio.mercados
     .filter((m) => !pais || m.codigoPais === pais)
     .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
@@ -54,9 +70,9 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
       setErrorQuitar(`No se pudo guardar: ${e instanceof Error ? e.message : "inténtalo otra vez"}`);
     }
   };
-  const lideres = todos
-    .filter((x) => !x.c.asin || !quitados.includes(clave(x)))
-    .slice(0, TOP)
+  const visibles = todos.filter((x) => !x.c.asin || !quitados.includes(clave(x)));
+  const lideres = visibles
+    .slice(0, cuantos)
     .map((x) => ({ ...x, a: auditarListing(x.c, x.m, palabras[x.m.codigoPais], listingDe(estudio.listings, x.m.codigoPais, x.c.asin)) }));
   const { fallos, aciertos } = resumenListings(lideres.map((x) => x.a));
   const donde = pais ? `en ${nombrePais(pais)}` : "del nicho";
@@ -73,6 +89,7 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
       {conExtension && <ConectarExtension />}
       <CargaAutomatica
         estudio={estudio}
+        cuantos={cuantos}
         // Each country's own top (by revenue, without the ones taken out with ✕), whatever the view shows.
         porPais={estudio.mercados.map((m) => ({
           pais: m.codigoPais,
@@ -80,7 +97,7 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
             .filter((c) => c.asin && !quitados.includes(`${m.codigoPais}|${c.asin}`))
             .sort((a, b) => b.facturacion - a.facturacion)
             .filter((c, i, l) => l.findIndex((x) => x.asin === c.asin) === i)
-            .slice(0, TOP)
+            .slice(0, cuantos)
             .map((c) => ({
               pais: m.codigoPais,
               asin: c.asin!,
@@ -103,7 +120,7 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
       </div>
 
       <Tarjeta
-        titulo={`Los ${TOP} listings líderes ${donde}`}
+        titulo={`Los ${lideres.length} listings líderes ${donde}`}
         subtitulo="De más a menos facturación · entra en uno para ver todo lo que hace bien y mal · ✕ para quitarlo: su sitio lo ocupa el siguiente"
       >
         {(quitadosAqui > 0 || errorQuitar) && (
@@ -181,8 +198,8 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
                       const k = `${m.codigoPais}|${c.asin}`;
                       void guardar({ quitarListing: k }, [...quitados, k]);
                     }}
-                    aria-label={`Quitar ${c.marca} del top ${TOP}`}
-                    title={`Quitar del top ${TOP}: lo sustituye el siguiente por facturación`}
+                    aria-label={`Quitar ${c.marca} del top ${cuantos}`}
+                    title={`Quitar del top ${cuantos}: lo sustituye el siguiente por facturación`}
                     className="absolute top-1.5 right-1.5 z-10 flex size-7 items-center justify-center rounded-full text-base leading-none text-ink-400 transition-colors hover:bg-danger/15 hover:text-danger"
                   >
                     ✕
@@ -222,6 +239,21 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
               </div>
             );
           })}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs text-ink-400">
+          {visibles.length > lideres.length ? (
+            <button
+              onClick={agregarMas}
+              className="h-9 rounded-lg border border-accent-500/50 bg-accent-500/10 px-4 text-sm font-semibold text-ink-100 transition-colors hover:bg-accent-500/20"
+              title="Suma los 10 siguientes por facturación (se recuerda en este estudio)"
+            >
+              + Agregar {Math.min(MAS, visibles.length - lideres.length)} competidores más
+            </button>
+          ) : null}
+          <span>
+            {lideres.length} de {visibles.length} listings con datos {donde}
+            {visibles.length <= lideres.length ? " · no hay más en los datos de Helium 10" : ""}
+          </span>
         </div>
       </Tarjeta>
 
@@ -287,7 +319,7 @@ type ItemCarga = { pais: CodigoPais; asin: string; guardadas: number };
  * goes through every product by itself (1★ to 5★, up to 10 pages each, at a person's pace), sends each one to this
  * study and moves on, to the next country too; it waits whenever Amazon asks to sign in.
  */
-function CargaAutomatica({ estudio, porPais }: { estudio: EstudioH10; porPais: { pais: CodigoPais; items: ItemCarga[] }[] }) {
+function CargaAutomatica({ estudio, cuantos, porPais }: { estudio: EstudioH10; cuantos: number; porPais: { pais: CodigoPais; items: ItemCarga[] }[] }) {
   const [saltarGuardados, setSaltarGuardados] = useState(true);
   /** The list about to start: every country («todos») or one; null while none is picked. */
   const [elegida, setElegida] = useState<"todos" | CodigoPais | null>(null);
@@ -308,7 +340,7 @@ function CargaAutomatica({ estudio, porPais }: { estudio: EstudioH10; porPais: {
     <div className="rounded-xl border border-accent-500/30 bg-accent-500/[0.05] px-4 py-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-ink-300">
-          <span className="font-semibold text-ink-100">Carga automática de reseñas:</span> la extensión abre Amazon y recorre sola las reseñas de los {TOP} listings más fuertes de cada
+          <span className="font-semibold text-ink-100">Carga automática de reseñas:</span> la extensión abre Amazon y recorre sola las reseñas de los {cuantos} listings más fuertes de cada
           país, uno tras otro. Si Amazon pide iniciar sesión, lo haces tú y sigue.
         </span>
         <label className="flex items-center gap-1.5 text-xs text-ink-400">
