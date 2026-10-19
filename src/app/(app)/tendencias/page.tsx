@@ -18,7 +18,7 @@ export default async function TendenciasPage() {
         <p className="mt-1 text-sm text-ink-400">A qué hora y qué día compra la gente tus productos, en la hora local de cada comprador.</p>
       </div>
       {demo && <AvisoDemo />}
-      <VistaTendencias datos={datos} />
+      <VistaTendencias datos={datos} demo={demo} />
     </div>
   );
 }

@@ -71,7 +71,8 @@ function Tarjeta({ titulo, subtitulo, total, className = "", children }: { titul
 }
 
 /** «Tendencias»: when buyers purchase, by time of day and weekday, in their local time. */
-export function VistaTendencias({ datos: compactos }: { datos: DatosTendencias }) {
+/** `demo`: a guest's empty demo, with its charts drawn at zero instead of hidden. */
+export function VistaTendencias({ datos: compactos, demo = false }: { datos: DatosTendencias; demo?: boolean }) {
   // The order lines come compact (see comprimirVentas): rebuilt once, as they were.
   const datos = useMemo(() => {
     const { mks, asins, filas } = compactos.ventas;
@@ -152,11 +153,12 @@ export function VistaTendencias({ datos: compactos }: { datos: DatosTendencias }
         </p>
       </div>
 
-      {r.total > 0 && (
+      {(r.total > 0 || demo) && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {/* 1. The direct answer */}
           <Tarjeta titulo="Mejores momentos de la semana" subtitulo="Los 5 días y horas con más unidades vendidas">
             <ol className="divide-y divide-white/[0.05]">
+              {!r.ranking.length && <li className="py-6 text-center text-sm text-ink-500">Sin ventas todavía</li>}
               {r.ranking.map((x, i) => (
                 <li key={`${x.d}-${x.h}`} className="flex items-center justify-between gap-3 py-2 text-sm">
                   <span className="flex items-center gap-3">

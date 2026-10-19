@@ -46,7 +46,27 @@ export default async function ProductosPage({ searchParams }: PageProps<"/produc
         )}
       </div>
 
-      {visibles.length === 0 ? (
+      {demo ? (
+        // The demo: the cards as they look, with nothing in them.
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <li key={n} className="flex gap-3 rounded-xl border border-white/[0.06] bg-ink-900/70 p-3">
+              <div className="flex size-20 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[10px] text-ink-500">Sin foto</div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <p className="font-mono text-[11px] text-ink-500">SKU —</p>
+                <p className="mt-0.5 text-[13px] text-ink-400">Producto {n}</p>
+                <div className="mt-auto flex items-end justify-between gap-2 pt-1.5">
+                  <p className="tabular text-base font-semibold text-ink-300">— €</p>
+                  <p className="tabular text-right text-[11px] leading-tight text-ink-400">
+                    <span className="font-semibold text-ink-100">0</span> stock
+                    <br />0 uds/30 d
+                  </p>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : visibles.length === 0 ? (
         <p className="rounded-xl border border-white/[0.06] bg-ink-900/70 px-4 py-10 text-center text-sm text-ink-400">
           Aún no hay fichas de productos: aparecerán tras la próxima sincronización.
         </p>

@@ -1,7 +1,11 @@
 import { VistaGastos } from "@/components/gastos/VistaGastos";
-import { obtenerContabilidad } from "@/lib/datos/contabilidad";
+import { mesContableVacio, obtenerContabilidad } from "@/lib/datos/contabilidad";
+import { diaMadrid } from "@/lib/datos/fechas";
 import { modoDemo } from "@/lib/auth/demo";
 import { AvisoDemo } from "@/components/AvisoDemo";
+
+/** The demo: this month, at zero. */
+const mesVacio = () => [mesContableVacio(diaMadrid(new Date()).slice(0, 7))];
 
 export default async function GastosPage() {
   // A guest sees it empty: nothing of the owner's is loaded.
@@ -14,7 +18,7 @@ export default async function GastosPage() {
       </div>
       <div className="flex max-w-5xl flex-col gap-6">
         {demo && <AvisoDemo />}
-        <VistaGastos contabilidad={demo ? [] : await obtenerContabilidad()} />
+        <VistaGastos contabilidad={demo ? mesVacio() : await obtenerContabilidad()} demo={demo} />
       </div>
     </div>
   );

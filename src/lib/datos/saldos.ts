@@ -59,7 +59,24 @@ export async function actualizarSaldos(conVentas: string[]): Promise<void> {
   g.__saldos = nuevo;
 }
 
-/** The balance to show: one marketplace in its own currency, or all of them added up in euros. */
+export type SaldoPais = { marketplaceId: string; codigoPais: string; pais: string; importe: number; moneda: string; eur: number };
+
+/** Each marketplace's balance, in its currency and in euros (rounded to the cent), the biggest first. */
+export async function saldosPorMercado(): Promise<SaldoPais[]> {
+  const { mercados } = await obtenerSaldos();
+  const lista: SaldoPais[] = [];
+  for (const [id, m] of Object.entries(mercados)) {
+    const importe = r2(m.abierto + m.retenido);
+    const conocido = marketplaceConocido(id);
+    lista.push({ marketplaceId: id, codigoPais: conocido?.codigoPais ?? "", pais: conocido?.pais ?? id, importe, moneda: m.moneda, eur: r2(importe * (await eurPorUnidad(m.moneda, new Date()))) });
+  }
+  return lista.sort((a, b) => b.eur - a.eur);
+}
+
+/**
+ * The balance to show: one marketplace in its own currency, or all of them added up in euros (the sum of each one's
+ * rounded euros, so the per-country amounts shown next to it always add up to it).
+ */
 export async function saldoTotal(marketplaceId: string | null): Promise<{ importe: number; moneda: string } | null> {
   const { mercados } = await obtenerSaldos();
   if (marketplaceId) {
@@ -67,7 +84,5 @@ export async function saldoTotal(marketplaceId: string | null): Promise<{ import
     return { importe: m ? r2(m.abierto + m.retenido) : 0, moneda: m?.moneda ?? marketplaceConocido(marketplaceId)?.moneda ?? "EUR" };
   }
   if (Object.keys(mercados).length === 0) return null;
-  let eur = 0;
-  for (const m of Object.values(mercados)) eur += (m.abierto + m.retenido) * (await eurPorUnidad(m.moneda, new Date()));
-  return { importe: r2(eur), moneda: "EUR" };
+  return { importe: r2((await saldosPorMercado()).reduce((t, p) => t + p.eur, 0)), moneda: "EUR" };
 }

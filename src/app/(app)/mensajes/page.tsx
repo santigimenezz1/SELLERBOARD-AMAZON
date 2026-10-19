@@ -55,7 +55,32 @@ export default async function MensajesPage({ searchParams }: PageProps<"/mensaje
         ))}
       </nav>
 
-      {visibles.length === 0 ? (
+      {demo ? (
+        // The demo: the message cards as they look, with nothing in them.
+        <ul className="flex flex-col gap-4">
+          {[1, 2].map((n) => (
+            <li key={n}>
+              <article className="overflow-hidden rounded-xl border border-white/[0.06] bg-ink-900/80 shadow-soft">
+                <header className="flex items-center justify-between gap-2 px-4 py-2.5 text-white" style={{ background: "#2c90b6" }}>
+                  <h2 className="text-[15px] leading-tight font-semibold">País —</h2>
+                  <span className="font-mono text-xs text-white/90">Pedido —</span>
+                </header>
+                <div className="flex flex-col gap-3 px-4 py-3">
+                  <dl className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+                    <dt className="text-ink-400">Cliente</dt>
+                    <dd className="text-ink-500">—</dd>
+                    <dt className="text-ink-400">Producto</dt>
+                    <dd className="text-ink-500">—</dd>
+                    <dt className="text-ink-400">Asunto</dt>
+                    <dd className="text-ink-500">—</dd>
+                  </dl>
+                  <p className="rounded-lg border border-white/[0.06] bg-ink-950/50 px-3 py-2.5 text-sm text-ink-500">(sin mensajes)</p>
+                </div>
+              </article>
+            </li>
+          ))}
+        </ul>
+      ) : visibles.length === 0 ? (
         <p className="rounded-xl border border-white/[0.06] bg-ink-900/70 px-4 py-10 text-center text-sm text-ink-400">
           No hay mensajes de clientes. Llegan del correo conectado: comprueba en Seller Central → Configuración → Preferencias de notificación → Mensajes que los «Mensajes de compradores» vayan a ese correo.
         </p>

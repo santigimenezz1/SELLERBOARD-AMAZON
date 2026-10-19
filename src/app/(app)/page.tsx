@@ -3,7 +3,8 @@ import { datosVentas } from "@/lib/datos/almacen";
 import { consumoDeHoy } from "@/lib/datos/consumo";
 import { construirPanel, resolverPanel } from "@/lib/datos/tablero";
 import { formatFechaHora, formatMoneda } from "@/lib/format";
-import { saldoTotal } from "@/lib/datos/saldos";
+import { saldosPorMercado, saldoTotal } from "@/lib/datos/saldos";
+import { Bandera } from "@/components/Bandera";
 import { isAmazonConfigured } from "@/lib/amazon/cliente";
 import { BotonSync } from "@/components/panel/BotonSync";
 import { VistaPanel } from "@/components/panel/VistaPanel";
@@ -44,6 +45,8 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
   const conVentas = new Set(lineas.map((l) => l.marketplaceId));
   // Seller Central's «Saldo total»: the selected marketplace's, or all of them in euros.
   const saldo = demo ? null : await saldoTotal(panel.estado.pais);
+  // With every market: each one's balance next to the total, in euros (they add up to it).
+  const saldosPais = demo || panel.estado.pais ? [] : (await saldosPorMercado()).filter((p) => p.importe !== 0);
   // Payments about to be charged, shown on top (from memory after the first load).
   const suscripciones = !demo && CON_SUSCRIPCIONES ? await listarSuscripciones().catch(() => []) : [];
 
@@ -71,6 +74,20 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
               <span className="flex items-baseline gap-2 border-l border-white/[0.08] pl-3">
                 <span className="text-xs text-ink-400">Saldo total</span>
                 <span className={`tabular text-xl font-semibold ${saldo.importe < 0 ? "text-danger" : "text-success"}`}>{formatMoneda(saldo.importe, saldo.moneda)}</span>
+                {saldosPais.length > 1 && (
+                  <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-l border-white/[0.08] pl-3">
+                    {saldosPais.map((p) => (
+                      <span
+                        key={p.marketplaceId}
+                        className="tabular inline-flex items-center gap-1.5 text-sm"
+                        title={`${p.pais}: ${formatMoneda(p.importe, p.moneda)}${p.moneda !== "EUR" ? ` (${formatMoneda(p.eur, "EUR")} al cambio de hoy)` : ""}`}
+                      >
+                        {p.codigoPais && <Bandera codigo={p.codigoPais} />}
+                        <span className={p.eur < 0 ? "text-danger" : "text-ink-200"}>{formatMoneda(p.eur, "EUR")}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
               </span>
             )
           }

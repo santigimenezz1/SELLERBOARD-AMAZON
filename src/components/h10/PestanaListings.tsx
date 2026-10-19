@@ -21,7 +21,11 @@ import { FotoGenerica } from "./FotoGenerica";
 /** How many leaders the tab shows. */
 const TOP = 15;
 
-/** `conExtension`: the reviews extension's boxes (it signs with the owner's key: not for guests). */
+/**
+ * `conExtension`: «Conectar extensión», which hands out the extension's key (the owner's: not for guests). The
+ * automatic load is always there: it only opens Amazon, and whoever runs it signs with the key in their own extension
+ * (the owner loads a guest's reviews signed in as the guest, from his Chrome).
+ */
 export function PestanaListings({ estudio, palabras, conExtension = true }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado>; conExtension?: boolean }) {
   const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
@@ -67,7 +71,6 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
       </p>
 
       {conExtension && <ConectarExtension />}
-      {conExtension && (
       <CargaAutomatica
         estudio={estudio}
         // Each country's own top (by revenue, without the ones taken out with ✕), whatever the view shows.
@@ -85,7 +88,6 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
             })),
         }))}
       />
-      )}
 
       <div className="flex flex-wrap gap-1.5">
         {[null, ...estudio.mercados.map((m) => m.codigoPais)].map((p) => (

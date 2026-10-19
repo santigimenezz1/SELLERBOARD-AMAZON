@@ -46,7 +46,8 @@ function porPais(ls: LineaGasto[]) {
 }
 
 /** «Gastos»: month by month, the profit and loss and the charges behind it. */
-export function VistaGastos({ contabilidad }: { contabilidad: DatosContabilidad }) {
+/** `demo`: a guest's empty demo, without the company's own fixed costs (their names are the owner's). */
+export function VistaGastos({ contabilidad, demo = false }: { contabilidad: DatosContabilidad; demo?: boolean }) {
   const meses = contabilidad.map((m) => m.mes);
   const [mes, setMes] = useState(meses.at(-1) ?? "");
   const datos = contabilidad.find((m) => m.mes === mes);
@@ -72,7 +73,7 @@ export function VistaGastos({ contabilidad }: { contabilidad: DatosContabilidad 
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <TarjetaGastos gastos={datos.gastos} estimados={datos.gastosEstimados} mes={mes} />
-        <TarjetaGastosFijos />
+        <TarjetaGastosFijos demo={demo} />
       </div>
       <TarjetaResultado datos={datos} />
     </div>
@@ -87,16 +88,20 @@ const GASTOS_FIJOS: { nombre: string; color: string; eur: number }[] = [
   { nombre: "Apple Developer", color: "#6f8fd8", eur: 0 },
 ];
 
+/** In the demo: the card's shape, with no names of the owner's. */
+const GASTOS_FIJOS_DEMO = GASTOS_FIJOS.map((g, i) => ({ ...g, nombre: `Gasto fijo ${i + 1}`, eur: 0 }));
+
 /** Fixed monthly costs of the company (not Amazon's). */
-function TarjetaGastosFijos() {
-  const total = suma(GASTOS_FIJOS);
+function TarjetaGastosFijos({ demo }: { demo: boolean }) {
+  const lista = demo ? GASTOS_FIJOS_DEMO : GASTOS_FIJOS;
+  const total = suma(lista);
   return (
     <article className="flex flex-col overflow-hidden rounded-xl border border-white/[0.06] bg-ink-900/80 shadow-soft">
       <header className="px-4 py-2.5 text-white" style={{ background: "#2c90b6" }}>
         <h2 className="text-[15px] leading-tight font-semibold">Gastos fijos de la empresa</h2>
       </header>
       <ul className="divide-y divide-white/[0.05]">
-        {GASTOS_FIJOS.map((g) => (
+        {lista.map((g) => (
           <li key={g.nombre} className="flex items-center gap-3 py-2.5 pr-[38px] pl-4">
             <span aria-hidden className="h-8 w-1 shrink-0 rounded-full" style={{ background: g.color }} />
             <span className="min-w-0 flex-1">

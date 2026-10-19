@@ -14,6 +14,16 @@ import type { DatosVentas } from "@/lib/datos/almacen";
 import { modoDemo } from "@/lib/auth/demo";
 import { AvisoDemo } from "@/components/AvisoDemo";
 
+/** The demo's stock: the two regions with no products, so every card shows at zero. */
+const stockVacio = () => ({
+  actualizadoEn: new Date().toISOString(),
+  regiones: [
+    { id: "eu", nombre: "Europa", bandera: "eu", marketplaceIds: [], paises: ["ES", "DE", "FR", "IT"] },
+    { id: "uk", nombre: "Reino Unido", bandera: "gb", marketplaceIds: [], paises: ["GB"] },
+  ],
+  articulos: [],
+});
+
 const cargarTodo = () => Promise.all([obtenerStock(), cargarUltimaSync(), obtenerEnvios(), obtenerInventarioPaises(), obtenerCostesEnvios(), obtenerCapacidad()]);
 
 /** FBA stock per region and inbound shipments. Everything comes from memory after the first load. */
@@ -22,12 +32,12 @@ export default async function StockPage() {
   const demo = await modoDemo();
   const [stock, ultima, envios, inventario, costesDoc, capacidad] = demo
     ? ([
-        null,
+        stockVacio(),
         null,
         { envios: [], actualizadoEn: null },
         { filas: [], actualizadoEn: null },
         { cargos: {}, manuales: {}, historico: false },
-        { uso: null, limites: { ue: null, uk: null }, usoActualizadoEn: null, limitesActualizadosEn: null },
+        { uso: { eu: { enAlmacen: 0, enCamino: 0 }, uk: { enAlmacen: 0, enCamino: 0 } }, limites: { eu: null, uk: null }, usoActualizadoEn: null, limitesActualizadosEn: null },
       ] as unknown as Awaited<ReturnType<typeof cargarTodo>>)
     : await cargarTodo();
   const costes = demo ? {} : await conEuros(costesPorEnvio(costesDoc), Object.fromEntries(envios.envios.map((e) => [e.id, e.creado])));

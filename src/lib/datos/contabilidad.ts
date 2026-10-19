@@ -65,6 +65,26 @@ export type MesContable = {
   sinCoste: { asin: string; titulo: string; region: RegionCoste; unidades: number }[];
 };
 
+/** A month with every amount at zero: what a guest's demo shows (lib/auth/demo.ts). */
+export const mesContableVacio = (mes: string): MesContable => ({
+  mes,
+  enCurso: true,
+  pedidos: 0,
+  unidades: cero(),
+  ventas: cero(),
+  iva: cero(),
+  comisiones: cero(),
+  comisionesEstimadas: 0,
+  pedidosSinLiquidar: 0,
+  devoluciones: cero(),
+  compensaciones: [],
+  gastos: [],
+  gastosEstimados: [],
+  coste: cero(),
+  unidadesSinCoste: 0,
+  sinCoste: [],
+});
+
 const PRIMER_MES = "2026-01";
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const mesSiguiente = (mes: string) => {
