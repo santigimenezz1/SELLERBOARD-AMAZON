@@ -83,7 +83,7 @@ export default async function PanelPage({ searchParams }: PageProps<"/">) {
                         title={`${p.pais}: ${formatMoneda(p.importe, p.moneda)}${p.moneda !== "EUR" ? ` (${formatMoneda(p.eur, "EUR")} al cambio de hoy)` : ""}`}
                       >
                         {p.codigoPais && <Bandera codigo={p.codigoPais} />}
-                        <span className={p.eur < 0 ? "text-danger" : "text-ink-200"}>{formatMoneda(p.eur, "EUR")}</span>
+                        <span className={p.eur < 0 ? "text-danger" : "text-success"}>{formatMoneda(p.eur, "EUR")}</span>
                       </span>
                     ))}
                   </span>
