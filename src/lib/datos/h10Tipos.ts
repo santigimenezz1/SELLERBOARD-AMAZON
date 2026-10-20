@@ -313,6 +313,8 @@ export type ArchivoH10 = {
   resumen: string;
   /** Xray only: the keyword it analyses (to tell the main search from the secondary ones). */
   palabraClave?: string;
+  /** Xray only: uploaded as a secondary search (it never becomes the country's market). */
+  secundaria?: boolean;
   error?: string;
 };
 

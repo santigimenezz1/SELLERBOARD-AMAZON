@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       codigoPais: esCodigoPais(pais) ? pais : null,
       herramienta: esHerramienta(herramienta) ? herramienta : null,
       palabraClave: typeof palabra === "string" && palabra.trim() ? palabra.trim().slice(0, 100) : null,
-    });
+    }, form?.get("secundaria") === "1");
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true, archivo: subido });
   } catch (e) {

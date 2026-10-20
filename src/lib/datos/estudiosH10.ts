@@ -457,7 +457,7 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
 }
 
 /** Stores a file of the study, reads it and adds its data. */
-export async function subirArchivo(id: string, archivo: File, pista: Pista): Promise<ArchivoH10> {
+export async function subirArchivo(id: string, archivo: File, pista: Pista, secundaria = false): Promise<ArchivoH10> {
   const e = await entrada(id);
   if (archivo.size === 0) throw new Error("El archivo está vacío");
   if (archivo.size > TAMANO_MAXIMO_H10) throw new Error("El archivo pasa de 15 MB");
@@ -469,6 +469,7 @@ export async function subirArchivo(id: string, archivo: File, pista: Pista): Pro
   const r = await procesar(archivo, datos, pista, diaMadrid(new Date()));
   const nuevo: ArchivoH10 = { ...base, ...r.meta };
   if (!nuevo.error) delete nuevo.error;
+  if (secundaria && nuevo.herramienta === "xray") nuevo.secundaria = true;
   if (r.datos) {
     await col().doc(id).collection("datos").doc(nuevo.id).set(JSON.parse(JSON.stringify(r.datos)));
     contarEscrituras(1);
@@ -617,10 +618,14 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
   const busquedas: Partial<Record<CodigoPais, HistorialBusquedas>> = {};
   for (const [, d] of lista) if (d.historial && d.codigoPais && !busquedas[d.codigoPais]) busquedas[d.codigoPais] = d.historial;
 
-  // Each country's main search is its first Xray's (uploaded first); its newest Xray is the market. Xrays of other
-  // searches are secondary: they add their searches to the «Datos» list but never replace the market.
+  // Each country's main search is its first Xray's (uploaded first) not uploaded as «secondary»; its newest Xray is
+  // the market. Xrays of other searches are secondary: they add their searches to the «Datos» list but never replace
+  // the market. A country with only secondary Xrays takes its first one.
+  const secundario = new Set(estudio.archivos.filter((a) => a.secundaria).map((a) => a.id));
   const principal = new Map<CodigoPais, string>();
-  for (const [, d] of [...lista].reverse()) if (d.mercado && d.codigoPais && !principal.has(d.codigoPais)) principal.set(d.codigoPais, sinAcentos(d.mercado.palabraClave));
+  for (const sec of [false, true])
+    for (const [aid, d] of [...lista].reverse())
+      if (d.mercado && d.codigoPais && !principal.has(d.codigoPais) && secundario.has(aid) === sec) principal.set(d.codigoPais, sinAcentos(d.mercado.palabraClave));
   const mercados = new Map<CodigoPais, MercadoXray>();
   const xraysAnteriores: Partial<Record<CodigoPais, MercadoXray[]>> = {};
   for (const [, d] of lista) {

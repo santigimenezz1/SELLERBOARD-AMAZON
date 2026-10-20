@@ -57,9 +57,16 @@ const normalizar = (t: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+/** The «Herramienta» choice for an Xray of a secondary search (it's sent as an Xray, marked secondary). */
+const XRAY_SEC = "xray-secundaria";
+
 /** Distinct keywords among the Xray files of a country (older files carry it only in their summary). */
-const busquedasXray = (archivos: ArchivoH10[], pais: string) =>
-  new Set(archivos.filter((a) => a.herramienta === "xray" && a.codigoPais === pais && a.estado !== "error").map((a) => normalizar(a.palabraClave ?? a.resumen.split(" · ")[2] ?? ""))).size;
+const busquedasXray = (archivos: ArchivoH10[], pais: string, secundarias: boolean) =>
+  new Set(
+    archivos
+      .filter((a) => a.herramienta === "xray" && a.codigoPais === pais && a.estado !== "error" && !!a.secundaria === secundarias)
+      .map((a) => normalizar(a.palabraClave ?? a.resumen.split(" · ")[2] ?? "")),
+  ).size;
 
 /**
  * «Datos»: upload the study's Helium 10 files, see what's missing per country, and the files kept. `tarifasAuto`:
@@ -127,8 +134,9 @@ export function PestanaDatos({
           const f = new FormData();
           f.set("archivo", a);
           if (pais) f.set("pais", pais);
-          if (herramienta) f.set("herramienta", herramienta);
-          if (herramienta === "xray" && busqueda.trim()) f.set("palabraClave", busqueda.trim());
+          if (herramienta) f.set("herramienta", herramienta === XRAY_SEC ? "xray" : herramienta);
+          if (herramienta === XRAY_SEC) f.set("secundaria", "1");
+          if ((herramienta === "xray" || herramienta === XRAY_SEC) && busqueda.trim()) f.set("palabraClave", busqueda.trim());
           const r = await fetch(`/api/h10/estudios/${estudioId}/archivos`, { method: "POST", body: f });
           const b = (await r.json().catch(() => ({}))) as { error?: string; archivo?: ArchivoH10 };
           if (!r.ok) throw new Error(b.error ?? `error ${r.status}`);
@@ -152,7 +160,9 @@ export function PestanaDatos({
   const validos = archivos.filter((a) => a.estado !== "error");
   /** Files that tick an item (in a country, or anywhere for the once-only ones). */
   const cuantos = (it: ItemLista, pais?: string): number => {
-    if (it.id === "xray2") return Math.max(0, busquedasXray(archivos, pais!) - 1);
+    // Secondary Xrays: the ones uploaded as such, or (before that choice existed) more than one search among the rest.
+    if (it.id === "xray2") return Math.max(busquedasXray(archivos, pais!, true), busquedasXray(archivos, pais!, false) - 1);
+    if (it.id === "xray") return validos.filter((a) => a.herramienta === "xray" && !a.secundaria && a.codigoPais === pais).length;
     const n = validos.filter((a) => a.herramienta === it.herramienta && (it.ambito !== "pais" || a.codigoPais === pais)).length;
     // Saving your own costs in «Rentabilidad» counts for the supplier and freight items, your box for its item;
     // Amazon's automatic fees, for the calculator.
@@ -165,13 +175,13 @@ export function PestanaDatos({
   const hechas = casillas.filter(Boolean).length;
   /** A missing box picks its country and file type above, ready to upload. */
   const preparar = (it: ItemLista, pais?: string) => {
-    setHerramienta(it.herramienta);
+    setHerramienta(it.id === "xray2" ? XRAY_SEC : it.herramienta);
     setPais(pais ?? "");
     document.getElementById(`subir-${estudioId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   /** A suggested search picked: ready to upload its Xray, so it's kept with that exact search (and turns green). */
   const prepararXray = (pais: string, texto: string) => {
-    setHerramienta("xray");
+    setHerramienta(sinPrincipal.includes(pais) ? "xray" : XRAY_SEC);
     setPais(pais);
     setBusqueda(texto);
     document.getElementById(`subir-${estudioId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -196,15 +206,26 @@ export function PestanaDatos({
             Herramienta
             <select className={campo} value={herramienta} onChange={(e) => setHerramienta(e.target.value)} disabled={!!cola}>
               <option value="">Automática</option>
-              {HERRAMIENTAS_H10.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {/* Secondary searches are Xrays too: the list tells them apart by their keyword. */}
-                  {h.id === "xray" ? "Xray (búsqueda principal o secundaria)" : h.nombre}
-                </option>
-              ))}
+              {HERRAMIENTAS_H10.flatMap((h) =>
+                // Xray twice: the main search (the country's market) and the secondary ones (only add searches).
+                h.id === "xray"
+                  ? [
+                      <option key="xray" value="xray">
+                        Xray (búsqueda principal)
+                      </option>,
+                      <option key={XRAY_SEC} value={XRAY_SEC}>
+                        Xray (búsqueda secundaria)
+                      </option>,
+                    ]
+                  : [
+                      <option key={h.id} value={h.id}>
+                        {h.nombre}
+                      </option>,
+                    ],
+              )}
             </select>
           </label>
-          {herramienta === "xray" && (
+          {(herramienta === "xray" || herramienta === XRAY_SEC) && (
             <label className="flex min-w-64 flex-1 items-center gap-2 text-xs text-ink-400">
               Búsqueda
               <input
@@ -555,6 +576,7 @@ function FilaArchivo({ estudioId, a, onCambio }: { estudioId: string; a: Archivo
     <li className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
       <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${ESTADOS[a.estado].clase}`}>{ESTADOS[a.estado].texto}</span>
       {a.codigoPais && <Pais codigo={a.codigoPais} corto />}
+      {a.secundaria && <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-ink-300">Secundaria</span>}
       <span className="min-w-0 flex-1">
         <a href={url} target="_blank" rel="noopener" className="block truncate font-medium text-ink-100 hover:underline" title={a.nombre}>
           {a.resumen}
