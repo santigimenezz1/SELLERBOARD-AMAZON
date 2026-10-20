@@ -377,7 +377,7 @@ function CargaAutomatica({ estudio, cuantos, porPais }: { estudio: EstudioH10; c
           <p>
             Vas a cargar <strong className="text-ink-100">{cola.length} listings</strong>{" "}
             {elegida === "todos" ? `de ${porPais.filter((p) => pendientes(p.items).length).map((p) => nombrePais(p.pais)).join(", ")}, país por país` : `de ${nombrePais(elegida)}`} ({minutos(cola.length)}).
-            Antes de empezar: la extensión tiene que estar en la <strong className="text-ink-100">versión 1.5</strong> (↻ en chrome://extensions) y con la clave pegada en ⚙. Usa una{" "}
+            Antes de empezar: la extensión tiene que estar en la <strong className="text-ink-100">versión 1.7</strong> (↻ en chrome://extensions) y con la clave pegada en ⚙. Usa una{" "}
             <strong className="text-ink-100">cuenta de comprador de Amazon, no la de vendedor</strong>. Deja esa pestaña trabajar; puedes usar otras.
           </p>
           <span className="flex gap-2">
