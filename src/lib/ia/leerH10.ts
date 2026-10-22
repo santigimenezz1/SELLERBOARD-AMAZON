@@ -361,6 +361,59 @@ Para cada nota por separado (1, 2, 3, 4 y 5 estrellas), di qué dicen: agrupa la
   return r.grupos;
 }
 
+const ESQUEMA_UNIR = {
+  type: "object",
+  properties: {
+    grupos: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          estrellas: { type: "integer", enum: [1, 2, 3, 4, 5] },
+          temas: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                texto: { type: "string", description: "En español, corto (2–7 palabras)" },
+                tipo: { type: "string", enum: ["queja", "elogio"] },
+                de: { type: "array", items: { type: "integer" }, description: "Los números de los temas parciales de esa nota que junta" },
+              },
+              required: ["texto", "tipo", "de"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["estrellas", "temas"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["grupos"],
+  additionalProperties: false,
+};
+
+/**
+ * Many reviews are read in batches, and each batch names its own themes: this merges, star by star, the partial themes
+ * that say the same thing (each final theme lists the partial ones it joins).
+ */
+export async function unirTemasEstrellas(
+  producto: string,
+  grupos: { estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; resenas: number }[] }[],
+): Promise<{ estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; de: number[] }[] }[]> {
+  const lista = grupos
+    .filter((g) => g.temas.length)
+    .map((g) => `${g.estrellas} estrellas:\n${g.temas.map((t, i) => `  ${i + 1}. ${t.texto} (${t.tipo}, ${t.resenas} reseñas)`).join("\n")}`)
+    .join("\n\n");
+  const r = await pedir<{ grupos: { estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; de: number[] }[] }[] }>(
+    `Eres experto en producto y en Amazon. Las reseñas de «${producto}» se leyeron por tandas y cada tanda sacó sus temas, nota por nota. Muchos temas se repiten con otras palabras.
+Para cada nota por separado, junta los temas parciales que dicen lo mismo en un tema final corto en español, y di qué temas parciales junta («de», sus números dentro de esa nota). No mezcles quejas con elogios. Cada tema parcial va en un solo tema final. Como mucho 8 temas finales por nota: los más repetidos (cuenta las reseñas); lo que no entre, déjalo fuera.`,
+    [{ type: "text", text: lista }],
+    ESQUEMA_UNIR,
+  );
+  return r.grupos;
+}
+
 // ---------- Amazon's revenue calculator ----------
 
 export type CalculadoraLeida = {

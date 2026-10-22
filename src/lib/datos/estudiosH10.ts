@@ -7,7 +7,7 @@ import { contarEscrituras, contarLecturas } from "./consumo";
 import { diaMadrid } from "./fechas";
 import { EUR_POR_GBP, nombrePais } from "./h10Analisis";
 import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, resenasDesdeCsv, type FilaPalabra } from "./h10Csv";
-import { agruparTemasResenas, quejasPorEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
+import { agruparTemasResenas, quejasPorEstrellas, unirTemasEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
 import { resenasDesdeExcel } from "./h10Excel";
 import { mensajeError } from "@/lib/ia/errores";
 import { fichasCompetidores, fichasConFamilia, imagenesCatalogo, ofertasCompetidor, preciosCompetidores, tarifasCompetidor, type ItemCatalogoConFamilia } from "@/lib/amazon/apis";
@@ -739,12 +739,15 @@ export async function estudiosParaVista(): Promise<EstudioParaVista[]> {
 // ---------- Competitors' reviews ----------
 
 /**
- * Reviews of each star sent to the AI at most (fewer of the good ones: they say less), and the characters of each.
- * A whole country or every country reads more reviews, but shorter.
+ * Reviews of each star sent to the AI at most, and the characters of each: every 1–3 star review (the complaints are
+ * what matters), a sample of the good ones (they say less). A whole country or every country reads them shorter.
  */
-const LIMITES_PRODUCTO = { bajas: 120, altas: 80, largo: 500 };
-const LIMITES_AMBITO = { bajas: 160, altas: 90, largo: 300 };
+const LIMITES_PRODUCTO = { bajas: Infinity, altas: 80, largo: 500 };
+const LIMITES_AMBITO = { bajas: Infinity, altas: 90, largo: 300 };
 type Limites = typeof LIMITES_PRODUCTO;
+/** Reviews per AI call: more are read in batches (a few at a time) and their themes merged afterwards. */
+const TANDA_ESTRELLAS = 600;
+const TANDAS_A_LA_VEZ = 4;
 
 /** What one competitor's reviews say at each star, if the AI already read them. */
 export async function quejasEstrellasDe(id: string, pais: CodigoPais, asin: string): Promise<QuejasPorEstrellas | null> {
@@ -773,13 +776,32 @@ async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limi
     grupos.push({ estrellas, total: listas.reduce((t, l) => t + l.length, 0), leidas: tomadas, temas: [] });
   }
   if (!elegidas.length) throw new Error("No hay reseñas cargadas");
-  const respuesta = await quejasPorEstrellas(producto, elegidas);
   const porNumero = new Map(elegidas.map((r) => [r.n, r]));
+  /** Only reviews of that star, each once. */
+  const deLaNota = (estrellas: number, numeros: number[]) => [...new Set(numeros)].filter((n) => porNumero.get(n)?.estrellas === estrellas);
+
+  // Up to one batch: a single call. More: batches a few at a time, then the AI merges each star's partial themes.
+  const tandas: (typeof elegidas)[] = [];
+  for (let i = 0; i < elegidas.length; i += TANDA_ESTRELLAS) tandas.push(elegidas.slice(i, i + TANDA_ESTRELLAS));
+  const parciales: Awaited<ReturnType<typeof quejasPorEstrellas>>[] = [];
+  for (let i = 0; i < tandas.length; i += TANDAS_A_LA_VEZ) parciales.push(...(await Promise.all(tandas.slice(i, i + TANDAS_A_LA_VEZ).map((t) => quejasPorEstrellas(producto, t)))));
+  let respuesta: { estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; resenas: number[] }[] }[];
+  if (parciales.length === 1) respuesta = parciales[0];
+  else {
+    const sueltos = [1, 2, 3, 4, 5].map((estrellas) => ({
+      estrellas,
+      temas: parciales.flatMap((p) => p.filter((x) => x.estrellas === estrellas).flatMap((x) => x.temas)).map((t) => ({ ...t, resenas: deLaNota(estrellas, t.resenas) })).filter((t) => t.resenas.length),
+    }));
+    const unidos = await unirTemasEstrellas(producto, sueltos.map((g) => ({ estrellas: g.estrellas, temas: g.temas.map((t) => ({ texto: t.texto, tipo: t.tipo, resenas: t.resenas.length })) })));
+    respuesta = sueltos.map((g) => ({
+      estrellas: g.estrellas,
+      temas: (unidos.find((u) => u.estrellas === g.estrellas)?.temas ?? []).map((u) => ({ texto: u.texto, tipo: u.tipo, resenas: u.de.flatMap((k) => g.temas[k - 1]?.resenas ?? []) })),
+    }));
+  }
   for (const g of grupos)
     g.temas = (respuesta.find((x) => x.estrellas === g.estrellas)?.temas ?? [])
       .map((t) => {
-        // Only reviews of that star, each once.
-        const suyas = [...new Set(t.resenas)].map((n) => porNumero.get(n)).filter((r) => r?.estrellas === g.estrellas);
+        const suyas = deLaNota(g.estrellas, t.resenas).map((n) => porNumero.get(n)!);
         return { texto: t.texto.trim(), tipo: t.tipo, resenas: suyas.length, ejemplo: suyas[0]?.original.slice(0, 220) ?? null };
       })
       .filter((t) => t.texto && t.resenas > 0)

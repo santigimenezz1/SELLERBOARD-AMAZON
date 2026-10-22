@@ -49,7 +49,7 @@ export function QuejasEstrellas({
   };
   const boton = (texto: string) => (
     <button onClick={analizar} disabled={ocupado} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-60">
-      {ocupado ? "Analizando… (≈ 1 min)" : texto}
+      {ocupado ? "Analizando… (con muchas reseñas, varios minutos)" : texto}
     </button>
   );
 
