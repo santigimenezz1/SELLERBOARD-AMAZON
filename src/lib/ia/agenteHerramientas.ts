@@ -1,7 +1,7 @@
 import "server-only";
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { estudioParaAgente, mkDe, todasLasResenas } from "@/lib/datos/estudiosH10";
+import { estudioParaAgente, mkDe, todasLasResenas, xraysSecundariasDe } from "@/lib/datos/estudiosH10";
 import { fichasCatalogo } from "@/lib/amazon/apis";
 import { hojaNumeros } from "./hojaNumeros";
 import { analizarResenas, cambioAEur, marcasDelEstudio, nombrePais, rangosDePrecio, resumirEstudio } from "@/lib/datos/h10Analisis";
@@ -31,7 +31,8 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
   },
   {
     name: "palabras_clave",
-    description: "Palabras clave del Cerebro de un país con búsquedas al mes, puja PPC sugerida, títulos que la usan (densidad), ventas para entrar en la página 1 (CPR) y tendencia. Puedes filtrar por un texto.",
+    description:
+      "Palabras clave del Cerebro de un país con búsquedas al mes, puja PPC sugerida, títulos que la usan (densidad), ventas para entrar en la página 1 (CPR), tendencia y el puesto orgánico de cada competidor seguido en el Cerebro («posiciones»: marca → puesto; si no sale, no está en el top 100). Puedes filtrar por un texto o quedarte con las palabras en las que posiciona un competidor.",
     input_schema: {
       type: "object",
       properties: {
@@ -39,6 +40,7 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
         contiene: { type: "string", description: "Solo las palabras que contienen este texto (opcional)" },
         desde: { type: "integer", description: "Para recorrerlas todas por páginas: posición desde la que empezar (0 = la más buscada)" },
         limite: { type: "integer", description: "Cuántas devolver, las más buscadas primero (máx. 100, por defecto 40)" },
+        rival: { type: "string", description: "Solo las palabras en las que este competidor (su marca, como sale en «rivales») está en el top 100 (opcional)" },
       },
       required: ["pais"],
       additionalProperties: false,
@@ -56,7 +58,8 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
   },
   {
     name: "buscar_resenas",
-    description: "Busca un texto en las reseñas completas de los competidores (en su idioma original: busca también la palabra traducida). Devuelve cuántas lo mencionan por estrellas y hasta 12 ejemplos.",
+    description:
+      "Busca un texto en las reseñas completas de los competidores, en su idioma original y en su traducción al español (sin importar acentos ni mayúsculas). Devuelve cuántas lo mencionan por estrellas y por año, y hasta 12 ejemplos, los más recientes primero.",
     input_schema: {
       type: "object",
       properties: {
@@ -84,13 +87,16 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
   },
   {
     name: "leer_resenas",
-    description: "Lee reseñas completas, enteras y en su idioma, por páginas. Filtra por país, ASIN y nota. Úsala para leer de verdad lo que dicen los clientes, no solo contar.",
+    description:
+      "Lee reseñas completas, enteras y en su idioma, por páginas. Filtra por país, ASIN, nota y fecha, y ordénalas por fecha o por votos de «útil». Úsala para leer de verdad lo que dicen los clientes, no solo contar (y para ver si una queja sigue en las recientes o ya se arregló).",
     input_schema: {
       type: "object",
       properties: {
         pais: { type: "string", description: "Opcional" },
         asin: { type: "string", description: "Opcional" },
         estrellas: { type: "integer", description: "Solo esta nota (opcional)" },
+        desde_fecha: { type: "string", description: "Solo las escritas desde este día, AAAA-MM-DD (opcional)" },
+        orden: { type: "string", enum: ["recientes", "antiguas", "utiles"], description: "Por defecto, las más recientes primero" },
         desde: { type: "integer", description: "Posición desde la que empezar" },
         cuantas: { type: "integer", description: "Máx. 60, por defecto 30" },
       },
@@ -118,7 +124,7 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
   {
     name: "ver_listing",
     description:
-      "El listing REAL de un producto en Amazon, leído ahora de su catálogo: título, marca, bullets, descripción, y cuántas fotos tiene y de qué tipo. Úsala con los líderes para ver cómo venden de verdad (no te lo imagines).",
+      "El listing REAL de un producto en Amazon: título, marca, bullets, descripción, fotos y, cuando se leyó de su página, el A+, el vídeo y la historia de la marca. Primero el guardado en el estudio; si no está, lo lee ahora del catálogo de Amazon. Úsala con los líderes para ver cómo venden de verdad (no te lo imagines).",
     input_schema: { type: "object", properties: { pais: { type: "string" }, asin: { type: "string" } }, required: ["pais", "asin"], additionalProperties: false },
   },
   {
@@ -130,6 +136,29 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
       required: ["pais", "asin"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "nuevos_entrantes",
+    description:
+      "Lo que vende de verdad un producto nuevo en el mercado de un país: los productos con pocas reseñas (menos de «max_resenas», por defecto 100) con sus ventas y facturación al mes, y la mediana y el percentil 75 frente a los líderes. Es la referencia para estimar cuánto puede vender un recién llegado el primer año.",
+    input_schema: {
+      type: "object",
+      properties: { pais: { type: "string" }, max_resenas: { type: "integer", description: "Por defecto 100" } },
+      required: ["pais"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "seguimiento_competidores",
+    description:
+      "La evolución diaria que la app sigue en Amazon de los competidores (precio, número de vendedores y ranking de ventas) en un país o en todos: primer y último día, precio mínimo y máximo, cambios de precio y cómo va su ranking. Para ver guerras de precios, promociones y quién gana o pierde ventas.",
+    input_schema: { type: "object", properties: { pais: { type: "string", description: "Opcional" } }, additionalProperties: false },
+  },
+  {
+    name: "xray_secundarias",
+    description:
+      "Los Xray de otras búsquedas de cada país (no la principal): su mercado, sus 10 productos que más facturan y cuántos coinciden con los de la búsqueda principal (pocos: trae otros compradores). Para ver nichos cercanos, otras formas de buscar el producto y palabras para PPC.",
+    input_schema: { type: "object", properties: { pais: { type: "string", description: "Opcional" } }, additionalProperties: false },
   },
   {
     name: "ver_competidor",
@@ -160,6 +189,11 @@ function resumenMercado(d: Datos) {
       moneda: a.mercado.moneda,
       facturacionMediaEurMes: Math.round(a.baseEur),
       nota: r1(a.oportunidad),
+      notaPorPartes: Object.fromEntries(Object.entries(a.bloques).map(([k, b]) => [k, { nota: b.nota, porque: b.texto }])),
+      facturacionMesDelXrayEur: Math.round(a.facturacionEur),
+      busquedasPalabraPrincipal: a.mercado.busquedas,
+      cuotaTop3Pct: r1(a.cuotaTop3 * 100),
+      avisosSobreLosDatos: a.avisos,
       temporada: a.temporada ? { mesFuerte: a.temporada.fuerte.mes, mesFlojo: a.temporada.flojo.mes, crecimientoAnual: a.temporada.crecimiento === null ? null : r1(a.temporada.crecimiento * 100) } : null,
       rangosPrecio: rangosDePrecio(a.mercado).map((x) => ({ desde: x.desde, hasta: x.hasta === Infinity ? null : x.hasta, facturacionEur: Math.round(x.facturacionEur), productos: x.competidores })),
       lideres: [...a.mercado.competidores]
@@ -176,14 +210,29 @@ function palabrasClave(d: Datos, i: Record<string, unknown>) {
   const lista = d.palabras[pais]?.palabras;
   if (!lista?.length) return { error: `No hay palabras clave de ${pais}. Países con Cerebro: ${Object.keys(d.palabras).join(", ") || "ninguno"}` };
   const filtro = texto(i.contiene).toLowerCase();
+  const rivales = d.palabras[pais]?.rivales ?? [];
+  const rival = texto(i.rival).toLowerCase();
+  const iRival = rival ? rivales.findIndex((r) => r.toLowerCase().includes(rival)) : -1;
+  if (rival && iRival < 0) return { error: `«${i.rival}» no está entre los competidores seguidos en el Cerebro de ${pais}: ${rivales.join(", ") || "ninguno"}` };
+  const filtradas = [...lista].filter((p) => (!filtro || p.texto.includes(filtro)) && (iRival < 0 || p.posiciones[iRival] !== null));
   return {
     pais,
     total: lista.length,
-    palabras: [...lista]
-      .filter((p) => !filtro || p.texto.includes(filtro))
+    coinciden: filtradas.length,
+    rivales,
+    palabras: filtradas
       .sort((a, b) => b.busquedas - a.busquedas)
       .slice(Math.max(0, Number(i.desde) || 0), Math.max(0, Number(i.desde) || 0) + entero(i.limite, 40, 100))
-      .map((p) => ({ palabra: p.texto, busquedas: p.busquedas, puja: p.pujaPpc, densidadTitulos: p.densidadTitulos, cpr: p.cpr, competidores: p.competidores, tendencia: p.tendencia })),
+      .map((p) => ({
+        palabra: p.texto,
+        busquedas: p.busquedas,
+        puja: p.pujaPpc,
+        densidadTitulos: p.densidadTitulos,
+        cpr: p.cpr,
+        competidores: p.competidores,
+        tendencia: p.tendencia,
+        posiciones: Object.fromEntries(rivales.flatMap((r, n) => (p.posiciones[n] !== null && p.posiciones[n] !== undefined ? [[r, p.posiciones[n]]] : []))),
+      })),
   };
 }
 
@@ -198,19 +247,30 @@ function quejasPorEstrellas(d: Datos, i: Record<string, unknown>) {
   };
 }
 
+/** «Füße», «PIES», «pies» → «fusse», «pies», «pies»: to search however it's written. */
+const plano = (t: string) =>
+  t
+    .toLowerCase()
+    .replace(/ß/g, "ss")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+
 async function buscarResenas(id: string, i: Record<string, unknown>) {
-  const t = texto(i.texto).toLowerCase();
+  const t = plano(texto(i.texto));
   if (t.length < 2) return { error: "Escribe al menos 2 letras" };
   const pais = texto(i.pais, 2).toUpperCase();
   const max = entero(i.estrellas_max, 5, 5);
   const todas = (await todasLasResenas(id)).filter((r) => (!pais || r.pais === pais) && r.estrellas <= max);
-  const con = todas.filter((r) => `${r.titulo} ${r.texto}`.toLowerCase().includes(t));
+  // In the original language and in its Spanish translation.
+  const con = todas.filter((r) => plano(`${r.titulo} ${r.texto} ${r.tituloEs ?? ""} ${r.textoEs ?? ""}`).includes(t)).sort((a, b) => (b.fecha ?? "").localeCompare(a.fecha ?? ""));
+  const anos = [...new Set(con.map((r) => r.fecha?.slice(0, 4)).filter((x): x is string => !!x))].sort();
   return {
-    buscado: t,
+    buscado: texto(i.texto),
     revisadas: todas.length,
     encontradas: con.length,
     porEstrellas: [1, 2, 3, 4, 5].map((e) => ({ estrellas: e, resenas: con.filter((r) => r.estrellas === e).length })),
-    ejemplos: con.slice(0, 12).map((r) => ({ pais: r.pais, asin: r.asin, estrellas: r.estrellas, titulo: r.titulo, texto: r.texto.slice(0, 280) })),
+    porAno: anos.map((a) => ({ ano: a, resenas: con.filter((r) => r.fecha?.startsWith(a)).length, deTodas: todas.filter((r) => r.fecha?.startsWith(a)).length })),
+    ejemplos: con.slice(0, 12).map((r) => ({ pais: r.pais, asin: r.asin, estrellas: r.estrellas, fecha: r.fecha, titulo: r.titulo, texto: r.texto.slice(0, 280), ...(r.textoEs && { enEspanol: r.textoEs.slice(0, 280) }) })),
   };
 }
 
@@ -233,12 +293,17 @@ async function leerResenas(id: string, i: Record<string, unknown>) {
   const pais = texto(i.pais, 2).toUpperCase();
   const asin = texto(i.asin, 10).toUpperCase();
   const estrellas = typeof i.estrellas === "number" ? i.estrellas : null;
-  const todas = (await todasLasResenas(id)).filter((r) => (!pais || r.pais === pais) && (!asin || r.asin === asin) && (estrellas === null || r.estrellas === estrellas));
+  const desdeFecha = /^\d{4}-\d{2}-\d{2}$/.test(texto(i.desde_fecha, 10)) ? texto(i.desde_fecha, 10) : null;
+  const orden = i.orden === "antiguas" || i.orden === "utiles" ? i.orden : "recientes";
+  const todas = (await todasLasResenas(id))
+    .filter((r) => (!pais || r.pais === pais) && (!asin || r.asin === asin) && (estrellas === null || r.estrellas === estrellas) && (!desdeFecha || (r.fecha ?? "") >= desdeFecha))
+    .sort((a, b) => (orden === "utiles" ? (b.util ?? 0) - (a.util ?? 0) : orden === "antiguas" ? (a.fecha ?? "").localeCompare(b.fecha ?? "") : (b.fecha ?? "").localeCompare(a.fecha ?? "")));
   const desde = Math.max(0, Number(i.desde) || 0);
   return {
     total: todas.length,
+    orden,
     desde,
-    resenas: todas.slice(desde, desde + entero(i.cuantas, 30, 60)).map((r) => ({ pais: r.pais, asin: r.asin, estrellas: r.estrellas, fecha: r.fecha, variante: r.variante, titulo: r.titulo, texto: r.texto })),
+    resenas: todas.slice(desde, desde + entero(i.cuantas, 30, 60)).map((r) => ({ pais: r.pais, asin: r.asin, estrellas: r.estrellas, fecha: r.fecha, util: r.util, variante: r.variante, titulo: r.titulo, texto: r.texto })),
   };
 }
 
@@ -294,7 +359,34 @@ async function leerListing(i: Record<string, unknown>) {
   return { pais, asin, it, orden };
 }
 
-async function verListing(i: Record<string, unknown>) {
+async function verListing(d: Datos, i: Record<string, unknown>) {
+  const pais = texto(i.pais, 2).toUpperCase();
+  const asin = texto(i.asin, 10).toUpperCase();
+  // The one stored in the study: read from its page (with A+, video and brand story) or loaded from the catalog.
+  const guardado = (d.estudio.listings ?? []).find((x) => x.codigoPais === pais && x.asin === asin);
+  if (guardado)
+    return {
+      pais,
+      asin,
+      leidoDe: guardado.fuente === "catalogo" ? "catálogo de Amazon (sin A+ ni vídeo)" : "su página de Amazon",
+      leidoEl: guardado.leidoEn,
+      marca: guardado.marca,
+      titulo: guardado.titulo,
+      caracteresTitulo: guardado.titulo?.length ?? 0,
+      precio: guardado.precio ?? guardado.precioXray,
+      valoracion: guardado.valoracion,
+      resenas: guardado.resenas,
+      bullets: guardado.vinetas,
+      caracteristicas: guardado.caracteristicas,
+      detalles: guardado.detalles,
+      descripcion: guardado.descripcion?.slice(0, 1500) ?? null,
+      aplus: guardado.aplusTexto?.slice(0, 2500) ?? null,
+      fotosAplus: guardado.aplusFotos?.length ?? 0,
+      video: guardado.video,
+      historiaMarca: guardado.historiaMarca?.slice(0, 800) ?? null,
+      variantes: guardado.familia?.length ?? 0,
+      fotos: { total: guardado.fotos.length },
+    };
   const l = await leerListing(i);
   if ("error" in l) return l;
   const a = l.it.attributes as Record<string, ValorCatalogo[]> | undefined;
@@ -321,6 +413,86 @@ async function verFotos(i: Record<string, unknown>) {
   return {
     r: { pais: l.pais, asin: l.asin, fotos: elegidas.map(([v], n) => `${n + 1}: ${v === "MAIN" ? "principal" : v}`), nota: "Las fotos van a continuación, en este orden" },
     imagenes: elegidas.map(([, url]) => fotoPequena(url)),
+  };
+}
+
+const mediana = (xs: number[]) => {
+  const o = [...xs].sort((a, b) => a - b);
+  return o.length ? (o.length % 2 ? o[(o.length - 1) / 2] : (o[o.length / 2 - 1] + o[o.length / 2]) / 2) : null;
+};
+const percentil = (xs: number[], p: number) => {
+  const o = [...xs].sort((a, b) => a - b);
+  return o.length ? o[Math.min(o.length - 1, Math.floor(o.length * p))] : null;
+};
+
+/** What products with few reviews sell in a country: a newcomer's realistic benchmark. */
+function nuevosEntrantes(d: Datos, i: Record<string, unknown>) {
+  const pais = texto(i.pais, 2).toUpperCase();
+  const m = d.estudio.mercados.find((x) => x.codigoPais === pais);
+  if (!m) return { error: `No hay Xray de ${pais}. Países: ${d.estudio.mercados.map((x) => x.codigoPais).join(", ")}` };
+  const max = entero(i.max_resenas, 100, 5000);
+  const orden = [...m.competidores].sort((a, b) => b.facturacion - a.facturacion);
+  const nuevos = orden.filter((c) => c.resenas < max);
+  const lideres = orden.filter((c) => c.resenas >= max).slice(0, 10);
+  const cifras = (xs: typeof orden) => {
+    const ventas = xs.map((c) => c.ventas).filter((v): v is number => v !== null);
+    const fact = xs.map((c) => c.facturacion);
+    return { productos: xs.length, ventasMesMediana: mediana(ventas), ventasMesP75: percentil(ventas, 0.75), facturacionMesMediana: mediana(fact) === null ? null : Math.round(mediana(fact)!), facturacionMesP75: percentil(fact, 0.75) === null ? null : Math.round(percentil(fact, 0.75)!) };
+  };
+  return {
+    pais,
+    moneda: m.moneda,
+    criterio: `menos de ${max} reseñas`,
+    nuevos: cifras(nuevos),
+    lideresConMasResenas: cifras(lideres),
+    detalle: nuevos.slice(0, 25).map((c) => ({ marca: c.marca, asin: c.asin, puesto: orden.indexOf(c) + 1, precio: c.precio, ventas: c.ventas, facturacion: Math.round(c.facturacion), resenas: c.resenas, valoracion: c.valoracion, titulo: c.titulo.slice(0, 100) })),
+  };
+}
+
+/** The daily follow-up of competitors on Amazon (price, sellers, sales rank), summarised per product. */
+function seguimientoCompetidores(d: Datos, i: Record<string, unknown>) {
+  const pais = texto(i.pais, 2).toUpperCase();
+  const lista = (d.estudio.amazon ?? []).filter((v) => (!pais || v.ficha.codigoPais === pais) && v.puntos.length);
+  if (!lista.length) return { error: `La app aún no sigue a ningún competidor${pais ? ` de ${pais}` : ""} en Amazon («Traer datos de Amazon» en la pestaña Competidores)` };
+  return {
+    productos: lista.map((v) => {
+      const p = v.puntos;
+      const precios = p.map((x) => x.precio).filter((x): x is number => x !== null);
+      const ranks = p.map((x) => x.rank).filter((x): x is number => x !== null);
+      let cambios = 0;
+      for (let n = 1; n < p.length; n++) if (p[n].precio !== null && p[n - 1].precio !== null && p[n].precio !== p[n - 1].precio) cambios++;
+      return {
+        pais: v.ficha.codigoPais,
+        asin: v.ficha.asin,
+        marca: v.ficha.marca,
+        moneda: v.ficha.moneda,
+        dias: { desde: p[0].dia, hasta: p.at(-1)!.dia, conDatos: p.length },
+        precio: precios.length ? { primero: precios[0], ultimo: precios.at(-1), minimo: Math.min(...precios), maximo: Math.max(...precios), cambios } : null,
+        vendedores: { primero: p.find((x) => x.ofertas !== null)?.ofertas ?? null, ultimo: [...p].reverse().find((x) => x.ofertas !== null)?.ofertas ?? null },
+        // Sales rank: lower is better.
+        ranking: ranks.length ? { primero: ranks[0], ultimo: ranks.at(-1), mejor: Math.min(...ranks), peor: Math.max(...ranks), mediana: mediana(ranks) } : null,
+        tarifas: { comision: v.ficha.comision, tarifaFba: v.ficha.tarifaFba },
+      };
+    }),
+  };
+}
+
+async function xraySecundarias(id: string, i: Record<string, unknown>) {
+  const pais = texto(i.pais, 2).toUpperCase();
+  const lista = (await xraysSecundariasDe(id)).filter((x) => !pais || x.pais === pais);
+  if (!lista.length) return { error: `No hay Xray de otras búsquedas${pais ? ` en ${pais}` : ""}` };
+  return {
+    busquedas: lista.map((x) => ({
+      pais: x.pais,
+      palabraClave: x.palabraClave,
+      fecha: x.fecha,
+      moneda: x.moneda,
+      busquedasMes: x.busquedas,
+      productos: x.productos,
+      facturacionMes: Math.round(x.facturacionTotal),
+      enComunConLaPrincipal: `${x.enComunConLaPrincipal} de sus 10 primeros están entre los 20 primeros de la búsqueda principal`,
+      top: x.top.map((c) => ({ marca: c.marca, asin: c.asin, precio: c.precio, ventas: c.ventas, facturacion: Math.round(c.facturacion), resenas: c.resenas, titulo: c.titulo.slice(0, 90) })),
+    })),
   };
 }
 
@@ -353,7 +525,13 @@ export async function ejecutarHerramienta(id: string, nombre: string, entrada: u
                       : nombre === "hoja_numeros"
                         ? await hojaNumeros(id, { pais: texto(i.pais, 2) || undefined, precio: typeof i.precio === "number" ? i.precio : undefined })
                         : nombre === "ver_listing"
-                          ? await verListing(i)
+                          ? await verListing(d, i)
+                          : nombre === "nuevos_entrantes"
+                            ? nuevosEntrantes(d, i)
+                            : nombre === "seguimiento_competidores"
+                              ? seguimientoCompetidores(d, i)
+                              : nombre === "xray_secundarias"
+                                ? await xraySecundarias(id, i)
                           : { error: `Herramienta desconocida: ${nombre}` };
     return { texto: JSON.stringify(r), error: "error" in r };
   } catch (e) {
@@ -387,6 +565,14 @@ export function describirPaso(nombre: string, entrada: unknown): string {
       return `Leyendo el listing real de ${i.asin} en Amazon ${String(i.pais ?? "")}`;
     case "ver_fotos":
       return `Mirando las fotos de ${i.asin} en Amazon ${String(i.pais ?? "")}`;
+    case "nuevos_entrantes":
+      return `Viendo cuánto venden los productos nuevos en ${nombrePais(String(i.pais ?? ""))}`;
+    case "seguimiento_competidores":
+      return `Revisando la evolución de precios y ventas de los competidores${i.pais ? ` de ${nombrePais(String(i.pais))}` : ""}`;
+    case "xray_secundarias":
+      return `Revisando las otras búsquedas${i.pais ? ` de ${nombrePais(String(i.pais))}` : ""}`;
+    case "responder_directora":
+      return "Responde a la directora";
     case "entregar_analisis":
       return "Entrega su análisis a la directora";
     case "entregar_revision":

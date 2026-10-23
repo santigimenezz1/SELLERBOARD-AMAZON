@@ -10,7 +10,8 @@ import type { BloqueInforme, ControlInforme, InformeEstrategico, NotaAnalisis, P
 import { describirPaso, ejecutarHerramienta, HERRAMIENTAS } from "./agenteHerramientas";
 import { EQUIPO } from "@/lib/datos/h10Equipo";
 import { asegurarTarifas, resumenHoja } from "./hojaNumeros";
-import { cifrasDeTexto, controlarInforme, crearReferencia, normalizarUrl, sinRespaldo, type Referencia } from "./controlCifras";
+import { fichaHechos } from "./fichaHechos";
+import { cifrasDeTexto, controlarInforme, crearConceptos, crearReferencia, normalizarUrl, sinRespaldo, type Referencia } from "./controlCifras";
 
 /*
  * The research team that writes a study's niche report, only when the owner asks for it.
@@ -134,44 +135,138 @@ function sumarGasto(g: GastoAgente, u: Uso | undefined, modelo: string) {
 
 const COMUN = `Trabajas en el equipo que prepara el informe de lanzamiento de un producto de marca propia en Amazon Europa (FBA) para un vendedor que quiere vender como un profesional. Tienes los datos de su estudio de Helium 10 (Xray, historial de búsquedas, Cerebro, reseñas) de varios países y herramientas para consultarlos.
 Reglas:
+- Parte de la FICHA DE HECHOS que recibes (calculada por código): tamaño de cada mercado, franja de precio, líder, lo que venden los productos nuevos. Usa esas cifras tal cual; si los datos te llevan a otra conclusión, dilo y enseña por qué.
 - Lee TODOS los datos de tu parte: recorre las herramientas por páginas («desde») hasta el final. No te quedes con un resumen.
 - Cada afirmación lleva su origen: la cifra del estudio, la página web (con su dirección) o «estimación» cuando es tu criterio. No inventes cifras.
 - Un programa comprueba cada cifra contra los datos que habéis leído: cítalas tal cual salen de las herramientas. Si haces un cálculo, enseña la operación («1.240 / 3.100 = 40 %»).
 - Precio, costes, tarifas de Amazon, beneficio, margen, ACoS de equilibrio, precio mínimo e inversión: los de la herramienta «hoja_numeros» (calculada por código con las tarifas FBA reales). No hagas esas cuentas tú. Si propones otro precio, recalcúlala con ese precio.
 - Lo que leas en internet, resúmelo en español con tus palabras; no copies párrafos.
 - Concreto y accionable: nada que valga para cualquier producto.
-- Termina con «entregar_analisis», una sola vez.`;
+- Termina con «entregar_analisis», una sola vez, con tus «decisiones» en cifras (las mismas que en el texto): el código las compara con las de los demás especialistas y con la ficha.`;
 
-type Especialista = { id: string; nombre: string; herramientas: string[]; web: { busquedas: number; lecturas: number }; encargo: string };
+/** `ronda`: market and product (1) decide country, price and product; keywords and listing (2) work from that. */
+type Especialista = { id: string; nombre: string; ronda: 1 | 2; herramientas: string[]; web: { busquedas: number; lecturas: number }; encargo: string };
+
+/** A specialist's key decisions in figures, handed in with the analysis: the code sets them side by side. */
+type Decisiones = {
+  paisPrincipal?: string;
+  ordenPaises?: string[];
+  precioEur?: number;
+  ventasMesPrimerAno?: number;
+  producto?: string;
+  quejasPrincipales?: { queja: string; resenas: number }[];
+  palabrasClave?: string[];
+};
+type AnalisisEspecialista = { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[]; sinRespaldo: string[]; decisiones?: Decisiones };
+
+const fmt = (v: number) => v.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+
+/** The decisions of each specialist, in one block for the director and the second round. */
+function tablaDecisiones(analisis: AnalisisEspecialista[]): string {
+  const filas = analisis.flatMap((a) => {
+    const d = a.decisiones ?? {};
+    const partes = [
+      d.paisPrincipal && `país principal ${d.paisPrincipal}`,
+      d.ordenPaises?.length && `orden ${d.ordenPaises.join(" → ")}`,
+      d.precioEur !== undefined && `precio ${fmt(d.precioEur)} €`,
+      d.ventasMesPrimerAno !== undefined && `${fmt(d.ventasMesPrimerAno)} ventas/mes el primer año`,
+      d.producto && `producto: ${d.producto}`,
+      d.quejasPrincipales?.length && `quejas: ${d.quejasPrincipales.map((q) => `${q.queja} (${q.resenas} reseñas)`).join("; ")}`,
+      d.palabrasClave?.length && `palabras del título: ${d.palabrasClave.join(", ")}`,
+    ].filter(Boolean);
+    return partes.length ? [`- ${a.especialista}: ${partes.join(" · ")}`] : [];
+  });
+  return filas.length ? `Decisiones de los especialistas:\n${filas.join("\n")}` : "";
+}
+
+/** The first round's work, for the second: their decisions and their analyses. */
+function rondaAnterior(primera: AnalisisEspecialista[]): string {
+  return `${tablaDecisiones(primera)}\n\nSus análisis completos:\n\n${primera.map((a) => `## ${a.especialista}\n\n${a.analisis}`).join("\n\n")}`;
+}
+
+/**
+ * Where the specialists' decisions don't agree with each other, the fact sheet or the numbers sheet: country, price
+ * (and the lowest price that doesn't lose money), expected sales against what the products there really sell, and
+ * title keywords. Found by code, for the director to settle with the data.
+ */
+function contradicciones(analisis: AnalisisEspecialista[], ficha: Record<string, unknown>, hojaCompleto: string): string[] {
+  const salida: string[] = [];
+  const con = <K extends keyof Decisiones>(k: K) => analisis.filter((a) => a.decisiones?.[k] !== undefined && a.decisiones?.[k] !== null) as (AnalisisEspecialista & { decisiones: Required<Pick<Decisiones, K>> })[];
+  const quien = (a: AnalisisEspecialista) => EQUIPO.find((m) => m.quien === a.especialista)?.persona ?? a.especialista;
+
+  const paises = con("paisPrincipal");
+  if (new Set(paises.map((a) => a.decisiones.paisPrincipal.toUpperCase())).size > 1) salida.push(`País principal distinto: ${paises.map((a) => `${quien(a)} ${a.decisiones.paisPrincipal}`).join(", ")}`);
+  const paisFicha = ficha.paisPrincipal as string | undefined;
+  const pais = (paises[0]?.decisiones.paisPrincipal ?? paisFicha ?? "").toUpperCase();
+  if (paisFicha && paises.length && paises.every((a) => a.decisiones.paisPrincipal.toUpperCase() !== paisFicha)) salida.push(`Los especialistas eligen ${pais} como país principal y la ficha de hechos, ${paisFicha} (el que más factura entre los de mejor nota): justifica el cambio`);
+
+  const precios = con("precioEur").filter((a) => a.decisiones.precioEur > 0);
+  if (precios.length > 1) {
+    const vs = precios.map((a) => a.decisiones.precioEur);
+    if (Math.max(...vs) / Math.min(...vs) > 1.1) salida.push(`Precios distintos (más de un 10 %): ${precios.map((a) => `${quien(a)} ${fmt(a.decisiones.precioEur)} €`).join(", ")}`);
+  }
+  let hoja: { paises?: { pais: string; precioMinimoSinPerder: number; precio: { eur: number } }[] } = {};
+  try {
+    hoja = JSON.parse(hojaCompleto);
+  } catch {}
+  const filaHoja = hoja.paises?.find((p) => p.pais === pais);
+  for (const a of precios)
+    if (filaHoja && a.decisiones.precioEur < filaHoja.precioMinimoSinPerder)
+      salida.push(`${quien(a)} propone ${fmt(a.decisiones.precioEur)} € en ${pais}, por debajo del precio mínimo sin perder de la hoja de números (${fmt(filaHoja.precioMinimoSinPerder)} €)`);
+
+  const ventas = con("ventasMesPrimerAno").filter((a) => a.decisiones.ventasMesPrimerAno > 0);
+  if (ventas.length > 1) {
+    const vs = ventas.map((a) => a.decisiones.ventasMesPrimerAno);
+    if (Math.max(...vs) / Math.min(...vs) > 1.5) salida.push(`Ventas al mes esperadas muy distintas: ${ventas.map((a) => `${quien(a)} ${fmt(a.decisiones.ventasMesPrimerAno)}`).join(", ")}`);
+  }
+  const datosPais = (ficha.paises as { pais: string; lider: { ventasMes: number | null } | null; nuevos: { ventasMesP75: number | null } }[] | undefined)?.find((p) => p.pais === pais);
+  for (const a of ventas) {
+    const v = a.decisiones.ventasMesPrimerAno;
+    if (datosPais?.lider?.ventasMes && v > datosPais.lider.ventasMes) salida.push(`${quien(a)} espera ${fmt(v)} ventas/mes en ${pais}, más que el líder (${fmt(datosPais.lider.ventasMes)})`);
+    else if (datosPais?.nuevos.ventasMesP75 && v > datosPais.nuevos.ventasMesP75 * 2)
+      salida.push(`${quien(a)} espera ${fmt(v)} ventas/mes en ${pais}: más del doble de lo que vende un producto nuevo bueno allí (percentil 75 de los que tienen menos de 100 reseñas: ${fmt(datosPais.nuevos.ventasMesP75)})`);
+  }
+
+  const palabras = con("palabrasClave").filter((a) => a.decisiones.palabrasClave.length);
+  if (palabras.length > 1) {
+    const [a, b] = palabras.map((x) => new Set(x.decisiones.palabrasClave.map((p) => p.toLowerCase().trim())));
+    if (![...a].some((p) => b.has(p))) salida.push(`Palabras del título sin ninguna en común: ${palabras.map((x) => `${quien(x)} (${x.decisiones.palabrasClave.join(", ")})`).join(" y ")}`);
+  }
+  return salida;
+}
 
 const ESPECIALISTAS: Especialista[] = [
   {
     id: "mercado",
     nombre: "Mercado",
-    herramientas: ["resumen_mercado", "competidores", "historial_busquedas", "ver_competidor", "hoja_numeros"],
+    ronda: 1,
+    herramientas: ["resumen_mercado", "competidores", "historial_busquedas", "nuevos_entrantes", "seguimiento_competidores", "xray_secundarias", "ver_competidor", "hoja_numeros"],
     web: { busquedas: 3, lecturas: 2 },
-    encargo: `Eres analista de mercado de Amazon. Analiza el tamaño y el reparto del mercado en cada país: todos los productos del Xray, las franjas de precio, las marcas y su cuota, los nuevos que entran (pocas reseñas y buenas ventas), la temporada y la tendencia de 3–5 años. Responde: ¿merece la pena?, ¿en qué país y orden entrar?, ¿a qué precio?, ¿cuántas ventas al mes es realista conseguir el primer año?, ¿cuándo lanzar según la temporada?`,
+    encargo: `Eres analista de mercado de Amazon. Analiza el tamaño y el reparto del mercado en cada país: todos los productos del Xray, las franjas de precio, las marcas y su cuota, los nuevos que entran (pocas reseñas y buenas ventas), la temporada y la tendencia de 3–5 años. Mira también las otras búsquedas («xray_secundarias») y cómo se mueven los precios y las ventas de los competidores («seguimiento_competidores»). Responde: ¿merece la pena?, ¿en qué país y orden entrar?, ¿a qué precio?, ¿cuántas ventas al mes es realista conseguir el primer año? (apóyalo en lo que venden de verdad los productos nuevos: «nuevos_entrantes»), ¿cuándo lanzar según la temporada?`,
   },
   {
     id: "ppc",
     nombre: "Palabras clave y PPC",
-    herramientas: ["resumen_mercado", "palabras_clave", "competidores", "hoja_numeros"],
+    ronda: 2,
+    herramientas: ["resumen_mercado", "palabras_clave", "xray_secundarias", "competidores", "nuevos_entrantes", "hoja_numeros"],
     web: { busquedas: 3, lecturas: 2 },
-    encargo: `Eres especialista en SEO de Amazon y en publicidad (Sponsored Products, Brands y Display). Recorre TODAS las palabras clave de cada país. Agrúpalas por intención (público, uso, característica). Para cada país: las imprescindibles para el título, las de ventaja (buen volumen y poca competencia en títulos, CPR asumible), las que evitar al principio por caras o dominadas, y las negativas. Diseña la estructura de campañas de lanzamiento (automática, manuales exacta y de frase, de marca y de producto), con pujas de partida, presupuesto diario y cómo evolucionar en las semanas 1–4, 5–8 y 9–12. El ACoS de equilibrio y el beneficio por venta, de «hoja_numeros»: el presupuesto y las pujas tienen que ser rentables con esas cifras.`,
+    encargo: `Eres especialista en SEO de Amazon y en publicidad (Sponsored Products, Brands y Display). Recorre TODAS las palabras clave de cada país. Agrúpalas por intención (público, uso, característica). Para cada país: las imprescindibles para el título, las de ventaja (buen volumen y poca competencia en títulos, CPR asumible), las que evitar al principio por caras o dominadas, y las negativas. Mira en qué palabras posiciona cada competidor («posiciones»): dónde están fuertes los líderes y qué palabras con búsquedas no domina nadie; y las otras búsquedas del Xray («xray_secundarias»). Trabaja con el país, el precio y el producto que han decidido mercado y producto. Diseña la estructura de campañas de lanzamiento (automática, manuales exacta y de frase, de marca y de producto), con pujas de partida, presupuesto diario y cómo evolucionar en las semanas 1–4, 5–8 y 9–12. El ACoS de equilibrio y el beneficio por venta, de «hoja_numeros»: el presupuesto y las pujas tienen que ser rentables con esas cifras.`,
   },
   {
     id: "producto",
     nombre: "Producto y reseñas",
+    ronda: 1,
     herramientas: ["quejas_por_estrellas", "buscar_resenas", "leer_resenas", "ver_competidor", "hoja_numeros"],
     web: { busquedas: 8, lecturas: 6 },
-    encargo: `Eres ingeniero de producto y experto en calidad para Amazon. Lee las reseñas de verdad (sobre todo las de 1–3 estrellas de los líderes, en su idioma) y lo que dicen en cada nota. Investiga en internet cómo es el producto por dentro, qué piezas fallan y por qué, materiales y acabados, y la normativa de la UE y del Reino Unido que aplica (seguridad, contacto con alimentos, juguetes, eléctricos, etiquetado, GPSR, EPR…). Entrega: qué fabricar exactamente, las mejoras que atacan cada queja (con cuántas reseñas la sufren), el despiece con las piezas que se gastan, la especificación técnica, los certificados y lo que exigir a la fábrica (pruebas, tolerancias, muestras).`,
+    encargo: `Eres ingeniero de producto y experto en calidad para Amazon. Lee las reseñas de verdad (sobre todo las de 1–3 estrellas de los líderes, en su idioma) y lo que dicen en cada nota. Comprueba si cada queja importante sigue en las reseñas recientes (ordénalas por fecha) o ya está resuelta, y cuántas reseñas la dicen («buscar_resenas» cuenta por nota y por año). Investiga en internet cómo es el producto por dentro, qué piezas fallan y por qué, materiales y acabados, y la normativa de la UE y del Reino Unido que aplica (seguridad, contacto con alimentos, juguetes, eléctricos, etiquetado, GPSR, EPR…). Entrega: qué fabricar exactamente, las mejoras que atacan cada queja (con cuántas reseñas la sufren), el despiece con las piezas que se gastan, la especificación técnica, los certificados y lo que exigir a la fábrica (pruebas, tolerancias, muestras).`,
   },
   {
     id: "marketing",
     nombre: "Marketing y listing",
-    herramientas: ["resumen_mercado", "competidores", "palabras_clave", "buscar_resenas", "leer_resenas", "ver_listing", "ver_fotos", "hoja_numeros"],
+    ronda: 2,
+    herramientas: ["resumen_mercado", "competidores", "palabras_clave", "buscar_resenas", "leer_resenas", "ver_listing", "ver_fotos", "seguimiento_competidores", "hoja_numeros"],
     web: { busquedas: 6, lecturas: 4 },
-    encargo: `Eres experto en marketing y en listings de Amazon que convierten. Lee los listings REALES de los 5–10 líderes del país principal con «ver_listing» (título, bullets, descripción) y mira las fotos del líder y de 2–3 más con «ver_fotos»: qué enseña cada foto, qué falta, qué hacen todos igual. Estudia cómo venden los líderes (títulos, precio, propuesta) y el lenguaje con el que los clientes describen lo que quieren y lo que odian en las reseñas. Investiga tendencias de diseño y color de la categoría. Entrega: el posicionamiento y la promesa de la marca, el pack o la oferta que evita competir en precio, el título y los 5 bullets ESCRITOS para el país principal (en su idioma, con sus palabras clave) y la idea para los demás países, el guion de las 9 fotos y del A+, los colores, y el plan de lanzamiento de 90 días (Vine, cupones, precio de entrada, cuándo subirlo, reseñas).`,
+    encargo: `Eres experto en marketing y en listings de Amazon que convierten. Lee los listings REALES de los 5–10 líderes del país principal con «ver_listing» (título, bullets, descripción) y mira las fotos del líder y de 2–3 más con «ver_fotos»: qué enseña cada foto, qué falta, qué hacen todos igual. Trabaja con el país, el precio y el producto que han decidido mercado y producto. Estudia cómo venden los líderes (títulos, precio, propuesta, cómo mueven el precio: «seguimiento_competidores») y el lenguaje con el que los clientes describen lo que quieren y lo que odian en las reseñas. Investiga tendencias de diseño y color de la categoría. Entrega: el posicionamiento y la promesa de la marca, el pack o la oferta que evita competir en precio, el título y los 5 bullets ESCRITOS para el país principal (en su idioma, con sus palabras clave) y la idea para los demás países, el guion de las 9 fotos y del A+, los colores, y el plan de lanzamiento de 90 días (Vine, cupones, precio de entrada, cuándo subirlo, reseñas).`,
   },
 ];
 
@@ -183,8 +278,21 @@ const ENTREGAR_ANALISIS: Anthropic.Tool = {
     properties: {
       analisis: { type: "string", description: "Tu análisis completo en markdown, en español, con las cifras del estudio, tus recomendaciones concretas y el origen de cada dato" },
       fuentes: { type: "array", items: { type: "object", properties: { titulo: { type: "string" }, url: { type: "string" } }, required: ["titulo", "url"] }, description: "Páginas web que has usado" },
+      decisiones: {
+        type: "object",
+        description: "Tus decisiones clave en cifras, las mismas que en el análisis. Solo las de tu parte: deja fuera las que no te tocan. El código las compara con las de los demás y con la ficha de hechos.",
+        properties: {
+          paisPrincipal: { type: "string", description: "ES, DE, FR, IT o GB" },
+          ordenPaises: { type: "array", items: { type: "string" }, description: "En qué orden entrar" },
+          precioEur: { type: "number", description: "Precio de venta recomendado en el país principal, en euros" },
+          ventasMesPrimerAno: { type: "number", description: "Ventas al mes realistas en el país principal el primer año" },
+          producto: { type: "string", description: "Qué fabricar, en una frase" },
+          quejasPrincipales: { type: "array", items: { type: "object", properties: { queja: { type: "string" }, resenas: { type: "integer" } }, required: ["queja", "resenas"] }, description: "Las quejas que el producto tiene que resolver, con cuántas reseñas las dicen" },
+          palabrasClave: { type: "array", items: { type: "string" }, description: "Las palabras clave imprescindibles del título" },
+        },
+      },
     },
-    required: ["analisis", "fuentes"],
+    required: ["analisis", "fuentes", "decisiones"],
   },
 };
 
@@ -246,12 +354,13 @@ const PREGUNTAR: Anthropic.Tool = {
 
 const DIRECTOR = `Eres el director de un equipo de consultores de Amazon FBA. Cuatro especialistas (mercado; palabras clave y PPC; producto y reseñas; marketing y listing) han estudiado a fondo el producto de un vendedor que quiere vender como un profesional. Tu trabajo:
 1. Lee sus cuatro análisis.
-2. Comprueba con las herramientas del estudio las cifras clave en las que se apoya la decisión (tamaño del mercado, precio, quejas principales, palabras clave). Si algo no te cuadra o dos especialistas se contradicen, pregúntales con «preguntar_especialista» y decide tú con los datos.
+2. Comprueba con las herramientas del estudio las cifras clave en las que se apoya la decisión (tamaño del mercado, precio, quejas principales, palabras clave). Recibes las decisiones de cada uno en cifras y las contradicciones que ha encontrado el control automático: resuélvelas todas. Si algo no te cuadra, pregúntales con «preguntar_especialista» (pueden consultar los datos para responderte) y decide tú con los datos.
 3. Decide el veredicto con honestidad: si los datos no lo sostienen, «validar» o «descartar».
 4. Escribe el informe con «entregar_informe», una sola vez: claro, directo, concreto y accionable, en español. Que el vendedor sepa exactamente qué fabricar, a qué precio, cómo anunciarlo, cómo lanzarlo y qué exigir a la fábrica.
 Reglas del informe (un programa las comprueba al entregar y te devuelve lo que no cumpla):
 - Cada afirmación importante lleva su «prueba»: «dato» (cifra del estudio), «web» (número de la fuente) o «supuesto» (tu deducción, siempre con su «confianza»: alta, media o baja). En las secciones validacion, diferenciacion, riesgo y decision, TODOS los elementos de las listas llevan prueba. No inventes cifras.
-- Una cifra presentada como dato (en «cifras», en «palabras» o en una prueba «dato» y su título) tiene que estar en los datos del estudio tal cual o redondeada. Si es un cálculo, enseña la operación («1.240 / 3.100 = 40 %») o ponle una prueba «supuesto».
+- Usa las cifras de la FICHA DE HECHOS y de la hoja de números: son las mismas para todo el informe.
+- Una cifra presentada como dato (en «cifras», en «palabras», en una prueba «dato» y su título, o en el texto de las secciones validacion, diferenciacion, riesgo y decision) tiene que estar en los datos del estudio tal cual o redondeada. En «cifras», además, tiene que ser el dato de lo que dice su etiqueta (el «mercado», el de mercado; el «margen», el de la hoja). Las reseñas de los clientes no son datos: cuéntalas, no cites sus números. Si es un cálculo, enseña la operación («1.240 / 3.100 = 40 %») o ponle una prueba «supuesto».
 - Las fuentes, solo páginas que los especialistas hayan encontrado o leído, numeradas desde 1 sin saltos; cada «fuente» de una prueba tiene que estar en la lista.
 - No copies textos de las webs: resúmelos.
 - En «palabras», un bloque «palabras» con las de cada veredicto; en «listing», el título y los bullets escritos de verdad en el idioma del país principal.`;
@@ -371,7 +480,14 @@ function guionEspecialista(e: Especialista, principal: string): TurnoGuion[] {
     async (previos: Record<string, unknown>[]) => {
       const leida = cifrasDeTexto(JSON.stringify(previos).replace(/"/g, " ")).find((c) => c.valor >= 100)?.valor;
       const real = leida !== undefined ? `Una cifra de los datos: **${leida.toLocaleString("es-ES")}**. ` : "";
-      return [{ nombre: "entregar_analisis", input: { analisis: `(Ensayo) Análisis de ${e.nombre}: ${previos.length} consultas al estudio. ${real}Una cifra inventada para probar el control: **987.654 €**.`, fuentes: [] } }];
+      // Decisions that clash on purpose (price, title keywords), for the contradiction check to show.
+      const decisiones: Record<string, Decisiones> = {
+        mercado: { paisPrincipal: principal, ordenPaises: [principal], precioEur: 29.99, ventasMesPrimerAno: 150 },
+        producto: { producto: "(Ensayo) el producto con la mejora que piden las reseñas", quejasPrincipales: [{ queja: "(Ensayo) se rompe pronto", resenas: 12 }] },
+        ppc: { palabrasClave: ["(ensayo) palabra principal"] },
+        marketing: { paisPrincipal: principal, precioEur: 34.99, palabrasClave: ["(ensayo) otra palabra"] },
+      };
+      return [{ nombre: "entregar_analisis", input: { analisis: `(Ensayo) Análisis de ${e.nombre}: ${previos.length} consultas al estudio. ${real}Una cifra inventada para probar el control: **987.654 €**.`, fuentes: [], decisiones: decisiones[e.id] } }];
     },
   ];
 }
@@ -439,15 +555,26 @@ async function bucle(opciones: {
   propias?: Record<string, (input: Record<string, unknown>) => Promise<string>>;
   /** What the team read, for the checker: every study answer and every web page found or fetched. */
   leido: Leido;
+  /** The first step's text, when it isn't the usual one. */
+  pasoInicio?: string;
 }): Promise<Entrega> {
   const { estado, quien, modelo, nombreModelo, final, aceptar } = opciones;
   const paso = (texto: string, tipo: PasoAgente["tipo"]) => estado.pasos.push({ hora: new Date().toISOString(), texto, tipo, quien });
   const mensajes: Anthropic.MessageParam[] = [{ role: "user", content: opciones.primerMensaje }];
-  paso(quien === "Director" ? "Recibe los cuatro análisis y empieza a revisarlos" : quien === "Revisor" ? "Empieza a revisar el informe final" : "Empieza a trabajar", "inicio");
+  paso(opciones.pasoInicio ?? (quien === "Director" ? "Recibe los cuatro análisis y empieza a revisarlos" : quien === "Revisor" ? "Empieza a revisar el informe final" : "Empieza a trabajar"), "inicio");
+  let cortes = 0;
   for (let turno = 0; turno < opciones.maxTurnos; turno++) {
     const r = await modelo(mensajes);
     sumarGasto(estado.gasto, r.usage, nombreModelo);
     if (r.stop_reason === "refusal") throw new Error(`${quien}: la IA no quiso seguir`);
+    // Cut for being too long: its last tool call may be half written, so it isn't kept; the agent is asked to repeat
+    // the step shorter (twice at most) instead of losing the whole report.
+    if (r.stop_reason === "max_tokens") {
+      if (++cortes > 2) throw new Error(`${quien}: la respuesta salió demasiado larga y se cortó`);
+      paso("Su respuesta salió demasiado larga y se cortó: la repite más corta", "aviso");
+      mensajes.push({ role: "user", content: "(Tu última respuesta se cortó por ser demasiado larga y no se ha recibido. Repite ese paso de forma más breve; si era la entrega, más condensada.)" });
+      continue;
+    }
     // Web search and fetch run on Anthropic's side: only noted in the progress, and their pages kept for the checker.
     for (const b of r.content) {
       if (b.type === "server_tool_use") paso(describirPaso(b.name, b.input), "web");
@@ -462,7 +589,6 @@ async function bucle(opciones: {
       mensajes.push({ role: "assistant", content: r.content }, { role: "user", content: `Entrega ya con «${final}».` });
       continue;
     }
-    if (r.stop_reason === "max_tokens") throw new Error(`${quien}: la respuesta salió demasiado larga y se cortó`);
     mensajes.push({ role: "assistant", content: r.content });
     const respuestas: Anthropic.ToolResultBlockParam[] = [];
     for (const l of llamadas) {
@@ -495,17 +621,27 @@ async function bucle(opciones: {
 export async function pedirJson<T>(modelo: string, sistema: string, contenido: string, schema: Record<string, unknown>, gasto: GastoAgente): Promise<T> {
   const apiKey = limpiarEnv(process.env.ANTHROPIC_API_KEY);
   if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
-  const r = await new Anthropic({ apiKey }).messages
-    .stream({
-      model: modelo,
-      max_tokens: 16000,
-      ...(!modelo.includes("haiku") && { output_config: { effort: "high" as const, format: { type: "json_schema" as const, schema } } }),
-      ...(modelo.includes("haiku") && { output_config: { format: { type: "json_schema" as const, schema } } }),
-      system: sistema,
-      messages: [{ role: "user", content: contenido }],
-    })
-    .finalMessage();
+  const cliente = new Anthropic({ apiKey });
+  // The reasoning counts within max_tokens: an answer cut short is asked again with more room, never half read.
+  const pedir = (maxTokens: number) =>
+    cliente.messages
+      .stream({
+        model: modelo,
+        max_tokens: maxTokens,
+        ...(!modelo.includes("haiku") && { output_config: { effort: "high" as const, format: { type: "json_schema" as const, schema } } }),
+        ...(modelo.includes("haiku") && { output_config: { format: { type: "json_schema" as const, schema } } }),
+        system: sistema,
+        messages: [{ role: "user", content: contenido }],
+      })
+      .finalMessage();
+  let r = await pedir(16000);
   sumarGasto(gasto, r.usage, modelo);
+  if (r.stop_reason === "max_tokens") {
+    r = await pedir(48000);
+    sumarGasto(gasto, r.usage, modelo);
+  }
+  if (r.stop_reason === "refusal") throw new Error("La IA no quiso responder");
+  if (r.stop_reason === "max_tokens") throw new Error("La respuesta de la IA salió demasiado larga y se cortó");
   const t = r.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text;
   if (!t) throw new Error("La IA no devolvió la revisión");
   return JSON.parse(t) as T;
@@ -667,18 +803,31 @@ export async function revisarInforme(
 }
 
 /** A specialist answers the director's question with its own analysis in front (one short reply, no tools). */
-async function responderComoEspecialista(e: Especialista, analisis: string, pregunta: string, contexto: string, gasto: GastoAgente): Promise<string> {
-  const apiKey = limpiarEnv(process.env.ANTHROPIC_API_KEY);
-  if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
+const RESPONDER: Anthropic.Tool = {
+  name: "responder_directora",
+  description: "Tu respuesta a la directora: pocas líneas, con las cifras que la justifican y de dónde salen. Una sola vez, al final.",
+  input_schema: { type: "object", properties: { respuesta: { type: "string" } }, required: ["respuesta"] },
+};
+
+/**
+ * A specialist answers the director's question with their analysis in front and their study tools at hand, to check
+ * the data before answering (what they read counts for the figure checker too).
+ */
+async function responderComoEspecialista(e: Especialista, analisis: string, pregunta: string, contexto: string, estado: EstadoInforme, leido: Leido): Promise<string> {
   const modelo = modeloEspecialistas();
-  const r = await new Anthropic({ apiKey }).messages.create({
-    model: modelo,
-    max_tokens: 3000,
-    system: `${COMUN}\n\n${e.encargo}`,
-    messages: [{ role: "user", content: `${contexto}\n\nTu análisis fue:\n\n${analisis}\n\nLa directora te pregunta: ${pregunta}\n\nResponde en pocas líneas, con las cifras que lo justifican.` }],
+  const entrega = await bucle({
+    estado,
+    quien: e.nombre,
+    modelo: modeloReal(modelo, `${COMUN}\n\n${e.encargo}`, [...herramientasDe(e.herramientas), RESPONDER], null, "medium"),
+    nombreModelo: modelo,
+    primerMensaje: `${contexto}\n\nTu análisis fue:\n\n${analisis}\n\nLa directora te pregunta: ${pregunta}\n\nAquí no entregas un análisis: solo respondes. Si hace falta, compruébalo antes con las herramientas del estudio. Responde con «responder_directora».`,
+    final: "responder_directora",
+    aceptar: async (i) => (typeof (i as { respuesta?: unknown })?.respuesta === "string" && (i as { respuesta: string }).respuesta.trim().length > 5 ? null : "Falta la respuesta"),
+    maxTurnos: 6,
+    leido,
+    pasoInicio: "Revisa los datos para responder a la directora",
   });
-  sumarGasto(gasto, r.usage, modelo);
-  return r.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n") || "Sin respuesta";
+  return (entrega.input as { respuesta: string }).respuesta;
 }
 
 // ---------- The whole team ----------
@@ -691,12 +840,15 @@ async function trabajar(estado: EstadoInforme) {
   if (!paises.length) throw new Error("El informe necesita al menos el Xray de un país");
   // The study's main country (the one that makes most among the best scored), as the Mercado tab shows it.
   const principal = resumirEstudio(estudio).mejor.mercado.codigoPais;
-  const contextoBase = `Producto: «${estudio.nombre}». País principal: ${principal}. Países con datos: ${paises.join(", ")}. Palabras clave (Cerebro) de: ${Object.keys(palabras).join(", ") || "ninguno"}. Reseñas completas de ${estudio.resenasCompletas?.length ?? 0} productos.`;
-  const leido: Leido = { lecturas: [], urls: new Set() };
+  // The fact sheet every agent starts from (and the checker holds the report to).
+  const ficha = fichaHechos(estudio, palabras);
+  const contextoBase = `${ficha.texto}\nPalabras clave (Cerebro) de: ${Object.keys(palabras).join(", ") || "ninguno"}. Reseñas completas de ${estudio.resenasCompletas?.length ?? 0} productos.`;
+  const leido: Leido = { lecturas: [JSON.stringify(ficha.datos)], urls: new Set() };
   // The sample report's sources count as visited in a rehearsal (no web there).
   if (ensayo) for (const f of informeSimulado(estudio, palabras).fuentes) leido.urls.add(normalizarUrl(f.url));
   // The study without the team's own previous report: its figures would back themselves up.
   const referencia = (): Referencia => crearReferencia([{ ...estudio, informe: undefined }, palabras], leido.lecturas);
+  const conceptos = () => crearConceptos([{ ...estudio, informe: undefined }, palabras], leido.lecturas);
   const verificador = (texto: string, tipo: PasoAgente["tipo"], para?: string) => estado.pasos.push({ hora: new Date().toISOString(), texto, tipo, quien: "Verificador", ...(para && { para }) });
   // Amazon's real FBA fees (free, read-only) and the numbers sheet everyone works with, before anyone starts.
   const pedidas = await asegurarTarifas(estado.estudioId).catch(() => []);
@@ -712,7 +864,7 @@ async function trabajar(estado: EstadoInforme) {
   });
 
   // An earlier try that didn't finish (same data): its specialists' work is reused, not paid again.
-  type Borrador = { modo: ModoAgente; analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[]; sinRespaldo: string[] }[]; notas: NotaAnalisis[]; lecturas: string[]; urls: string[] };
+  type Borrador = { modo: ModoAgente; analisis: AnalisisEspecialista[]; notas: NotaAnalisis[]; lecturas: string[]; urls: string[] };
   const previo = await borradorInforme<Borrador>(estado.estudioId).catch(() => null);
   const reusar = previo?.modo === estado.modo ? previo : null;
   if (reusar) {
@@ -721,8 +873,9 @@ async function trabajar(estado: EstadoInforme) {
     estado.pasos.push({ hora: new Date().toISOString(), texto: "Se aprovecha el trabajo de los especialistas del intento anterior, que no terminó (no se paga otra vez)", tipo: "aviso" });
   }
 
-  // 1. The four specialists, at the same time.
-  const trabajoEspecialista = async (e: Especialista, primerMensaje: string) => {
+  // 1. The specialists in two rounds: market and product first (country, price, what to make), then keywords and
+  // listing working from those decisions, so the whole report pulls the same way.
+  const trabajoEspecialista = async (e: Especialista, primerMensaje: string): Promise<AnalisisEspecialista> => {
     const nombreModelo = ensayo ? "ensayo" : modeloEspecialistas();
     const entrega = await bucle({
       estado,
@@ -735,10 +888,21 @@ async function trabajar(estado: EstadoInforme) {
       maxTurnos: MAX_TURNOS_ESPECIALISTA,
       leido,
     });
-    const input = entrega.input as { analisis: string; fuentes?: { titulo: string; url: string }[] };
-    return { especialista: e.nombre, analisis: input.analisis, fuentes: input.fuentes ?? [], sinRespaldo: [] as string[] };
+    const input = entrega.input as { analisis: string; fuentes?: { titulo: string; url: string }[]; decisiones?: Decisiones };
+    return { especialista: e.nombre, analisis: input.analisis, fuentes: input.fuentes ?? [], sinRespaldo: [], decisiones: input.decisiones ?? {} };
   };
-  const analisis = reusar ? reusar.analisis : await Promise.all(ESPECIALISTAS.map((e) => trabajoEspecialista(e, `${contexto}\nHaz tu análisis.`)));
+  // What the second round works from: the first round's decisions and analyses.
+  let base = "";
+  const encargoRonda = (e: Especialista) => (e.ronda === 2 && base ? `${contexto}\n\n${base}\n\nHaz tu análisis partiendo de esas decisiones. Si los datos te llevan a otra cosa, dilo y justifícalo con cifras.` : `${contexto}\nHaz tu análisis.`);
+  let analisis: AnalisisEspecialista[];
+  if (reusar) analisis = reusar.analisis;
+  else {
+    const primera = await Promise.all(ESPECIALISTAS.filter((e) => e.ronda === 1).map((e) => trabajoEspecialista(e, encargoRonda(e))));
+    base = rondaAnterior(primera);
+    estado.pasos.push({ hora: new Date().toISOString(), texto: "Mercado y producto han entregado: palabras clave y listing empiezan con sus decisiones", tipo: "aviso" });
+    const segunda = await Promise.all(ESPECIALISTAS.filter((e) => e.ronda === 2).map((e) => trabajoEspecialista(e, encargoRonda(e))));
+    analisis = ESPECIALISTAS.map((e) => [...primera, ...segunda].find((a) => a.especialista === e.nombre)!);
+  }
 
   // The checker looks up the figures of each analysis in everything the team read, for the director to judge.
   const persona = (quien: string) => EQUIPO.find((m) => m.quien === quien)?.persona ?? quien;
@@ -762,7 +926,23 @@ async function trabajar(estado: EstadoInforme) {
   // 2. Quality control: the director scores each analysis and sends back, once, those below the bar.
   estado.fase = "director";
   const nota = (n: number) => n.toLocaleString("es-ES", { maximumFractionDigits: 1 });
-  const notas = reusar ? reusar.notas : await puntuarAnalisis(ensayo, analisis, contexto, estado.gasto, conControl);
+  // Where the specialists don't agree (with each other, the fact sheet or the numbers sheet), found by code.
+  const verChoques = () => {
+    const c = contradicciones(analisis, ficha.datos, hoja.completo);
+    verificador(
+      c.length
+        ? `Encuentra ${c.length} ${c.length === 1 ? "contradicción" : "contradicciones"} en las decisiones: ${c
+            .slice(0, 2)
+            .map((x) => `«${x}»`)
+            .join(" · ")}${c.length > 2 ? "…" : ""}`
+        : "Las decisiones de los especialistas cuadran entre sí y con los datos",
+      "revision",
+      "Director",
+    );
+    return c.length ? `\n\nContradicciones que ha encontrado el control automático (resuélvelas con los datos):\n${c.map((x) => `- ${x}`).join("\n")}` : "";
+  };
+  const choquesAntes = reusar ? "" : verChoques();
+  const notas = reusar ? reusar.notas : await puntuarAnalisis(ensayo, analisis, `${contexto}${choquesAntes}`, estado.gasto, conControl);
   if (!reusar)
     for (const n of notas)
     estado.pasos.push({
@@ -780,12 +960,15 @@ async function trabajar(estado: EstadoInforme) {
         const i = analisis.findIndex((a) => a.especialista === n.especialista);
         analisis[i] = await trabajoEspecialista(
           e,
-          `${contexto}\n\nTu análisis anterior:\n\n${analisis[i].analisis}\n\nLa directora te lo devuelve con un ${nota(n.nota)}/10: ${n.comentario}\nRehazlo corrigiendo eso, con la misma exigencia en todo lo demás.`,
+          `${encargoRonda(e)}\n\nTu análisis anterior:\n\n${analisis[i].analisis}\n\nLa directora te lo devuelve con un ${nota(n.nota)}/10: ${n.comentario}\nRehazlo corrigiendo eso, con la misma exigencia en todo lo demás.`,
         );
         n.rehecho = true;
         verificarAnalisis(analisis[i]);
       }),
   );
+
+  // Checked again when an analysis was redone (or reused from an earlier try).
+  const choques = notas.some((n) => n.rehecho) || reusar ? verChoques() : choquesAntes;
 
   // The specialists' work is kept until the report is saved: a restart from here on doesn't pay it again.
   if (!reusar)
@@ -812,12 +995,12 @@ async function trabajar(estado: EstadoInforme) {
     nombreModelo: nombreDirector,
     primerMensaje: `${contexto}\n\nAnálisis de los especialistas:\n\n${analisis
       .map((a) => `${conControl(a)}${a.fuentes.length ? `\n\nFuentes: ${a.fuentes.map((f) => `${f.titulo} (${f.url})`).join(" · ")}` : ""}`)
-      .join("\n\n")}\n\nTus notas de calidad: ${notas.map((n) => `${n.especialista} ${nota(n.nota)}/10${n.rehecho ? " (rehecho)" : ""}`).join(" · ")}.`,
+      .join("\n\n")}\n\n${tablaDecisiones(analisis)}${choques}\n\nTus notas de calidad:${notas.map((n) => `${n.especialista} ${nota(n.nota)}/10${n.rehecho ? " (rehecho)" : ""}`).join(" · ")}.`,
     final: "entregar_informe",
     aceptar: async (i) => {
       informe = validarInforme(i);
       if (typeof informe === "string") return `Informe no válido: ${informe}`;
-      const revisado = controlarInforme(informe, referencia(), leido.urls);
+      const revisado = controlarInforme(informe, referencia(), leido.urls, conceptos());
       const c = (control = revisado.control);
       const { problemas } = revisado;
       if (problemas.length && !devueltoPorVerificador) {
@@ -860,7 +1043,7 @@ async function trabajar(estado: EstadoInforme) {
         if (!e || !a) return "No hay ningún especialista con ese nombre";
         const respuesta = ensayo
           ? `(Ensayo) ${EQUIPO.find((m) => m.quien === e.nombre)?.persona ?? e.nombre} responde: lo he revisado con los datos del estudio y mantengo mi recomendación.`
-          : await responderComoEspecialista(e, a.analisis, String(i.pregunta ?? ""), contexto, estado.gasto);
+          : await responderComoEspecialista(e, a.analisis, String(i.pregunta ?? ""), contexto, estado, leido);
         estado.pasos.push({ hora: new Date().toISOString(), texto: `Responde a la directora: «${respuesta.replace(/\s+/g, " ").slice(0, 110)}…»`, tipo: "respuesta", quien: e.nombre, para: "Director" });
         return respuesta;
       },
@@ -902,7 +1085,6 @@ export async function probarEspecialista(estudioId: string, especialistaId: stri
   if (!e) throw new Error(`No hay especialista «${especialistaId}»`);
   const { estudio, palabras } = await estudioParaAgente(estudioId);
   if (!estudio.mercados.length) throw new Error("El estudio necesita al menos el Xray de un país");
-  const principal = resumirEstudio(estudio).mejor.mercado.codigoPais;
   await asegurarTarifas(estudioId).catch(() => []);
   const hoja = await resumenHoja(estudioId);
   const modelo = modeloEspecialistas();
@@ -917,7 +1099,9 @@ export async function probarEspecialista(estudioId: string, especialistaId: stri
     error: null,
   };
   const leido: Leido = { lecturas: hoja.completo ? [hoja.completo] : [], urls: new Set() };
-  const contexto = `Producto: «${estudio.nombre}». País principal: ${principal}. Países con datos: ${estudio.mercados.map((m) => m.codigoPais).join(", ")}. Palabras clave (Cerebro) de: ${Object.keys(palabras).join(", ") || "ninguno"}. Reseñas completas de ${estudio.resenasCompletas?.length ?? 0} productos.${hoja.texto ? `\n\n${hoja.texto}` : ""}`;
+  const ficha = fichaHechos(estudio, palabras);
+  leido.lecturas.push(JSON.stringify(ficha.datos));
+  const contexto = `${ficha.texto}\nPalabras clave (Cerebro) de: ${Object.keys(palabras).join(", ") || "ninguno"}. Reseñas completas de ${estudio.resenasCompletas?.length ?? 0} productos.${hoja.texto ? `\n\n${hoja.texto}` : ""}`;
   const entrega = await bucle({
     estado,
     quien: e.nombre,

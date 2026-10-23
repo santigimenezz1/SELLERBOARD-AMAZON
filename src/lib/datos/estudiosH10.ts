@@ -951,6 +951,42 @@ export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "
   return resultado;
 }
 
+/**
+ * The Xrays of other searches in each country (not its main one): each search's market and its top products, and how
+ * many of those are also among the main search's top ones (few: it brings other buyers).
+ */
+export async function xraysSecundariasDe(id: string) {
+  const e = await entrada(id);
+  await prepararCambios([e]);
+  const principales = new Map(ensamblar(e).estudio.mercados.map((m) => [m.codigoPais, m]));
+  const vistas = new Set<string>();
+  const salida: { pais: CodigoPais; palabraClave: string; fecha: string; moneda: "EUR" | "GBP"; busquedas: number | null; productos: number; facturacionTotal: number; enComunConLaPrincipal: number; top: CompetidorXray[] }[] = [];
+  const subido = new Map(e.estudio.archivos.map((a) => [a.id, a.subidoEn]));
+  for (const [, d] of [...e.datos.entries()].sort((a, b) => (subido.get(b[0]) ?? "").localeCompare(subido.get(a[0]) ?? ""))) {
+    const m = d.mercado;
+    const principal = m && d.codigoPais ? principales.get(d.codigoPais) : undefined;
+    if (!m || !principal || sinAcentos(m.palabraClave) === sinAcentos(principal.palabraClave)) continue;
+    // The same search uploaded twice: its newest is enough.
+    const clave = `${d.codigoPais}|${sinAcentos(m.palabraClave)}`;
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    const top = [...m.competidores].sort((a, b) => b.facturacion - a.facturacion).slice(0, 10);
+    const topPrincipal = new Set([...principal.competidores].sort((a, b) => b.facturacion - a.facturacion).slice(0, 20).map((c) => c.asin));
+    salida.push({
+      pais: m.codigoPais,
+      palabraClave: m.palabraClave,
+      fecha: m.fecha,
+      moneda: m.moneda,
+      busquedas: m.busquedas,
+      productos: m.competidores.length,
+      facturacionTotal: m.facturacionTotal,
+      enComunConLaPrincipal: top.filter((c) => c.asin && topPrincipal.has(c.asin)).length,
+      top,
+    });
+  }
+  return salida;
+}
+
 /** A study as the page sees it, with its keywords: what the research agent works from. */
 export async function estudioParaAgente(id: string) {
   await prepararCambios([await entrada(id)]);

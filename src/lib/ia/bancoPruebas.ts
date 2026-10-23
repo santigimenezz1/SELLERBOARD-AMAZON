@@ -9,7 +9,8 @@ import type { BloqueInforme, ControlInforme, InformeEstrategico, SeccionInforme 
 import type { NivelBanco, PruebaBanco, ResultadoTrampa } from "@/lib/datos/bancoTipos";
 import { completarPruebas, modeloDirector, pedirJson, resumenControl, revisarInforme, type EstadoInforme, type GastoAgente, type Leido } from "./agenteInforme";
 import { asegurarTarifas, resumenHoja } from "./hojaNumeros";
-import { controlarInforme, crearReferencia, normalizarUrl } from "./controlCifras";
+import { controlarInforme, crearConceptos, crearReferencia, normalizarUrl } from "./controlCifras";
+import { fichaHechos } from "./fichaHechos";
 import { ejecutarHerramienta } from "./agenteHerramientas";
 
 /*
@@ -355,14 +356,17 @@ export async function ejecutarBanco(estudioId: string, conRevisor: boolean, nive
     // As in a real report: Amazon's real fees and the numbers sheet, which the reviewer gets too.
     await asegurarTarifas(estudioId).catch(() => []);
     const hoja = await resumenHoja(estudioId);
-    const referencia = crearReferencia([{ ...estudio, informe: undefined }, palabras], [...(resumen.error ? [] : [resumen.texto]), ...(hoja.completo ? [hoja.completo] : [])]);
+    // What a real report's checker has: the study, the fact sheet, the market summary and the numbers sheet.
+    const lecturas = [JSON.stringify(fichaHechos(estudio, palabras).datos), ...(resumen.error ? [] : [resumen.texto]), ...(hoja.completo ? [hoja.completo] : [])];
+    const referencia = crearReferencia([{ ...estudio, informe: undefined }, palabras], lecturas);
+    const conceptos = crearConceptos([{ ...estudio, informe: undefined }, palabras], lecturas);
     const urls = new Set(limpio.fuentes.map((f) => normalizarUrl(f.url)));
 
     // The checker: the clean report (anything flagged is a false alarm), then the one with its errors.
-    const falsasAlarmas = controlarInforme(copia(), referencia, urls).problemas;
+    const falsasAlarmas = controlarInforme(copia(), referencia, urls, conceptos).problemas;
     const conErrores = copia();
     const plantadas = TRAMPAS.filter((t) => t.caza === "Verificador" && t.plantar(conErrores, c));
-    const revisado = controlarInforme(conErrores, referencia, urls);
+    const revisado = controlarInforme(conErrores, referencia, urls, conceptos);
     const trampas: ResultadoTrampa[] = plantadas.map((t) => {
       const dijo = t.cazada!(revisado);
       return { id: t.id, experto: t.experto, error: t.error, caza: t.caza, cazado: !!dijo, dijo };
@@ -387,7 +391,7 @@ export async function ejecutarBanco(estudioId: string, conRevisor: boolean, nive
         false,
         paraRevisor,
         (nivel === "dificil" ? analisisErroneos : analisisCorrectos)(c, precio),
-        `${contexto}\n\n${resumenControl(controlarInforme(structuredClone(paraRevisor), referencia, urls).control)}`,
+        `${contexto}\n\n${resumenControl(controlarInforme(structuredClone(paraRevisor), referencia, urls, conceptos).control)}`,
         estado,
         leido,
       );
