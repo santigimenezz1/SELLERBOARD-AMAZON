@@ -7,8 +7,9 @@ import { volcarConsumo } from "@/lib/datos/consumo";
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * Changes a study. Body: any of { nombre, descripcion, supuestos, quitarListing, restaurarListings } (supuestos: the
- * owner's costs for the profitability tab; quitarListing: «ES|B0…» out of the «Listings» top 10; restaurarListings: true).
+ * Changes a study. Body: any of { nombre, descripcion, supuestos, quitarListing, restaurarListings, lanzamiento } (supuestos:
+ * the owner's costs for the profitability tab; quitarListing: «ES|B0…» out of the «Listings» top 10; restaurarListings:
+ * true; lanzamiento: { asin, codigoPais, desde } of the launched product, or null).
  */
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });

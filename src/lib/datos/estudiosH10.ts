@@ -40,6 +40,7 @@ import {
   type PalabraClave,
   type PalabrasMercado,
   type ListingAmazon,
+  type LanzamientoPropio,
 } from "./h10Tipos";
 import { listingsDesdeJson } from "./h10Fichas";
 import { traducirResenas } from "@/lib/ia/traducirResenas";
@@ -66,6 +67,7 @@ type EstudioGuardado = {
   archivos: ArchivoH10[];
   supuestos?: SupuestosRentabilidad;
   asinsManuales?: string[];
+  lanzamiento?: LanzamientoPropio;
   /** «ES|B0…» taken out of the «Listings» top 10. */
   listingsQuitados?: string[];
   /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
@@ -256,6 +258,17 @@ function leerSupuestos(v: unknown, actual: SupuestosRentabilidad): SupuestosRent
   };
 }
 
+/** Your launched product: ASIN, country and launch day (null takes it out). */
+function leerLanzamiento(v: unknown): LanzamientoPropio | undefined {
+  if (v === null) return undefined;
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  const asin = typeof o.asin === "string" ? o.asin.trim().toUpperCase() : "";
+  if (!esAsin(asin)) throw new Error("Un ASIN tiene 10 letras o números (por ejemplo B0DS9VCV6L)");
+  if (!esCodigoPais(o.codigoPais)) throw new Error("Elige el país");
+  if (typeof o.desde !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(o.desde)) throw new Error("Pon la fecha de lanzamiento");
+  return { asin, codigoPais: o.codigoPais, desde: o.desde };
+}
+
 /** «ES|B0DS9VCV6L»: a listing of the study in one country. */
 const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(ES|DE|FR|IT|GB)\|[A-Z0-9]{10}$/.test(v);
 
@@ -265,7 +278,7 @@ const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(
  */
 export async function editarEstudio(
   id: string,
-  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown },
+  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown },
 ): Promise<void> {
   const e = await entrada(id);
   if (cambios.quitarListing !== undefined && !esClaveListing(cambios.quitarListing)) throw new Error("Listing no válido");
@@ -276,8 +289,11 @@ export async function editarEstudio(
     nombre: texto(cambios.nombre, 80) || e.estudio.nombre,
     descripcion: cambios.descripcion !== undefined ? texto(cambios.descripcion, 200) : e.estudio.descripcion,
     ...(cambios.supuestos !== undefined && { supuestos: leerSupuestos(cambios.supuestos, e.estudio.supuestos ?? SUPUESTOS_INICIALES) }),
+    ...(cambios.lanzamiento !== undefined && { lanzamiento: leerLanzamiento(cambios.lanzamiento) }),
     actualizadoEn: new Date().toISOString(),
   };
+  // Taken out: no empty field left in the document.
+  if (!e.estudio.lanzamiento) delete e.estudio.lanzamiento;
   await guardarEstudio(e.estudio);
 }
 
@@ -289,6 +305,9 @@ export async function borrarEstudio(id: string): Promise<void> {
   for (const v of e.amazon.values()) await col().doc(id).collection("amazon").doc(idAmazon(v.ficha.codigoPais, v.ficha.asin)).delete();
   for (const l of e.listings.values()) await col().doc(id).collection("listings").doc(idAmazon(l.codigoPais, l.asin)).delete();
   for (const doc of ["actual", "progreso"]) await col().doc(id).collection("informe").doc(doc).delete();
+  const versiones = await col().doc(id).collection("informes").listDocuments();
+  for (const v of versiones) await v.delete();
+  contarEscrituras(versiones.length);
   await col().doc(id).delete();
   contarEscrituras(e.datos.size + e.amazon.size + e.listings.size + 3);
   (await cargar()).delete(id);
@@ -781,6 +800,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       // The page only needs the last months of the follow-up.
       amazon: [...amazon.values()].map((v) => ({ ficha: v.ficha, puntos: v.puntos.slice(-PUNTOS_EN_PAGINA) })),
       asinsManuales: estudio.asinsManuales ?? [],
+      ...(estudio.lanzamiento && { lanzamiento: estudio.lanzamiento }),
       listingsQuitados: estudio.listingsQuitados ?? [],
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],
@@ -1029,10 +1049,41 @@ export async function traducirResenasEstudio(id: string): Promise<{ traducidas: 
 /** Saves the research agent's report in the study (its own document), and drops the specialists' draft it came from. */
 export async function guardarInforme(id: string, informe: InformeEstrategico): Promise<void> {
   const e = await entrada(id);
-  await col().doc(id).collection("informe").doc("actual").set(JSON.parse(JSON.stringify(informe)));
-  contarEscrituras(1);
+  const limpio = JSON.parse(JSON.stringify(informe));
+  await col().doc(id).collection("informe").doc("actual").set(limpio);
+  // Every version is kept, to see what changed from one to the next.
+  await col().doc(id).collection("informes").doc(idVersion(informe.generadoEn)).set(limpio);
+  contarEscrituras(2);
   e.estudio = { ...e.estudio, informe };
   await bucket().file(rutaBorrador(id)).delete({ ignoreNotFound: true }).catch(() => {});
+}
+
+/** A report version's id: its date, digits only («20261023094639202»). */
+const idVersion = (generadoEn: string) => generadoEn.replace(/\D/g, "");
+
+export type VersionInforme = { version: string; generadoEn: string; veredicto: InformeEstrategico["veredicto"]; titular: string; titularDestacado: string; simulado: boolean; coste: InformeEstrategico["coste"] };
+
+/** Every report the team made for a study, newest first (only their headings: the full one loads on its own). */
+export async function historialInformes(id: string): Promise<VersionInforme[]> {
+  const e = await entrada(id);
+  const snap = await col().doc(id).collection("informes").select("generadoEn", "veredicto", "titular", "titularDestacado", "simulado", "coste").get();
+  contarLecturas(Math.max(snap.size, 1));
+  const lista = snap.docs.map((d) => ({ version: d.id, ...(d.data() as Omit<VersionInforme, "version">) }));
+  // The current one, when it was made before versions were kept.
+  const actual = e.estudio.informe;
+  if (actual && !lista.some((v) => v.generadoEn === actual.generadoEn))
+    lista.push({ version: "actual", generadoEn: actual.generadoEn, veredicto: actual.veredicto, titular: actual.titular, titularDestacado: actual.titularDestacado, simulado: actual.simulado, coste: actual.coste });
+  return lista.sort((a, b) => b.generadoEn.localeCompare(a.generadoEn));
+}
+
+/** One version of a study's report, whole. */
+export async function informeVersion(id: string, version: string): Promise<InformeEstrategico | null> {
+  const e = await entrada(id);
+  if (version === "actual") return e.estudio.informe ?? null;
+  if (!/^\d+$/.test(version)) return null;
+  const d = await col().doc(id).collection("informes").doc(version).get();
+  contarLecturas(1);
+  return d.exists ? (d.data() as InformeEstrategico) : null;
 }
 
 /** How a report is getting on, saved now and then while it runs (`proceso`: the server process running it). */

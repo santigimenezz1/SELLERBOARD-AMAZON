@@ -6,11 +6,12 @@ import { limpiarEnv } from "@/lib/env";
 import { borradorInforme, estudioParaAgente, guardarBorradorInforme, guardarInforme, guardarProgresoInforme, progresoInforme } from "@/lib/datos/estudiosH10";
 import { informeSimulado } from "@/lib/datos/h10InformeSimulado";
 import { resumirEstudio } from "@/lib/datos/h10Analisis";
-import type { BloqueInforme, ControlInforme, InformeEstrategico, NotaAnalisis, PasoEquipo, RevisionInforme, SeccionInforme } from "@/lib/datos/h10Tipos";
+import type { BloqueInforme, ControlInforme, DecisionesEspecialista, InformeEstrategico, NotaAnalisis, PasoEquipo, RevisionInforme, SeccionInforme } from "@/lib/datos/h10Tipos";
 import { describirPaso, ejecutarHerramienta, HERRAMIENTAS } from "./agenteHerramientas";
 import { EQUIPO } from "@/lib/datos/h10Equipo";
 import { asegurarTarifas, resumenHoja } from "./hojaNumeros";
 import { fichaHechos } from "./fichaHechos";
+import { revisarDatos, textoCalidad } from "@/lib/datos/h10Calidad";
 import { cifrasDeTexto, controlarInforme, crearConceptos, crearReferencia, normalizarUrl, sinRespaldo, type Referencia } from "./controlCifras";
 
 /*
@@ -148,15 +149,7 @@ Reglas:
 type Especialista = { id: string; nombre: string; ronda: 1 | 2; herramientas: string[]; web: { busquedas: number; lecturas: number }; encargo: string };
 
 /** A specialist's key decisions in figures, handed in with the analysis: the code sets them side by side. */
-type Decisiones = {
-  paisPrincipal?: string;
-  ordenPaises?: string[];
-  precioEur?: number;
-  ventasMesPrimerAno?: number;
-  producto?: string;
-  quejasPrincipales?: { queja: string; resenas: number }[];
-  palabrasClave?: string[];
-};
+type Decisiones = DecisionesEspecialista;
 type AnalisisEspecialista = { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[]; sinRespaldo: string[]; decisiones?: Decisiones };
 
 const fmt = (v: number) => v.toLocaleString("es-ES", { maximumFractionDigits: 2 });
@@ -835,14 +828,16 @@ async function responderComoEspecialista(e: Especialista, analisis: string, preg
 async function trabajar(estado: EstadoInforme) {
   const inicio = Date.now();
   const ensayo = estado.modo === "ensayo";
-  const { estudio, palabras } = await estudioParaAgente(estado.estudioId);
+  const { estudio, palabras, costesPropios } = await estudioParaAgente(estado.estudioId);
   const paises = estudio.mercados.map((m) => m.codigoPais);
   if (!paises.length) throw new Error("El informe necesita al menos el Xray de un país");
   // The study's main country (the one that makes most among the best scored), as the Mercado tab shows it.
   const principal = resumirEstudio(estudio).mejor.mercado.codigoPais;
   // The fact sheet every agent starts from (and the checker holds the report to).
   const ficha = fichaHechos(estudio, palabras);
-  const contextoBase = `${ficha.texto}\nPalabras clave (Cerebro) de: ${Object.keys(palabras).join(", ") || "ninguno"}. Reseñas completas de ${estudio.resenasCompletas?.length ?? 0} productos.`;
+  // What in the data looks wrong or is missing, checked by code before anyone starts.
+  const calidad = revisarDatos(estudio, palabras, costesPropios);
+  const contextoBase = `${ficha.texto}\nPalabras clave (Cerebro) de: ${Object.keys(palabras).join(", ") || "ninguno"}. Reseñas completas de ${estudio.resenasCompletas?.length ?? 0} productos.${calidad.length ? `\n\n${textoCalidad(calidad)}` : ""}`;
   const leido: Leido = { lecturas: [JSON.stringify(ficha.datos)], urls: new Set() };
   // The sample report's sources count as visited in a rehearsal (no web there).
   if (ensayo) for (const f of informeSimulado(estudio, palabras).fuentes) leido.urls.add(normalizarUrl(f.url));
@@ -857,6 +852,16 @@ async function trabajar(estado: EstadoInforme) {
   const hoja = await resumenHoja(estado.estudioId);
   if (hoja.completo) leido.lecturas.push(hoja.completo);
   const contexto = hoja.texto ? `${contextoBase}\n\n${hoja.texto}` : contextoBase;
+  const graves = calidad.filter((p) => p.nivel === "grave").length;
+  const avisos = calidad.length - graves;
+  estado.pasos.push({
+    hora: new Date().toISOString(),
+    texto: calidad.length
+      ? `Revisa los datos antes de empezar: ${graves ? `${graves} ${graves === 1 ? "problema grave" : "problemas graves"} y ` : ""}${avisos} ${avisos === 1 ? "aviso" : "avisos"}, que pasa a todo el equipo`
+      : "Revisa los datos antes de empezar: todo en orden",
+    tipo: "aviso",
+    quien: "Verificador",
+  });
   estado.pasos.push({
     hora: new Date().toISOString(),
     texto: ensayo ? "Modo ensayo: sin IA y sin coste. Las herramientas del estudio son las reales" : `Modo real: especialistas con ${modeloEspecialistas()}, director con ${modeloDirector()}`,

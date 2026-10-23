@@ -64,6 +64,8 @@ export type EstudioH10 = {
   amazon?: SeguimientoAmazon[];
   /** ASINs added by hand to the Amazon follow-up (they're fetched in every country). */
   asinsManuales?: string[];
+  /** Your own product once launched (its ASIN, country and launch day): the report's forecast is compared with its real sales. */
+  lanzamiento?: LanzamientoPropio;
   /** Listings taken out of the «Listings» top 10 by hand, as «ES|B0…»: the next one by revenue takes their place. */
   listingsQuitados?: string[];
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
@@ -444,12 +446,25 @@ export type NotaAnalisis = { especialista: string; nota: number; criterios: { ri
 export type RevisionInforme = { nota: number; problemas: { seccion: string; problema: string; gravedad: "alta" | "media" | "baja" }[] };
 
 /** How the team worked on a report: every step, each specialist's analysis and what it cost. */
+export type LanzamientoPropio = { asin: string; codigoPais: CodigoPais; desde: string };
+
+/** A specialist's key decisions in figures (handed in with the analysis; the code compares them). */
+export type DecisionesEspecialista = {
+  paisPrincipal?: string;
+  ordenPaises?: string[];
+  precioEur?: number;
+  ventasMesPrimerAno?: number;
+  producto?: string;
+  quejasPrincipales?: { queja: string; resenas: number }[];
+  palabrasClave?: string[];
+};
+
 export type TrabajoEquipo = {
   modo: "ensayo" | "real";
   empezado: string;
   terminado: string;
   pasos: PasoEquipo[];
-  analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[]; sinRespaldo?: string[] }[];
+  analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[]; sinRespaldo?: string[]; decisiones?: DecisionesEspecialista }[];
   /** Quality control: the director's scores and the reviewer's findings. */
   calidad?: { notas: NotaAnalisis[]; revisor: RevisionInforme | null };
   gasto: { modelo: string; entrada: number; salida: number; cacheEscrita: number; cacheLeida: number; busquedasWeb: number; dolares: number };

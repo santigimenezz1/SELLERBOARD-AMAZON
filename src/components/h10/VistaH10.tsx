@@ -18,6 +18,8 @@ import { Markdown } from "@/components/chat/Markdown";
 import { PestanaPalabras } from "./PestanaPalabras";
 import { PestanaResenas } from "./PestanaResenas";
 import { InformeEstrategico } from "./InformeEstrategico";
+import { revisarDatos } from "@/lib/datos/h10Calidad";
+import { PrediccionRealidad } from "./PrediccionRealidad";
 import { PestanaListings } from "./PestanaListings";
 import { PestanaAgentes } from "./PestanaAgentes";
 import { formatMoneda, formatNumero } from "@/lib/format";
@@ -224,7 +226,8 @@ export function VistaH10({
       {pestana === "conclusiones" &&
         (resumen ? (
           <div className="flex flex-col gap-4">
-            <InformeEstrategico key={`informe-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} />
+            <InformeEstrategico key={`informe-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} calidad={revisarDatos(estudio, palabrasEstudio, costesPropios)} />
+            {!invitado && !estudio.ejemplo && <PrediccionRealidad estudioId={estudio.id} lanzamiento={estudio.lanzamiento ?? null} />}
             <Informe conRentabilidad={CON_RENTABILIDAD} informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], analizarResenas(estudio), CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)} />
             <Tarjeta titulo="Todas las conclusiones" subtitulo="Salen de los datos del estudio: Xray, búsquedas, palabras clave y reseñas.">
               <div className="text-sm leading-relaxed text-ink-300">

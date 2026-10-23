@@ -4,6 +4,10 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BloqueInforme, InformeEstrategico as Informe, PruebaInforme } from "@/lib/datos/h10Tipos";
 import type { EstadoInforme, ModoAgente } from "@/lib/ia/agenteInforme";
+import type { ProblemaDatos } from "@/lib/datos/h10Calidad";
+import type { VersionInforme } from "@/lib/datos/estudiosH10";
+import { cambiosInforme } from "@/lib/datos/informeCambios";
+import { Markdown } from "@/components/chat/Markdown";
 
 /** «**bold**» inside a text, everything else as is. */
 function Rico({ texto }: { texto: string }) {
@@ -296,13 +300,19 @@ const FALLOS_AVISO = 20;
  * factory), generated only when the owner asks for it, after confirming the time and cost. While the agent works, its
  * real steps show as they happen.
  */
-export function InformeEstrategico({ estudioId, informe }: { estudioId: string; informe: Informe | null }) {
+/** `calidad`: what in the study's data looks wrong or is missing (h10Calidad.ts), shown before generating. */
+export function InformeEstrategico({ estudioId, informe: actual, calidad = [] }: { estudioId: string; informe: Informe | null; calidad?: ProblemaDatos[] }) {
   const router = useRouter();
   const [confirmar, setConfirmar] = useState(false);
   const [estado, setEstado] = useState<EstadoInforme | null>(null);
   const [modo, setModo] = useState<ModoAgente>("ensayo");
   const [error, setError] = useState<string | null>(null);
   const url = `/api/h10/estudios/${estudioId}/informe`;
+  const graves = calidad.filter((p) => p.nivel === "grave").length;
+  // An earlier version being looked at (null: the current one), and whether the versions list is open.
+  const [viendo, setViendo] = useState<Informe | null>(null);
+  const [versionesAbiertas, setVersionesAbiertas] = useState(false);
+  const informe = viendo ?? actual;
 
   // Asks how the agent is getting on until it finishes; then shows the report (or the error).
   // A failed request (a network blip) doesn't stop following: the agent keeps working on the server.
@@ -385,12 +395,29 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
             <strong>Modo real:</strong> usa la IA y gasta créditos de Anthropic.
           </p>
         )}
+        {calidad.length > 0 && (
+          <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${graves ? "border-danger/30 bg-danger/10" : "border-warning/30 bg-warning/10"}`}>
+            <p className={`font-semibold ${graves ? "text-danger" : "text-warning"}`}>
+              Revisión de los datos: {graves ? `${graves} ${graves === 1 ? "problema grave" : "problemas graves"}${calidad.length > graves ? " y " : ""}` : ""}
+              {calidad.length > graves ? `${calidad.length - graves} ${calidad.length - graves === 1 ? "aviso" : "avisos"}` : ""}
+            </p>
+            <ul className="mt-1.5 flex max-h-48 flex-col gap-1 overflow-y-auto text-ink-300">
+              {calidad.map((p, i) => (
+                <li key={i} className={p.nivel === "grave" ? "text-danger" : undefined}>
+                  {p.nivel === "grave" ? "✕ " : "· "}
+                  {p.texto}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-ink-400">{graves ? "Arréglalo en «Datos» antes: el informe se apoyaría en datos rotos." : "El equipo los tendrá en cuenta, pero el informe será más preciso si los arreglas antes en «Datos»."}</p>
+          </div>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={() => setConfirmar(false)} className="rounded-lg px-3.5 py-2 text-sm text-ink-300 hover:bg-white/[0.06]">
             Cancelar
           </button>
-          <button onClick={generar} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-semibold text-ink-950 hover:bg-accent-400">
-            Generar informe
+          <button onClick={generar} className={`rounded-lg px-3.5 py-2 text-sm font-semibold ${graves ? "border border-danger/50 text-danger hover:bg-danger/10" : "bg-accent-500 text-ink-950 hover:bg-accent-400"}`}>
+            {graves ? "Generar igualmente" : "Generar informe"}
           </button>
         </div>
       </div>
@@ -477,6 +504,9 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
               <button onClick={() => window.print()} className="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 hover:bg-white/[0.06]">
                 Imprimir / PDF
               </button>
+              <button onClick={() => setVersionesAbiertas((x) => !x)} className="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 hover:bg-white/[0.06]">
+                Versiones
+              </button>
               <button onClick={() => setConfirmar(true)} className="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 hover:bg-white/[0.06]">
                 Regenerar
               </button>
@@ -485,6 +515,7 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
           {error && <p className="mt-2 text-sm text-danger">{error}</p>}
         </div>
       </header>
+      {(versionesAbiertas || viendo) && actual && <Versiones url={url} actual={actual} viendo={viendo} onVer={setViendo} />}
 
       {/* Contents */}
       <nav aria-label="Índice del informe" className="flex flex-wrap gap-1.5 border-b border-white/[0.06] px-6 py-3 sm:px-10">
@@ -529,5 +560,83 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
       </div>
       {dialogo}
     </article>
+  );
+}
+
+/**
+ * Every report made for the study: open one to read it as it was, with what changed from it to the current one.
+ */
+function Versiones({ url, actual, viendo, onVer }: { url: string; actual: Informe; viendo: Informe | null; onVer: (i: Informe | null) => void }) {
+  const [lista, setLista] = useState<VersionInforme[] | null>(null);
+  const [cargando, setCargando] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    fetch(`${url}?historial=1`)
+      .then((r) => r.json())
+      .then((j) => vivo && (j.historial ? setLista(j.historial) : setError(j.error ?? "No se pudo leer el historial")))
+      .catch(() => vivo && setError("No se pudo leer el historial"));
+    return () => {
+      vivo = false;
+    };
+  }, [url]);
+  const abrir = async (v: VersionInforme) => {
+    if (v.generadoEn === actual.generadoEn) return onVer(null);
+    setCargando(v.version);
+    setError(null);
+    const j = await fetch(`${url}?version=${v.version}`)
+      .then((r) => r.json())
+      .catch(() => null);
+    setCargando(null);
+    if (j?.informe) onVer(j.informe);
+    else setError(j?.error ?? "No se pudo abrir esa versión");
+  };
+  const fecha = (f: string) => new Date(f).toLocaleString("es-ES", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="border-b border-white/[0.06] bg-ink-950/40 px-6 py-4 sm:px-10">
+      <p className="text-xs font-bold tracking-[0.2em] text-accent-400 uppercase">Versiones del informe</p>
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+      {!lista && !error && <p className="mt-2 text-xs text-ink-400">Cargando…</p>}
+      {lista && (
+        <ul className="mt-2 flex flex-wrap gap-1.5">
+          {lista.map((v) => {
+            const esActual = v.generadoEn === actual.generadoEn;
+            const abierta = viendo ? v.generadoEn === viendo.generadoEn : esActual;
+            return (
+              <li key={v.version}>
+                <button
+                  onClick={() => void abrir(v)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-left text-xs ${abierta ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/10 text-ink-300 hover:bg-white/[0.05]"}`}
+                >
+                  <span className="block font-medium">
+                    {fecha(v.generadoEn)}
+                    {esActual && " · actual"}
+                    {cargando === v.version && " · abriendo…"}
+                  </span>
+                  <span className="block text-[11px] text-ink-400">
+                    {VEREDICTO[v.veredicto]?.texto ?? v.veredicto}
+                    {v.simulado ? " · ensayo" : ` · ${v.coste.dolares.toLocaleString("es-ES")} $`}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {viendo && (
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-sm">
+          <p className="flex flex-wrap items-center justify-between gap-2 text-warning">
+            <strong>Estás viendo la versión del {fecha(viendo.generadoEn)}, no la actual.</strong>
+            <button onClick={() => onVer(null)} className="rounded-md border border-warning/40 px-2 py-1 text-xs hover:bg-warning/10">
+              Volver a la actual
+            </button>
+          </p>
+          <p className="mt-2 text-xs font-semibold text-ink-200">Qué cambió desde esta versión hasta la actual:</p>
+          <div className="mt-1 text-xs leading-relaxed text-ink-300">
+            <Markdown texto={cambiosInforme(viendo, actual).map((c) => `- ${c}`).join("\n")} />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
