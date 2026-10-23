@@ -5,7 +5,7 @@ import { esVentaAmazon, type Pedido } from "@/lib/datos/tipos";
 import type { CorreoCliente } from "@/lib/gmail";
 import { pedidosEnAlmacen } from "@/lib/datos/almacen";
 import { ETIQUETAS_POR_ASIN } from "@/lib/datos/etiquetas";
-import { marketplaceConocido } from "@/lib/datos/marketplacesConocidos";
+import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketplacesConocidos";
 import { diaMadrid } from "@/lib/datos/fechas";
 import { contarEscrituras, contarLecturas } from "@/lib/datos/consumo";
 import { formatNumero } from "@/lib/format";
@@ -236,7 +236,9 @@ export async function avisarMensajesClientes(mensajes: CorreoCliente[]): Promise
 
   for (const [i, m] of orden.slice(0, MAX_MENSAJES).entries()) {
     if (i > 0) await new Promise((r) => setTimeout(r, PAUSA_MS));
-    const mk = m.marketplaceId ? marketplaceConocido(m.marketplaceId) : null;
+    // Emails without the marketplace id (some countries' don't carry it): by the sender's domain.
+    const idMk = m.marketplaceId ?? marketplacePorNombre(m.dominio);
+    const mk = idMk ? marketplaceConocido(idMk) : null;
     const pais = mk ? `${bandera(mk.codigoPais)} ${escapar(mk.pais)}` : escapar(m.dominio || "Amazon");
     const producto = m.asin && ETIQUETAS_POR_ASIN[m.asin] ? ETIQUETAS_POR_ASIN[m.asin] : m.producto?.slice(0, 50);
     const texto = m.texto.length > MAX_TEXTO ? `${m.texto.slice(0, MAX_TEXTO).trimEnd()}…` : m.texto;

@@ -555,14 +555,18 @@ function FilaArchivo({ estudioId, a, onCambio }: { estudioId: string; a: Archivo
   const [confirmar, setConfirmar] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const url = `/api/h10/estudios/${estudioId}/archivos/${a.id}`;
-  const borrar = async () => {
-    setOcupado(true);
-    await fetch(url, { method: "DELETE" }).catch(() => {});
-    setOcupado(false);
-    onCambio();
-  };
   const [releyendo, setReleyendo] = useState(false);
   const [fallo, setFallo] = useState<string | null>(null);
+  const borrar = async () => {
+    setOcupado(true);
+    setFallo(null);
+    const r = await fetch(url, { method: "DELETE" }).catch(() => null);
+    const b = (await r?.json().catch(() => ({}))) as { error?: string } | undefined;
+    setOcupado(false);
+    setConfirmar(false);
+    if (!r?.ok) return setFallo(b?.error ?? "No se pudo borrar: comprueba la conexión y vuelve a intentarlo");
+    onCambio();
+  };
   const releer = async () => {
     setReleyendo(true);
     setFallo(null);

@@ -288,6 +288,8 @@ const VEREDICTO = {
 
 /** Every how often the page asks the server how the agent is getting on. */
 const CADA_MS = 1500;
+/** Failed requests in a row (about 30 s) before saying the connection is lost. */
+const FALLOS_AVISO = 20;
 
 /**
  * «Informe estratégico»: the research agent's report on the niche (what to make, how to sell it, what to ask the
@@ -303,11 +305,21 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
   const url = `/api/h10/estudios/${estudioId}/informe`;
 
   // Asks how the agent is getting on until it finishes; then shows the report (or the error).
+  // A failed request (a network blip) doesn't stop following: the agent keeps working on the server.
   const seguir = useCallback(async () => {
+    let fallos = 0;
     for (;;) {
       await new Promise((ok) => setTimeout(ok, CADA_MS));
-      const j = await fetch(url).then((r) => r.json()).catch(() => null);
-      const e: EstadoInforme | null = j?.estado ?? null;
+      const j = await fetch(url)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      if (!j) {
+        if (++fallos === FALLOS_AVISO) setError("Se ha perdido la conexión con la app. El informe sigue haciéndose en el servidor: esto se actualiza solo cuando vuelva la conexión.");
+        continue;
+      }
+      if (fallos >= FALLOS_AVISO) setError(null);
+      fallos = 0;
+      const e: EstadoInforme | null = j.estado ?? null;
       if (!e) return setEstado(null);
       setEstado(e);
       if (e.terminado) {
@@ -328,7 +340,9 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
       .then((j) => {
         if (!vivo) return;
         if (j?.modo) setModo(j.modo);
-        if (j?.estado && !j.estado.terminado) {
+        // The last report was cut by a restart: said once on opening.
+        if (j?.estado?.interrumpido) setError(j.estado.error);
+        else if (j?.estado && !j.estado.terminado) {
           setEstado(j.estado);
           void seguir();
         }
@@ -360,7 +374,7 @@ export function InformeEstrategico({ estudioId, informe }: { estudioId: string; 
         <h3 className="text-lg font-semibold text-ink-50">¿Generar el informe del nicho?</h3>
         <p className="mt-2 text-sm leading-relaxed text-ink-300">
           Un equipo de 4 especialistas (mercado, palabras clave y PPC, producto, marketing) estudia todos los datos del producto e investiga en internet, y un director escribe el informe. Tarda
-          unos <strong className="text-ink-100">15–30 minutos</strong> y cuesta unos <strong className="text-ink-100">3–8 $</strong> de IA. Hazlo solo con los productos que de verdad te interesan.
+          unos <strong className="text-ink-100">15–30 minutos</strong> y cuesta unos <strong className="text-ink-100">5–12 $</strong> de IA. Hazlo solo con los productos que de verdad te interesan.
         </p>
         {modo === "ensayo" ? (
           <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">

@@ -10,7 +10,7 @@ import { TamanoMercado } from "./TamanoMercado";
 import { PestanaRentabilidad } from "./PestanaRentabilidad";
 import { cajaCompleta, rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
 import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado } from "@/lib/datos/h10Tipos";
-import { asinsParaCerebro, mismaBusqueda, xrayDesdeTitulos, xraySecundarias, analizarResenas, clasificarPalabra, EUR_POR_GBP, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
+import { asinsParaCerebro, mismaBusqueda, xrayDesdeTitulos, xraySecundarias, analizarResenas, clasificarPalabra, cambioAEur, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
 import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
@@ -356,11 +356,14 @@ function CabeceraEstudio({ estudio, onBorrado }: { estudio: EstudioH10; onBorrad
   const [confirmar, setConfirmar] = useState(false);
   const [datos, setDatos] = useState({ nombre: estudio.nombre, descripcion: estudio.descripcion });
   const [ocupado, setOcupado] = useState(false);
+  const [fallo, setFallo] = useState<string | null>(null);
   const pedir = async (metodo: "PATCH" | "DELETE") => {
     setOcupado(true);
+    setFallo(null);
     const r = await fetch(`/api/h10/estudios/${estudio.id}`, { method: metodo, headers: { "Content-Type": "application/json" }, body: metodo === "PATCH" ? JSON.stringify(datos) : undefined }).catch(() => null);
+    const b = (await r?.json().catch(() => ({}))) as { error?: string } | undefined;
     setOcupado(false);
-    if (!r?.ok) return;
+    if (!r?.ok) return setFallo(b?.error ?? (metodo === "DELETE" ? "No se pudo borrar el estudio" : "No se pudo guardar") + ": comprueba la conexión y vuelve a intentarlo");
     if (metodo === "DELETE") onBorrado();
     else {
       setEditando(false);
@@ -390,6 +393,7 @@ function CabeceraEstudio({ estudio, onBorrado }: { estudio: EstudioH10; onBorrad
         <button type="submit" disabled={ocupado} className="h-9 rounded-lg bg-accent-500 px-3 text-xs font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-60">
           Guardar
         </button>
+        {fallo && <p className="w-full text-xs text-danger">{fallo}</p>}
       </form>
     );
   return (
@@ -420,6 +424,7 @@ function CabeceraEstudio({ estudio, onBorrado }: { estudio: EstudioH10; onBorrad
           </>
         )}
       </div>
+      {fallo && <p className="w-full text-right text-xs text-danger">{fallo}</p>}
     </div>
   );
 }
@@ -498,7 +503,7 @@ function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; res
 
       {/* Country comparison */}
       {CON_COMPARATIVA && (
-      <Tarjeta titulo="Comparativa por país" subtitulo={`Ordenada por oportunidad. Libras pasadas a euros (1 £ = ${EUR_POR_GBP.toLocaleString("es-ES")} € de ejemplo).`}>
+      <Tarjeta titulo="Comparativa por país" subtitulo="Ordenada por oportunidad. Libras pasadas a euros con el cambio del BCE del día de cada Xray.">
         <div className="-mx-4 overflow-x-auto px-4">
           <table className="tabular w-full min-w-[960px] text-sm">
             <thead>
@@ -746,7 +751,7 @@ function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palab
   const tieneFicha = (codigo: string, marca: string) => !!palabras[codigo]?.rivales.includes(marca);
   const filas = estudio.mercados
     .filter((m) => !pais || m.codigoPais === pais)
-    .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
+    .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: c.facturacion * cambioAEur(m) })))
     .sort((a, b) => b.eur - a.eur);
   const moneda = (v: number, m: MercadoXray) => formatMoneda(v, m.moneda);
   // Share of the market shown: every country together (in euros) under «Todos», else the chosen country. So the

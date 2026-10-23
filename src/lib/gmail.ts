@@ -3,6 +3,7 @@ import "server-only";
 import type { NextRequest } from "next/server";
 import { guardarGmail, obtenerGmail, type Notificacion } from "@/lib/datos/notificaciones";
 import { CONSULTA_GMAIL, esNotificacion } from "@/lib/datos/clasificarNotificaciones";
+import { enviarTelegram } from "@/lib/telegram";
 
 /*
  * Gmail access (read-only) to collect Amazon's performance notifications.
@@ -45,8 +46,37 @@ async function token(cuerpo: Record<string, string>): Promise<{ access_token: st
     cache: "no-store",
   });
   const b = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; error?: string; error_description?: string };
+  if (b.error === "invalid_grant") throw new PermisoCaducado();
   if (!res.ok || !b.access_token) throw new Error(`Google: ${b.error_description ?? b.error ?? res.status}`);
   return { access_token: b.access_token, refresh_token: b.refresh_token };
+}
+
+/** Google no longer accepts the stored permission (it expired or was revoked). */
+class PermisoCaducado extends Error {
+  constructor() {
+    super("Gmail desconectado: Google ha caducado el permiso. Vuelve a conectarlo en Cuenta → «Conectar Gmail»");
+  }
+}
+
+/**
+ * A fresh access token from the stored permission. When Google turns it down, the permission is marked as expired
+ * (the pages say to reconnect) and a Telegram alert goes out once, not on every sync.
+ */
+async function accesoGmail(refreshToken: string): Promise<string> {
+  try {
+    const { access_token } = await token({ refresh_token: refreshToken, grant_type: "refresh_token" });
+    if ((await obtenerGmail()).caducado) await guardarGmail({ caducado: null });
+    return access_token;
+  } catch (e) {
+    if (e instanceof PermisoCaducado && !(await obtenerGmail()).caducado) {
+      await guardarGmail({ caducado: new Date().toISOString() });
+      await enviarTelegram(
+        "⚠️ <b>Gmail desconectado</b>\nGoogle ha caducado el permiso de la app: no llegan los mensajes de clientes ni las notificaciones de Amazon. Vuelve a conectarlo en la app → Cuenta → «Conectar Gmail».",
+        "alertas",
+      ).catch(() => false);
+    }
+    throw e;
+  }
 }
 
 /** Exchanges the callback code and stores the refresh token and the mailbox address. */
@@ -54,7 +84,7 @@ export async function conectar(req: NextRequest, code: string): Promise<void> {
   const t = await token({ code, grant_type: "authorization_code", redirect_uri: redirectUri(req) });
   if (!t.refresh_token) throw new Error("Google no devolvió acceso permanente: vuelve a conectar");
   const perfil = await gmailGet<{ emailAddress?: string }>(t.access_token, "/profile");
-  await guardarGmail({ refreshToken: t.refresh_token, email: perfil.emailAddress ?? null, notificaciones: {}, descartados: [], actualizadoEn: null });
+  await guardarGmail({ refreshToken: t.refresh_token, email: perfil.emailAddress ?? null, notificaciones: {}, descartados: [], actualizadoEn: null, caducado: null });
 }
 
 /** `params` as pairs: Gmail repeats a parameter to pass several values (metadataHeaders). */
@@ -70,7 +100,7 @@ type Mensaje = { id: string; snippet?: string; internalDate?: string; payload?: 
 export async function sincronizarGmail(): Promise<number> {
   const doc = await obtenerGmail();
   if (!doc.refreshToken) return 0;
-  const { access_token } = await token({ refresh_token: doc.refreshToken, grant_type: "refresh_token" });
+  const access_token = await accesoGmail(doc.refreshToken);
 
   const ids: string[] = [];
   let pageToken: string | undefined;
@@ -178,7 +208,7 @@ function leerCorreoCliente(m: CorreoCompleto): CorreoCliente {
 export async function correosClientesNuevos(conocidos: Set<string>): Promise<CorreoCliente[]> {
   const doc = await obtenerGmail();
   if (!doc.refreshToken) return [];
-  const { access_token } = await token({ refresh_token: doc.refreshToken, grant_type: "refresh_token" });
+  const access_token = await accesoGmail(doc.refreshToken);
   const r = await gmailGet<{ messages?: { id: string }[] }>(access_token, "/messages", [
     ["q", "from:marketplace.amazon newer_than:365d"],
     ["maxResults", "500"],

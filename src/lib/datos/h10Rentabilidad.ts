@@ -1,4 +1,4 @@
-import { EUR_POR_GBP, rangosDePrecio } from "./h10Analisis";
+import { cambioAEur, rangosDePrecio } from "./h10Analisis";
 import { SUPUESTOS_INICIALES, type CodigoPais, type EstudioH10, type FichaAmazon, type MercadoXray, type Paquete, type PalabrasMercado, type SupuestosRentabilidad } from "./h10Tipos";
 
 /*
@@ -19,7 +19,6 @@ export const CUOTAS = [0.02, 0.05, 0.1];
 const MESES_STOCK_INICIAL = 3;
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
-const aEur = (v: number, moneda: string) => (moneda === "GBP" ? v * EUR_POR_GBP : v);
 const mediana = (xs: number[]) => {
   const o = [...xs].sort((a, b) => a - b);
   return o.length ? (o.length % 2 ? o[(o.length - 1) / 2] : (o[o.length / 2 - 1] + o[o.length / 2]) / 2) : null;
@@ -116,6 +115,8 @@ function unidadesDelMercado(m: MercadoXray): number {
 
 export function rentabilidadPais(estudio: EstudioH10, m: MercadoXray, palabras: PalabrasMercado | undefined, supuestos?: SupuestosRentabilidad): RentabilidadPais {
   const s = supuestos ?? estudio.supuestos ?? SUPUESTOS_INICIALES;
+  // Pounds at the ECB rate of this country's Xray.
+  const aEur = (v: number, moneda: string) => v * cambioAEur({ moneda, eurPorGbp: m.eurPorGbp });
   const calc = estudio.calculadoras?.[m.codigoPais];
   const otra = Object.values(estudio.calculadoras ?? {}).find((c) => c && c.codigoPais !== m.codigoPais);
   const ref = calc ? null : referenciaAmazon(estudio, m, s);

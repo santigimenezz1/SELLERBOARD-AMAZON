@@ -4,7 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { estudioParaAgente, mkDe, todasLasResenas } from "@/lib/datos/estudiosH10";
 import { fichasCatalogo } from "@/lib/amazon/apis";
 import { hojaNumeros } from "./hojaNumeros";
-import { analizarResenas, EUR_POR_GBP, marcasDelEstudio, nombrePais, rangosDePrecio, resumirEstudio } from "@/lib/datos/h10Analisis";
+import { analizarResenas, cambioAEur, marcasDelEstudio, nombrePais, rangosDePrecio, resumirEstudio } from "@/lib/datos/h10Analisis";
 import { esCodigoPais } from "@/lib/datos/h10Tipos";
 import { EQUIPO } from "@/lib/datos/h10Equipo";
 
@@ -269,7 +269,7 @@ async function verCompetidor(id: string, d: Datos, i: Record<string, unknown>) {
   return {
     pais,
     moneda: m.moneda,
-    competidor: { ...c, puesto: orden.indexOf(c) + 1, cuotaPais: total ? r1((c.facturacion / total) * 100) : 0, facturacionEur: Math.round(m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion) },
+    competidor: { ...c, puesto: orden.indexOf(c) + 1, cuotaPais: total ? r1((c.facturacion / total) * 100) : 0, facturacionEur: Math.round(c.facturacion * cambioAEur(m)) },
     temasHelium10: temas ? { quejas: temas.quejas.map((q) => ({ texto: q.texto, resenas: q.menciones })), elogios: temas.elogios.map((q) => ({ texto: q.texto, resenas: q.menciones })) } : null,
     resenasCompletas: { total: completas.length, porEstrellas: [1, 2, 3, 4, 5].map((e) => completas.filter((r) => r.estrellas === e).length) },
   };

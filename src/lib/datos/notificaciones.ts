@@ -20,6 +20,8 @@ type Doc = {
   notificaciones: Record<string, Notificacion>;
   descartados: string[];
   actualizadoEn: string | null;
+  /** When Google stopped accepting the stored permission (expired or revoked): Gmail must be connected again. */
+  caducado: string | null;
 };
 /** Bumped when the selection rules change: the notifications are then read again from Gmail. */
 export const VERSION_NOTIFICACIONES = 2;
@@ -42,6 +44,7 @@ export async function obtenerGmail(): Promise<Doc> {
     notificaciones: vigente ? ((snap.get("notificaciones") as Doc["notificaciones"] | undefined) ?? {}) : {},
     descartados: vigente ? ((snap.get("descartados") as string[] | undefined) ?? []) : [],
     actualizadoEn: vigente ? ((snap.get("actualizadoEn") as string | undefined) ?? null) : null,
+    caducado: (snap.get("caducado") as string | undefined) ?? null,
   };
   return g.__gmailV2;
 }
@@ -62,6 +65,7 @@ export async function estadoNotificaciones() {
     conectado: Boolean(d.refreshToken),
     email: d.email,
     actualizadoEn: d.actualizadoEn,
+    caducado: d.caducado,
     notificaciones: Object.values(d.notificaciones)
       .filter((n) => esNotificacion(n.asunto, n.remitente))
       .map((n) => ({ ...n, mercados: mercadosDe(n.asunto, n.remitente) }))

@@ -69,6 +69,22 @@ function cantidades(i: ResumenInventario): CantidadesStock {
   };
 }
 
+/**
+ * Whether two markets' stock is one pool: the same SKUs, each with its total within a few units (3, or 2 % of it).
+ * Separate pools of the same products differ by far more than what sells in the seconds between two calls.
+ */
+function mismoAlmacen(a: ResumenInventario[], b: ResumenInventario[]): boolean {
+  const totales = (xs: ResumenInventario[]) => new Map(xs.map((i) => [i.sellerSku ?? "", i.totalQuantity ?? 0]));
+  const ta = totales(a);
+  const tb = totales(b);
+  if (ta.size !== tb.size) return false;
+  for (const [sku, n] of ta) {
+    const m = tb.get(sku);
+    if (m === undefined || Math.abs(n - m) > Math.max(3, Math.max(n, m) * 0.02)) return false;
+  }
+  return true;
+}
+
 const PAISES_UE = new Set(["ES", "DE", "FR", "IT", "NL", "BE", "IE", "AT", "PT", "SE", "PL"]);
 
 function nombrarRegion(mks: Marketplace[]): Pick<Region, "id" | "nombre" | "bandera"> {
@@ -83,7 +99,7 @@ function nombrarRegion(mks: Marketplace[]): Pick<Region, "id" | "nombre" | "band
  * (one write, only if it changed). Returns the new snapshot.
  */
 export async function actualizarStock(marketplaces: Marketplace[]): Promise<Stock> {
-  const porMarketplace: { mk: Marketplace; items: ResumenInventario[]; firma: string }[] = [];
+  const porMarketplace: { mk: Marketplace; items: ResumenInventario[] }[] = [];
   let ultimoError: unknown = null;
   for (const mk of marketplaces.filter((m) => m.codigoPais)) {
     let items: ResumenInventario[];
@@ -96,18 +112,24 @@ export async function actualizarStock(marketplaces: Marketplace[]): Promise<Stoc
     }
     // A marketplace with no stock at all isn't a region worth showing.
     if (!items.some((i) => (i.totalQuantity ?? 0) > 0 || cantidades(i).enCamino > 0)) continue;
-    // Same SKUs with the same quantities = the same physical pool.
-    const firma = JSON.stringify(items.map((i) => [i.sellerSku, cantidades(i)]).sort());
-    porMarketplace.push({ mk, items, firma });
+    porMarketplace.push({ mk, items });
   }
   if (porMarketplace.length === 0 && ultimoError) throw ultimoError;
 
-  const grupos = new Map<string, typeof porMarketplace>();
-  for (const x of porMarketplace) grupos.set(x.firma, [...(grupos.get(x.firma) ?? []), x]);
+  // Same SKUs with (about) the same quantities = the same physical pool. Markets are asked one after another, so a
+  // sale or a reception in between moves a few units: that still is the same pool, not two regions.
+  const grupos: (typeof porMarketplace)[] = [];
+  for (const x of porMarketplace) {
+    // Only EU markets can share a pool (Pan-European FBA); the UK and the rest keep their own.
+    const zona = (mk: Marketplace) => (PAISES_UE.has(mk.codigoPais.toUpperCase()) ? "UE" : mk.id);
+    const grupo = grupos.find((g) => zona(g[0].mk) === zona(x.mk) && mismoAlmacen(g[0].items, x.items));
+    if (grupo) grupo.push(x);
+    else grupos.push([x]);
+  }
 
   const regiones: Region[] = [];
   const articulos = new Map<string, ArticuloStock>();
-  for (const grupo of grupos.values()) {
+  for (const grupo of grupos) {
     const mks = grupo.map((x) => x.mk);
     const region: Region = { ...nombrarRegion(mks), marketplaceIds: mks.map((m) => m.id), paises: mks.map((m) => m.codigoPais.toUpperCase()) };
     regiones.push(region);

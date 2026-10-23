@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
+import { permitirIA } from "@/lib/auth/limiteInvitado";
 import { borrarArchivo, enlaceArchivo, releerArchivo } from "@/lib/datos/estudiosH10";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
@@ -20,7 +21,10 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 /** Reads the file again with the AI, replacing what was read from it. */
 export async function POST(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
-  if (!(await usuarioDelEstudio((await params).id, true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const user = await usuarioDelEstudio((await params).id, true);
+  if (!user) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const limite = await permitirIA(user, "archivo");
+  if (limite) return NextResponse.json({ error: limite }, { status: 429 });
   try {
     const { id, archivoId } = await params;
     const archivo = await releerArchivo(id, archivoId);

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CodigoPais, EstudioH10, PalabrasMercado } from "@/lib/datos/h10Tipos";
-import { EUR_POR_GBP, nombrePais } from "@/lib/datos/h10Analisis";
+import { cambioAEur, nombrePais } from "@/lib/datos/h10Analisis";
 import { auditarListing, colorNota, listingDe, resumenListings } from "@/lib/datos/h10Listings";
 import { formatMoneda, formatNumero, formatPorcentaje } from "@/lib/format";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
@@ -27,20 +27,27 @@ const MAS = 10;
  * automatic load is always there: it only opens Amazon, and whoever runs it signs with the key in their own extension
  * (the owner loads a guest's reviews signed in as the guest, from his Chrome).
  */
+const sinCambios = () => () => {};
+function leerCuantos(memoria: string): number {
+  try {
+    const n = Number(localStorage.getItem(memoria));
+    return n > TOP ? n : TOP;
+  } catch {
+    return TOP;
+  }
+}
+
 export function PestanaListings({ estudio, palabras, conExtension = true }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado>; conExtension?: boolean }) {
   const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
   // Shown at once; saved in the study in the background.
   const [quitados, setQuitados] = useState<string[]>(estudio.listingsQuitados ?? []);
   const [errorQuitar, setErrorQuitar] = useState("");
-  const [cuantos, setCuantos] = useState(TOP);
   const memoria = `h10-listings-cuantos-${estudio.id}`;
-  useEffect(() => {
-    try {
-      const n = Number(localStorage.getItem(memoria));
-      if (n > TOP) setCuantos(n);
-    } catch {}
-  }, [memoria]);
+  // How many the owner last showed, remembered in this browser (the server renders the first TOP).
+  const recordados = useSyncExternalStore(sinCambios, () => leerCuantos(memoria), () => TOP);
+  const [elegidos, setCuantos] = useState<number | null>(null);
+  const cuantos = elegidos ?? recordados;
   const agregarMas = () => {
     const n = cuantos + MAS;
     setCuantos(n);
@@ -50,7 +57,7 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
   };
   const todos = estudio.mercados
     .filter((m) => !pais || m.codigoPais === pais)
-    .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
+    .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: c.facturacion * cambioAEur(m) })))
     .sort((a, b) => b.eur - a.eur);
   // The whole market of the view, taken-out listings included: taking one out doesn't change the market.
   const totalMercado = todos.reduce((t, x) => t + x.eur, 0);

@@ -54,8 +54,12 @@ export function PestanaAgentes({ estudioId, informe, conBanco = true }: { estudi
   const seguir = useCallback(async () => {
     for (;;) {
       await new Promise((ok) => setTimeout(ok, CADA_MS));
-      const j = await fetch(url).then((r) => r.json()).catch(() => null);
-      const e: EstadoInforme | null = j?.estado ?? null;
+      const j = await fetch(url)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      // A network blip: the team keeps working on the server, so keep asking.
+      if (!j) continue;
+      const e: EstadoInforme | null = j.estado ?? null;
       setEstado(e);
       setAhora(Date.now());
       if (!e || e.terminado) {

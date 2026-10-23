@@ -27,17 +27,22 @@ export function Notificaciones({ datos, marketplaceId, pais }: { datos: EstadoNo
     }
   }
 
-  if (!datos.configurado || !datos.conectado) {
+  if (!datos.configurado || !datos.conectado || datos.caducado) {
     return (
       <div className="max-w-2xl rounded-xl border border-white/[0.06] bg-ink-900/80 p-5">
-        <h2 className="text-base font-semibold text-ink-100">Conecta tu Gmail</h2>
+        <h2 className="text-base font-semibold text-ink-100">{datos.caducado ? "Vuelve a conectar tu Gmail" : "Conecta tu Gmail"}</h2>
+        {datos.caducado && (
+          <p className="mt-1 text-sm text-danger">
+            Google caducó el permiso el {formatFechaHora(new Date(datos.caducado))}: desde entonces no entran notificaciones ni mensajes de clientes.
+          </p>
+        )}
         <p className="mt-1 text-sm text-ink-400">
           Amazon no ofrece las notificaciones de performance por API, pero te envía cada una por correo. Con permiso de solo lectura, la app lee
           únicamente los correos de Amazon y los ordena por país.
         </p>
         {datos.configurado ? (
           <a href="/api/gmail/conectar" className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-sm font-medium text-ink-950 hover:bg-accent-400">
-            Conectar Gmail
+            {datos.caducado ? "Volver a conectar Gmail" : "Conectar Gmail"}
           </a>
         ) : (
           <p className="mt-4 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning">

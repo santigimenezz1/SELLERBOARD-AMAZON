@@ -5,7 +5,8 @@ import { adminDb } from "@/lib/firebase/admin";
 import { bucket } from "./documentos";
 import { contarEscrituras, contarLecturas } from "./consumo";
 import { diaMadrid } from "./fechas";
-import { EUR_POR_GBP, nombrePais } from "./h10Analisis";
+import { cambioAEur, EUR_POR_GBP, nombrePais } from "./h10Analisis";
+import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
 import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, resenasDesdeCsv, type FilaPalabra } from "./h10Csv";
 import { agruparTemasResenas, quejasPorEstrellas, unirTemasEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
 import { resenasDesdeExcel } from "./h10Excel";
@@ -49,7 +50,10 @@ import { traducirResenas } from "@/lib/ia/traducirResenas";
  * - `estudiosH10/{id}/datos/{archivoId}`: what was read from each file (an Xray market or a list of keywords), so
  *   deleting a file removes exactly its data. The study shown is put together from them: per country, the latest
  *   Xray and every keyword from Cerebro and Magnet.
- * - Storage `h10/{id}/{archivoId}/{name}`: the original file, kept for good.
+ * - `estudiosH10/{id}/informe/actual`: the team's report (big: its own document, not the study's); `…/progreso`:
+ *   how the running report is getting on, so a restart (a deploy) doesn't leave it hanging unseen.
+ * - Storage `h10/{id}/{archivoId}/{name}`: the original file, kept for good; `h10/{id}/_informe/borrador.json`: the
+ *   specialists' analyses of the last report, reused if it has to be run again.
  * Everything is read once per server process and kept in memory.
  */
 
@@ -121,10 +125,17 @@ async function cargar(): Promise<Map<string, Entrada>> {
   contarLecturas(Math.max(snap.size, 1));
   const mapa = new Map<string, Entrada>();
   for (const d of snap.docs) {
-    const [datos, amazon, listings] = await Promise.all([d.ref.collection("datos").get(), d.ref.collection("amazon").get(), d.ref.collection("listings").get()]);
-    contarLecturas(Math.max(datos.size, 1) + Math.max(amazon.size, 1) + Math.max(listings.size, 1));
+    const [datos, amazon, listings, informe] = await Promise.all([d.ref.collection("datos").get(), d.ref.collection("amazon").get(), d.ref.collection("listings").get(), d.ref.collection("informe").doc("actual").get()]);
+    contarLecturas(Math.max(datos.size, 1) + Math.max(amazon.size, 1) + Math.max(listings.size, 1) + 1);
+    const guardado = { id: d.id, ...(d.data() as Omit<EstudioGuardado, "id">) };
+    // Reports used to live in the study's document: moved once to their own.
+    if (informe.exists) guardado.informe = informe.data() as InformeEstrategico;
+    else if (guardado.informe) {
+      await d.ref.collection("informe").doc("actual").set(JSON.parse(JSON.stringify(guardado.informe)));
+      contarEscrituras(1);
+    }
     mapa.set(d.id, {
-      estudio: { id: d.id, ...(d.data() as Omit<EstudioGuardado, "id">) },
+      estudio: guardado,
       datos: new Map(datos.docs.map((x) => [x.id, x.data() as DatosArchivo])),
       amazon: new Map(amazon.docs.map((x) => { const v = x.data() as SeguimientoAmazon; return [`${v.ficha.codigoPais}|${v.ficha.asin}`, v]; })),
       listings: new Map(listings.docs.map((x) => { const l = x.data() as ListingAmazon; return [`${l.codigoPais}|${l.asin}`, l]; })),
@@ -134,15 +145,52 @@ async function cargar(): Promise<Map<string, Entrada>> {
   return mapa;
 }
 
+// ---------- Pounds to euros ----------
+
+/** ECB euros per pound by day, for the pound Xrays (each day asked once), and the latest one known. */
+const gc = globalThis as unknown as { __cambiosGbp?: Map<string, number>; __gbpUltimo?: number };
+const cambiosGbp = () => (gc.__cambiosGbp ??= new Map());
+/** The latest ECB pound rate known (for prices with no Xray of their own), the fixed one until then. */
+const gbpActual = () => gc.__gbpUltimo ?? EUR_POR_GBP;
+
+/** Gets the ECB rate of every pound Xray's day not known yet (before putting studies together, which is sync). */
+async function prepararCambios(entradas: Iterable<Entrada>): Promise<void> {
+  const dias = new Set<string>();
+  for (const e of entradas) for (const d of e.datos.values()) if (d.mercado?.moneda === "GBP" && /^\d{4}-\d{2}-\d{2}/.test(d.mercado.fecha)) dias.add(d.mercado.fecha.slice(0, 10));
+  const faltan = [...dias].filter((dia) => !cambiosGbp().has(dia));
+  await Promise.all(faltan.map(async (dia) => cambiosGbp().set(dia, await eurPorUnidad("GBP", new Date(`${dia}T12:00:00Z`)))).map((p) => p.catch(() => {})));
+  const ultimo = [...cambiosGbp().keys()].sort().at(-1);
+  if (ultimo) gc.__gbpUltimo = cambiosGbp().get(ultimo);
+}
+/** A pound market with the ECB rate of its Xray's day, when known. */
+const conCambio = (m: MercadoXray): MercadoXray => {
+  const tasa = m.moneda === "GBP" ? cambiosGbp().get(m.fecha.slice(0, 10)) : undefined;
+  return tasa ? { ...m, eurPorGbp: Math.round(tasa * 10000) / 10000 } : m;
+};
+
 async function entrada(id: string): Promise<Entrada> {
   const e = (await cargar()).get(id);
   if (!e) throw new Error("Estudio no encontrado");
   return e;
 }
 
+/** Each study's writes, one after the other (two uploads at once could otherwise land out of order). */
+const colas = new Map<string, Promise<unknown>>();
+
+/**
+ * The study's document, without its report (kept in its own: guardarInforme). Writes go in turn and each writes the
+ * latest version in memory, so a slower earlier write never leaves out a file a later one added.
+ */
 async function guardarEstudio(e: EstudioGuardado) {
-  const { id, ...resto } = e;
-  await col().doc(id).set(resto);
+  const escribir = async () => {
+    const actual = (await cargar()).get(e.id)?.estudio ?? e;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id, informe, ...resto } = actual;
+    await col().doc(id).set(resto);
+  };
+  const turno = (colas.get(e.id) ?? Promise.resolve()).catch(() => {}).then(escribir);
+  colas.set(e.id, turno);
+  await turno;
   contarEscrituras(1);
 }
 
@@ -240,8 +288,9 @@ export async function borrarEstudio(id: string): Promise<void> {
   for (const archivoId of e.datos.keys()) await col().doc(id).collection("datos").doc(archivoId).delete();
   for (const v of e.amazon.values()) await col().doc(id).collection("amazon").doc(idAmazon(v.ficha.codigoPais, v.ficha.asin)).delete();
   for (const l of e.listings.values()) await col().doc(id).collection("listings").doc(idAmazon(l.codigoPais, l.asin)).delete();
+  for (const doc of ["actual", "progreso"]) await col().doc(id).collection("informe").doc(doc).delete();
   await col().doc(id).delete();
-  contarEscrituras(e.datos.size + e.amazon.size + e.listings.size + 1);
+  contarEscrituras(e.datos.size + e.amazon.size + e.listings.size + 3);
   (await cargar()).delete(id);
 }
 
@@ -513,13 +562,18 @@ export async function releerArchivo(id: string, archivoId: string): Promise<Arch
  * euros). From its listing when «Cargar datos» brought it; else asked once to Amazon's catalog (free, read-only) and
  * kept in the study, until another product leads. null: no Xray yet, or Amazon had no photo.
  */
+const gp = globalThis as unknown as { __sinPortada?: Map<string, number> };
+const sinPortada = () => (gp.__sinPortada ??= new Map());
+const REINTENTO_PORTADA_MS = 6 * 3600_000;
+
 export async function portadasEstudios(): Promise<Record<string, string | null>> {
   const mapa = await cargar();
+  await prepararCambios(mapa.values());
   const portadas: Record<string, string | null> = {};
   for (const [id, e] of mapa) {
     const { mercados } = ensamblar(e).estudio;
     const lider = mercados
-      .flatMap((m) => m.competidores.filter((c) => c.asin && esAsin(c.asin)).map((c) => ({ asin: c.asin!, pais: m.codigoPais, eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion })))
+      .flatMap((m) => m.competidores.filter((c) => c.asin && esAsin(c.asin)).map((c) => ({ asin: c.asin!, pais: m.codigoPais, eur: c.facturacion * cambioAEur(m) })))
       .sort((a, b) => b.eur - a.eur)[0];
     if (!lider) {
       portadas[id] = null;
@@ -531,8 +585,16 @@ export async function portadasEstudios(): Promise<Record<string, string | null>>
       continue;
     }
     const delListing = e.listings.get(`${lider.pais}|${lider.asin}`)?.fotos[0];
+    // A leader Amazon gave no photo for isn't asked again for a few hours (the list page would wait on it every time).
+    const clave = `${lider.pais}|${lider.asin}`;
+    const fallo = sinPortada().get(clave);
+    if (!delListing && fallo && Date.now() - fallo < REINTENTO_PORTADA_MS) {
+      portadas[id] = guardada?.url ?? null;
+      continue;
+    }
     const url = delListing ?? (await imagenesCatalogo([lider.asin], mkDe(lider.pais)).catch(() => []))[0]?.imagen ?? null;
-    portadas[id] = url;
+    if (!url) sinPortada().set(clave, Date.now());
+    portadas[id] = url ?? guardada?.url ?? null;
     if (url) {
       e.estudio = { ...e.estudio, portada: { asin: lider.asin, codigoPais: lider.pais, url } };
       await guardarEstudio(e.estudio);
@@ -631,11 +693,11 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
   for (const [, d] of lista) {
     if (!d.mercado || !d.codigoPais) continue;
     if (sinAcentos(d.mercado.palabraClave) !== principal.get(d.codigoPais)) continue;
-    if (!mercados.has(d.codigoPais)) mercados.set(d.codigoPais, structuredClone(d.mercado));
+    if (!mercados.has(d.codigoPais)) mercados.set(d.codigoPais, conCambio(structuredClone(d.mercado)));
     // Older Xrays of the same search: only their totals, for revenue per search. A secondary search's Xray
     // (another keyword) earns less and would lower the main search's revenue per search, so it doesn't count.
     else if (sinAcentos(d.mercado.palabraClave) === sinAcentos(mercados.get(d.codigoPais)!.palabraClave))
-      (xraysAnteriores[d.codigoPais] ??= []).push({ ...d.mercado, competidores: [] });
+      (xraysAnteriores[d.codigoPais] ??= []).push(conCambio({ ...d.mercado, competidores: [] }));
   }
 
   const palabras: Record<string, PalabrasMercado> = {};
@@ -731,8 +793,17 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
   };
 }
 
+/** One study ready for its page (null: there's no such study). */
+export async function estudioParaVista(id: string): Promise<EstudioParaVista | null> {
+  const e = (await cargar()).get(id);
+  if (!e) return null;
+  await prepararCambios([e]);
+  return ensamblar(e);
+}
+
 /** Every stored study, newest first, ready for the page. */
 export async function estudiosParaVista(): Promise<EstudioParaVista[]> {
+  await prepararCambios((await cargar()).values());
   return [...(await cargar()).values()].map(ensamblar).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn));
 }
 
@@ -759,7 +830,8 @@ export async function quejasEstrellasDe(id: string, pais: CodigoPais, asin: stri
  * or praise and in how many reviews. With several competitors, each star takes reviews of all of them in turn, so a
  * product with many reviews doesn't drown the rest.
  */
-async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limites: Limites): Promise<QuejasPorEstrellas> {
+/** The reviews the AI would read, star by star (each star takes reviews of every source in turn). */
+function elegirResenas(fuentes: ResenaCompleta[][], limites: Limites) {
   const elegidas: (ResenaParaAnalizar & { original: string })[] = [];
   const grupos: QuejasPorEstrellas["grupos"] = [];
   for (const estrellas of [1, 2, 3, 4, 5] as const) {
@@ -775,6 +847,29 @@ async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limi
         }
     grupos.push({ estrellas, total: listas.reduce((t, l) => t + l.length, 0), leidas: tomadas, temas: [] });
   }
+  return { elegidas, grupos };
+}
+
+/**
+ * What reading them would cost, roughly (Sonnet: 2 $ / 10 $ per million tokens in / out): about 3,2 characters a
+ * token in, and per batch its reasoning and answer out, plus the call that merges the batches.
+ */
+function costeEstrellas(elegidas: { titulo: string; texto: string }[]): number {
+  const tandas = Math.ceil(elegidas.length / TANDA_ESTRELLAS);
+  const entrada = elegidas.reduce((s, r) => s + (r.titulo.length + r.texto.length) / 3.2 + 12, 0) + tandas * 600;
+  const salida = tandas * 4000 + elegidas.length * 5 + (tandas > 1 ? 3000 : 0);
+  return Math.round(((entrada * 2 + salida * 10) / 1_000_000) * 100) / 100;
+}
+
+/** How many reviews «Analizar con IA» would read and about what it would cost, before running it (no AI). */
+export async function estimarEstrellas(id: string, objetivo: { pais: CodigoPais; asin: string } | { ambito: CodigoPais | "TODOS" }): Promise<{ resenas: number; dolares: number }> {
+  const [fuentes, limites] = "asin" in objetivo ? [[await resenasCompletasDe(id, objetivo.pais, objetivo.asin)], LIMITES_PRODUCTO] : [await fuentesAmbito(id, objetivo.ambito), LIMITES_AMBITO];
+  const { elegidas } = elegirResenas(fuentes, limites);
+  return { resenas: elegidas.length, dolares: costeEstrellas(elegidas) };
+}
+
+async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limites: Limites): Promise<QuejasPorEstrellas> {
+  const { elegidas, grupos } = elegirResenas(fuentes, limites);
   if (!elegidas.length) throw new Error("No hay reseñas cargadas");
   const porNumero = new Map(elegidas.map((r) => [r.n, r]));
   /** Only reviews of that star, each once. */
@@ -783,8 +878,20 @@ async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limi
   // Up to one batch: a single call. More: batches a few at a time, then the AI merges each star's partial themes.
   const tandas: (typeof elegidas)[] = [];
   for (let i = 0; i < elegidas.length; i += TANDA_ESTRELLAS) tandas.push(elegidas.slice(i, i + TANDA_ESTRELLAS));
+  // A batch that fails is tried again once; if it fails again it's left out (and said so), not the whole analysis.
   const parciales: Awaited<ReturnType<typeof quejasPorEstrellas>>[] = [];
-  for (let i = 0; i < tandas.length; i += TANDAS_A_LA_VEZ) parciales.push(...(await Promise.all(tandas.slice(i, i + TANDAS_A_LA_VEZ).map((t) => quejasPorEstrellas(producto, t)))));
+  const fallidas: typeof elegidas = [];
+  const leerTanda = (t: typeof elegidas) =>
+    quejasPorEstrellas(producto, t)
+      .catch(() => quejasPorEstrellas(producto, t))
+      .catch((e) => {
+        console.error("[estudiosH10] tanda de estrellas", e);
+        fallidas.push(...t);
+        return null;
+      });
+  for (let i = 0; i < tandas.length; i += TANDAS_A_LA_VEZ)
+    for (const p of await Promise.all(tandas.slice(i, i + TANDAS_A_LA_VEZ).map(leerTanda))) if (p) parciales.push(p);
+  if (!parciales.length) throw new Error("La IA no pudo leer las reseñas: vuelve a intentarlo en un rato");
   let respuesta: { estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; resenas: number[] }[] }[];
   if (parciales.length === 1) respuesta = parciales[0];
   else {
@@ -806,7 +913,9 @@ async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limi
       })
       .filter((t) => t.texto && t.resenas > 0)
       .sort((a, b) => b.resenas - a.resenas);
-  return { generadoEn: new Date().toISOString(), analizadas: elegidas.length, grupos };
+  // The reviews of a batch left out don't count as read.
+  for (const g of grupos) if (g.leidas !== undefined) g.leidas -= fallidas.filter((r) => r.estrellas === g.estrellas).length;
+  return { generadoEn: new Date().toISOString(), analizadas: elegidas.length - fallidas.length, ...(fallidas.length && { sinLeer: fallidas.length }), grupos };
 }
 
 /** One competitor's reviews, star by star (AI). Kept with the study. */
@@ -820,14 +929,23 @@ export async function analizarEstrellas(id: string, pais: CodigoPais, asin: stri
 }
 
 /** Every competitor of a country, or of every country («TODOS»), star by star (AI). Kept with the study. */
-export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "TODOS"): Promise<QuejasPorEstrellas> {
-  const e = await entrada(id);
+/** The competitors with full reviews of a country, or of every country («TODOS»). */
+function productosAmbito(e: Entrada, ambito: CodigoPais | "TODOS") {
   const productos = new Map<string, { pais: CodigoPais; asin: string }>();
   for (const d of e.datos.values())
     if (d.resenasCompletas?.asin && d.codigoPais && (ambito === "TODOS" || d.codigoPais === ambito)) productos.set(`${d.codigoPais}_${d.resenasCompletas.asin}`, { pais: d.codigoPais, asin: d.resenasCompletas.asin });
   if (!productos.size) throw new Error(ambito === "TODOS" ? "No hay reseñas completas cargadas" : `No hay reseñas completas de ${nombrePais(ambito)}`);
-  const fuentes = await Promise.all([...productos.values()].map((p) => resenasCompletasDe(id, p.pais, p.asin)));
-  const resultado = await leerEstrellas(`${e.estudio.nombre} (${productos.size} competidores${ambito === "TODOS" ? ", varios países" : ` de ${nombrePais(ambito)}`})`, fuentes, LIMITES_AMBITO);
+  return [...productos.values()];
+}
+
+async function fuentesAmbito(id: string, ambito: CodigoPais | "TODOS"): Promise<ResenaCompleta[][]> {
+  return Promise.all(productosAmbito(await entrada(id), ambito).map((p) => resenasCompletasDe(id, p.pais, p.asin)));
+}
+
+export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "TODOS"): Promise<QuejasPorEstrellas> {
+  const e = await entrada(id);
+  const n = productosAmbito(e, ambito).length;
+  const resultado = await leerEstrellas(`${e.estudio.nombre} (${n} competidores${ambito === "TODOS" ? ", varios países" : ` de ${nombrePais(ambito)}`})`, await fuentesAmbito(id, ambito), LIMITES_AMBITO);
   e.estudio = { ...e.estudio, quejasEstrellas: { ...e.estudio.quejasEstrellas, [ambito]: resultado } };
   await guardarEstudio(e.estudio);
   return resultado;
@@ -835,6 +953,7 @@ export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "
 
 /** A study as the page sees it, with its keywords: what the research agent works from. */
 export async function estudioParaAgente(id: string) {
+  await prepararCambios([await entrada(id)]);
   const { estudio, palabras, costesPropios } = ensamblar(await entrada(id));
   return { estudio, palabras, costesPropios };
 }
@@ -871,12 +990,49 @@ export async function traducirResenasEstudio(id: string): Promise<{ traducidas: 
   return { traducidas, fallos, archivos };
 }
 
-/** Saves the research agent's report in the study. */
+/** Saves the research agent's report in the study (its own document), and drops the specialists' draft it came from. */
 export async function guardarInforme(id: string, informe: InformeEstrategico): Promise<void> {
   const e = await entrada(id);
+  await col().doc(id).collection("informe").doc("actual").set(JSON.parse(JSON.stringify(informe)));
+  contarEscrituras(1);
   e.estudio = { ...e.estudio, informe };
-  await guardarEstudio(e.estudio);
+  await bucket().file(rutaBorrador(id)).delete({ ignoreNotFound: true }).catch(() => {});
 }
+
+/** How a report is getting on, saved now and then while it runs (`proceso`: the server process running it). */
+export async function guardarProgresoInforme(id: string, progreso: Record<string, unknown>): Promise<void> {
+  await col().doc(id).collection("informe").doc("progreso").set(JSON.parse(JSON.stringify(progreso)));
+  contarEscrituras(1);
+}
+
+export async function progresoInforme(id: string): Promise<Record<string, unknown> | null> {
+  const d = await col().doc(id).collection("informe").doc("progreso").get();
+  contarLecturas(1);
+  return d.exists ? (d.data() as Record<string, unknown>) : null;
+}
+
+/**
+ * The specialists' work of a report not finished (their analyses, the director's scores and everything they read, for
+ * the figure checker): in Storage, as it can pass a document's 1 MB. Only valid while the study's data is the same.
+ */
+const rutaBorrador = (id: string) => `h10/${id}/_informe/borrador.json`;
+
+export async function guardarBorradorInforme(id: string, borrador: object): Promise<void> {
+  const datosDe = firmaDatos(await entrada(id));
+  await bucket().file(rutaBorrador(id)).save(JSON.stringify({ ...borrador, datosDe }), { contentType: "application/json", resumable: false });
+}
+
+export async function borradorInforme<T>(id: string): Promise<T | null> {
+  const [existe] = await bucket().file(rutaBorrador(id)).exists();
+  if (!existe) return null;
+  const [datos] = await bucket().file(rutaBorrador(id)).download();
+  const b = JSON.parse(datos.toString("utf8")) as T & { datosDe?: string };
+  const e = await entrada(id);
+  return b.datosDe === firmaDatos(e) ? b : null;
+}
+
+/** Changes whenever a file is added, read again or deleted. */
+const firmaDatos = (e: Entrada) => e.estudio.archivos.map((a) => `${a.id}:${a.estado}`).join(",");
 
 /** Every uploaded review of one competitor in one country (newest file first; the same review isn't repeated). */
 export async function resenasCompletasDe(id: string, pais: CodigoPais, asin: string): Promise<ResenaCompleta[]> {
@@ -971,7 +1127,7 @@ async function guardarAmazon(e: Entrada, v: SeguimientoAmazon) {
  * price and the FBA fee hardly depends on it, so an approximate one is enough.
  */
 function precioParaTarifas(e: Entrada, pais: CodigoPais, asin: string, moneda: "EUR" | "GBP"): number | null {
-  const enMoneda = (v: number, de: string) => Math.round((de === moneda ? v : de === "GBP" ? v * EUR_POR_GBP : v / EUR_POR_GBP) * 100) / 100;
+  const enMoneda = (v: number, de: string) => Math.round((de === moneda ? v : de === "GBP" ? v * gbpActual() : v / gbpActual()) * 100) / 100;
   const m = [...e.datos.values()].find((d) => d.codigoPais === pais && d.mercado)?.mercado;
   const xray = m?.competidores.find((c) => c.asin === asin)?.precio;
   if (xray) return xray;

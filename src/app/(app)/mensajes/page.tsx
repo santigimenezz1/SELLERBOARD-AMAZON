@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { obtenerMensajes } from "@/lib/datos/mensajes";
+import { obtenerGmail } from "@/lib/datos/notificaciones";
 import { asegurarAlmacen, pedidosEnAlmacen } from "@/lib/datos/almacen";
 import { idUltimaSync } from "@/lib/datos/panel";
 import { marketplaceConocido, marketplacePorNombre } from "@/lib/datos/marketplacesConocidos";
@@ -8,6 +9,9 @@ import { Bandera } from "@/components/Bandera";
 import { modoDemo } from "@/lib/auth/demo";
 import { AvisoDemo } from "@/components/AvisoDemo";
 
+/** Countries always offered, even without messages yet (in this order), by Amazon marketplace id. */
+const PAISES_FIJOS = ["A1RKKUPIHCS9HS", "A1PA6795UKMFR9", "A13V1IB3VIYZZH", "APJ6JRA9NG5V4", "A1805IZSGTT6HS", "A1F83G8C2ARO7P"];
+
 const fechaHora = (f: string) => new Date(f).toLocaleString("es-ES", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
 
 /** Buyer messages, newest first, by country: what the customer wrote, about which order and product. */
@@ -15,9 +19,9 @@ export default async function MensajesPage({ searchParams }: PageProps<"/mensaje
   const sp = await searchParams;
   // A guest sees it empty: nothing of the owner's is loaded.
   const demo = await modoDemo();
-  const [{ lista, actualizadoEn }] = demo
-    ? [{ lista: [] as Awaited<ReturnType<typeof obtenerMensajes>>["lista"], actualizadoEn: null }]
-    : await Promise.all([obtenerMensajes(), asegurarAlmacen(await idUltimaSync())]);
+  const [{ lista, actualizadoEn }, , gmail] = demo
+    ? [{ lista: [] as Awaited<ReturnType<typeof obtenerMensajes>>["lista"], actualizadoEn: null }, null, null]
+    : await Promise.all([obtenerMensajes(), asegurarAlmacen(await idUltimaSync()), obtenerGmail()]);
   const pedidos = new Map(demo ? [] : [...pedidosEnAlmacen().values()].map((p) => [p.amazonOrderId, p]));
 
   const mensajes = lista.map((m) => {
@@ -27,7 +31,10 @@ export default async function MensajesPage({ searchParams }: PageProps<"/mensaje
     const asin = m.asin ?? pedido?.asin ?? null;
     return { ...m, mkId: id, pais: mk?.pais ?? m.dominio, codigoPais: mk?.codigoPais ?? "", etiqueta: asin ? (ETIQUETAS_POR_ASIN[asin] ?? null) : null, sku: pedido?.sku ?? null };
   });
-  const paises = [...new Map(mensajes.filter((m) => m.mkId).map((m) => [m.mkId!, { id: m.mkId!, pais: m.pais, codigoPais: m.codigoPais }])).values()].sort((a, b) => a.pais.localeCompare(b.pais, "es"));
+  // The usual countries first (also with no messages), then any other a message came from.
+  const fijos = PAISES_FIJOS.map((id) => marketplaceConocido(id)!).map((mk) => ({ id: mk.id, pais: mk.pais, codigoPais: mk.codigoPais }));
+  const otros = [...new Map(mensajes.filter((m) => m.mkId && !PAISES_FIJOS.includes(m.mkId)).map((m) => [m.mkId!, { id: m.mkId!, pais: m.pais, codigoPais: m.codigoPais }])).values()].sort((a, b) => a.pais.localeCompare(b.pais, "es"));
+  const paises = [...fijos, ...otros];
   const elegido = typeof sp.mk === "string" && paises.some((p) => p.id === sp.mk) ? sp.mk : null;
   const visibles = elegido ? mensajes.filter((m) => m.mkId === elegido) : mensajes;
 
@@ -41,6 +48,21 @@ export default async function MensajesPage({ searchParams }: PageProps<"/mensaje
         <p className="mt-1 text-sm text-ink-400">Lo que te escriben los clientes, país por país. Amazon pide responder en menos de 24 horas.</p>
       </div>
       {demo && <AvisoDemo />}
+      {!demo && gmail && !gmail.refreshToken && (
+        <p className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Gmail no está conectado: los mensajes llegan de tu correo. Conéctalo en <Link href="/cuenta" className="font-medium underline">Cuenta → Conectar Gmail</Link>.
+        </p>
+      )}
+      {!demo && gmail?.caducado && (
+        <div className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+          <p>
+            <strong>Gmail desconectado desde el {fechaHora(gmail.caducado)}:</strong> Google caducó el permiso de la app, así que no entran mensajes nuevos ni llegan los avisos de Telegram.
+          </p>
+          <a href="/api/gmail/conectar" className="mt-2 inline-flex h-8 items-center rounded-lg bg-danger px-3 text-xs font-medium text-white hover:opacity-90">
+            Volver a conectar Gmail
+          </a>
+        </div>
+      )}
 
       <nav aria-label="País" className="flex flex-wrap gap-1.5">
         <Link href="/mensajes" scroll={false} className={chip(elegido === null)}>
@@ -130,7 +152,7 @@ export default async function MensajesPage({ searchParams }: PageProps<"/mensaje
           ))}
         </ul>
       )}
-      {actualizadoEn && <p className="text-xs text-ink-500">Comprobado: {fechaHora(actualizadoEn)} · se revisa en cada sincronización completa (cada hora).</p>}
+      {actualizadoEn && <p className="text-xs text-ink-500">Comprobado: {fechaHora(actualizadoEn)} · se revisa en cada sincronización (cada 5 minutos) y cada mensaje nuevo se avisa por Telegram.</p>}
     </div>
   );
 }

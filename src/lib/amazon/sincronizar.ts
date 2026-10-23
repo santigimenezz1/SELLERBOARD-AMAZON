@@ -65,6 +65,8 @@ import { eurPorUnidad } from "./tiposCambio";
 /** Finances re-reads this far back every sync: deferred transactions can change status after posting. */
 const SOLAPE_FINANZAS_MS = 10 * 24 * 3600_000;
 const SOLAPE_PEDIDOS_MS = 5 * 60_000;
+/** How long a failing order holds the orders cursor back (it's retried each sync meanwhile). */
+const ESPERA_PEDIDO_FALLIDO_MS = 2 * 24 * 3600_000;
 const MAX_VENTANA_FINANZAS_MS = 179 * 24 * 3600_000;
 /** How far back the first fee-sample build looks (then each sync only adds newer sales). */
 const DIAS_HISTORICO_TARIFAS = 90;
@@ -199,8 +201,9 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
       escrituras += r.escrituras;
       r.orderIds.forEach((id) => tocados.add(id));
       errores.push(...r.errores);
-      // A failed order (e.g. no exchange rate) must be fetched again next time: keep the cursor.
-      if (r.errores.length === 0) cursorPedidos = hasta;
+      // A failed order (e.g. today's exchange rate not out yet) must be fetched again next time: keep the cursor. Only
+      // for recent ones: one that keeps failing for days (a currency the ECB doesn't publish) would stall it forever.
+      if (r.fallidos.every((d) => Date.now() - d.getTime() > ESPERA_PEDIDO_FALLIDO_MS)) cursorPedidos = hasta;
     } catch (e) {
       errores.push(`Orders API: ${mensaje(e)}`);
     }
@@ -573,6 +576,8 @@ async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace
   const porId = new Map(marketplaces.map((m) => [m.id, m]));
   const existentes = pedidosEnAlmacen();
   const errores: string[] = [];
+  /** Creation dates of the orders that failed. */
+  const fallidos: Date[] = [];
   const orderIds: string[] = [];
   // Lines of orders seen for the first time (for the sales notice).
   const lineasNuevas: Pedido[] = [];
@@ -656,11 +661,12 @@ async function guardarPedidos(pedidos: PedidoAmazon[], marketplaces: Marketplace
       if (cambiado) orderIds.push(p.orderId);
     } catch (e) {
       errores.push(`Pedido ${p.orderId}: ${mensaje(e)}`);
+      fallidos.push(fecha);
     }
   }
   const escrituras = esc.cantidad;
   await esc.confirmar();
-  return { nuevos, orderIds, errores, escrituras, lineasNuevas };
+  return { nuevos, orderIds, errores, fallidos, escrituras, lineasNuevas };
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { CodigoPais, EstudioH10 } from "@/lib/datos/h10Tipos";
-import { EUR_POR_GBP, nombrePais } from "@/lib/datos/h10Analisis";
+import { cambioAEur, nombrePais } from "@/lib/datos/h10Analisis";
 import { temporada, type Temporada } from "@/lib/datos/h10Temporada";
 import { formatNumero } from "@/lib/format";
 import { Pais, Seccion, Tarjeta } from "./comun";
@@ -29,7 +29,7 @@ function series(estudio: EstudioH10) {
     const t = h && temporada(m, h, estudio.xraysAnteriores?.[m.codigoPais]);
     if (t) bases.set(m.codigoPais, t);
     if (!t) continue;
-    const cambio = m.moneda === "GBP" ? EUR_POR_GBP : 1;
+    const cambio = cambioAEur(m);
     porPais.set(m.codigoPais, new Map(t.meses.map((x) => [x.mes, x.facturacion * cambio])));
     busquedasPais.set(m.codigoPais, new Map(t.meses.map((x) => [x.mes, x.busquedas])));
   }

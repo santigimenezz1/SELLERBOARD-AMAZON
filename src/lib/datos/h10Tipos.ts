@@ -33,6 +33,8 @@ export type CompetidorXray = {
 export type MercadoXray = {
   codigoPais: CodigoPais;
   moneda: "EUR" | "GBP";
+  /** Euros per pound at the ECB on the Xray's day (pound markets; set when the study is put together). */
+  eurPorGbp?: number;
   palabraClave: string;
   fecha: string;
   /** Monthly searches of the keyword (null when the source doesn't give it, e.g. an Xray CSV). */
@@ -353,6 +355,8 @@ export type QuejasPorEstrellas = {
   generadoEn: string;
   /** Reviews read (up to a limit per star). */
   analizadas: number;
+  /** Reviews of batches the AI failed to read twice: left out. */
+  sinLeer?: number;
   /** Per star: reviews there are, how many the AI read (older analyses: all) and what they say. */
   grupos: { estrellas: 1 | 2 | 3 | 4 | 5; total: number; leidas?: number; temas: { texto: string; tipo?: "queja" | "elogio"; resenas: number; ejemplo: string | null }[] }[];
 };

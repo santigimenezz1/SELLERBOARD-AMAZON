@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
+import { permitirIA } from "@/lib/auth/limiteInvitado";
 import { subirArchivo } from "@/lib/datos/estudiosH10";
 import { esCodigoPais, esHerramienta } from "@/lib/datos/h10Tipos";
 import { volcarConsumo } from "@/lib/datos/consumo";
@@ -13,7 +14,10 @@ type Ctx = { params: Promise<{ id: string }> };
  */
 export async function POST(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
-  if (!(await usuarioDelEstudio((await params).id, true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const user = await usuarioDelEstudio((await params).id, true);
+  if (!user) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const limite = await permitirIA(user, "archivo");
+  if (limite) return NextResponse.json({ error: limite }, { status: 429 });
   const form = await req.formData().catch(() => null);
   const archivo = form?.get("archivo");
   if (!(archivo instanceof File)) return NextResponse.json({ error: "Falta el archivo" }, { status: 400 });

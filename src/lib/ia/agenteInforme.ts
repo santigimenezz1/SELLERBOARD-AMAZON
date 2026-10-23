@@ -1,8 +1,9 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { limpiarEnv } from "@/lib/env";
-import { estudioParaAgente, guardarInforme } from "@/lib/datos/estudiosH10";
+import { borradorInforme, estudioParaAgente, guardarBorradorInforme, guardarInforme, guardarProgresoInforme, progresoInforme } from "@/lib/datos/estudiosH10";
 import { informeSimulado } from "@/lib/datos/h10InformeSimulado";
 import { resumirEstudio } from "@/lib/datos/h10Analisis";
 import type { BloqueInforme, ControlInforme, InformeEstrategico, NotaAnalisis, PasoEquipo, RevisionInforme, SeccionInforme } from "@/lib/datos/h10Tipos";
@@ -46,6 +47,8 @@ export type EstadoInforme = {
   terminado: string | null;
   pasos: PasoAgente[];
   error: string | null;
+  /** The server restarted (e.g. a deploy) while it was running: it stopped there. */
+  interrumpido?: boolean;
 };
 
 const DIRECTOR_POR_DEFECTO = "claude-opus-5-5";
@@ -69,11 +72,35 @@ export const modoAgente = (): ModoAgente => (limpiarEnv(process.env.INFORME_MODO
 export const modeloDirector = () => limpiarEnv(process.env.INFORME_MODELO) || DIRECTOR_POR_DEFECTO;
 const modeloEspecialistas = () => limpiarEnv(process.env.INFORME_MODELO_ESPECIALISTAS) || ESPECIALISTAS_POR_DEFECTO;
 
-const g = globalThis as unknown as { __informes?: Map<string, EstadoInforme> };
+const g = globalThis as unknown as { __informes?: Map<string, EstadoInforme>; __procesoInforme?: string };
 const trabajos = () => (g.__informes ??= new Map());
+/** This server process: a saved progress of another one that never finished was cut by a restart. */
+const proceso = () => (g.__procesoInforme ??= randomUUID());
+/** How often a running report saves its progress. */
+const GUARDAR_PROGRESO_MS = 30_000;
 
-/** The progress of a study's report, while it's running and for a while after. */
-export const estadoInforme = (estudioId: string): EstadoInforme | null => trabajos().get(estudioId) ?? null;
+/**
+ * The progress of a study's report, while it's running and for a while after. From memory; after a restart, from
+ * the progress it saved: one that never finished is told as interrupted (with what it spent and whether its
+ * specialists' work is kept for the next try).
+ */
+export async function estadoInforme(estudioId: string): Promise<EstadoInforme | null> {
+  const enMemoria = trabajos().get(estudioId);
+  if (enMemoria) return enMemoria;
+  const p = (await progresoInforme(estudioId).catch(() => null)) as (EstadoInforme & { proceso?: string; actualizado?: string }) | null;
+  if (!p || p.terminado || p.proceso === proceso()) return null;
+  const guardado = await borradorInforme(estudioId).catch(() => null);
+  const cuando = new Date(p.actualizado ?? p.empezado).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
+  const gastado = p.gasto?.dolares ? `, y ya había gastado unos ${p.gasto.dolares.toLocaleString("es-ES", { maximumFractionDigits: 2 })} $` : "";
+  return {
+    ...p,
+    terminado: p.actualizado ?? p.empezado,
+    interrumpido: true,
+    error: `El último informe se interrumpió (${cuando}): el servidor se reinició mientras trabajaba, por ejemplo por un deploy${gastado}. ${
+      guardado ? "El trabajo de los especialistas quedó guardado: si lo vuelves a generar, se aprovecha y no se paga otra vez." : "Puedes volver a generarlo."
+    }`,
+  };
+}
 
 type Bloque = Anthropic.ContentBlock;
 type Uso = {
@@ -684,6 +711,16 @@ async function trabajar(estado: EstadoInforme) {
     tipo: "aviso",
   });
 
+  // An earlier try that didn't finish (same data): its specialists' work is reused, not paid again.
+  type Borrador = { modo: ModoAgente; analisis: { especialista: string; analisis: string; fuentes: { titulo: string; url: string }[]; sinRespaldo: string[] }[]; notas: NotaAnalisis[]; lecturas: string[]; urls: string[] };
+  const previo = await borradorInforme<Borrador>(estado.estudioId).catch(() => null);
+  const reusar = previo?.modo === estado.modo ? previo : null;
+  if (reusar) {
+    leido.lecturas.push(...reusar.lecturas);
+    reusar.urls.forEach((u) => leido.urls.add(u));
+    estado.pasos.push({ hora: new Date().toISOString(), texto: "Se aprovecha el trabajo de los especialistas del intento anterior, que no terminó (no se paga otra vez)", tipo: "aviso" });
+  }
+
   // 1. The four specialists, at the same time.
   const trabajoEspecialista = async (e: Especialista, primerMensaje: string) => {
     const nombreModelo = ensayo ? "ensayo" : modeloEspecialistas();
@@ -701,7 +738,7 @@ async function trabajar(estado: EstadoInforme) {
     const input = entrega.input as { analisis: string; fuentes?: { titulo: string; url: string }[] };
     return { especialista: e.nombre, analisis: input.analisis, fuentes: input.fuentes ?? [], sinRespaldo: [] as string[] };
   };
-  const analisis = await Promise.all(ESPECIALISTAS.map((e) => trabajoEspecialista(e, `${contexto}\nHaz tu análisis.`)));
+  const analisis = reusar ? reusar.analisis : await Promise.all(ESPECIALISTAS.map((e) => trabajoEspecialista(e, `${contexto}\nHaz tu análisis.`)));
 
   // The checker looks up the figures of each analysis in everything the team read, for the director to judge.
   const persona = (quien: string) => EQUIPO.find((m) => m.quien === quien)?.persona ?? quien;
@@ -713,18 +750,21 @@ async function trabajar(estado: EstadoInforme) {
       "estudio",
     );
   };
-  verificador("Empieza a comprobar las cifras de los cuatro análisis", "inicio");
-  analisis.forEach(verificarAnalisis);
+  if (!reusar) {
+    verificador("Empieza a comprobar las cifras de los cuatro análisis", "inicio");
+    analisis.forEach(verificarAnalisis);
+  }
   const sinRespaldoTotal = analisis.reduce((n, a) => n + a.sinRespaldo.length, 0);
-  verificador(sinRespaldoTotal ? `Pasa a Carmen las ${sinRespaldoTotal} cifras de los análisis que no están en los datos` : "Avisa a Carmen: todas las cifras de los análisis están en los datos", "revision", "Director");
+  if (!reusar) verificador(sinRespaldoTotal ? `Pasa a Carmen las ${sinRespaldoTotal} cifras de los análisis que no están en los datos` : "Avisa a Carmen: todas las cifras de los análisis están en los datos", "revision", "Director");
   const conControl = (a: { especialista: string; analisis: string; sinRespaldo?: string[] }) =>
     `## ${a.especialista}\n\n${a.analisis}\n\n(Control automático: ${a.sinRespaldo?.length ? `cifras que no están en los datos: ${a.sinRespaldo.join(", ")}` : "todas sus cifras están en los datos"})`;
 
   // 2. Quality control: the director scores each analysis and sends back, once, those below the bar.
   estado.fase = "director";
   const nota = (n: number) => n.toLocaleString("es-ES", { maximumFractionDigits: 1 });
-  const notas = await puntuarAnalisis(ensayo, analisis, contexto, estado.gasto, conControl);
-  for (const n of notas)
+  const notas = reusar ? reusar.notas : await puntuarAnalisis(ensayo, analisis, contexto, estado.gasto, conControl);
+  if (!reusar)
+    for (const n of notas)
     estado.pasos.push({
       hora: new Date().toISOString(),
       texto: n.nota >= NOTA_MINIMA ? `Aprueba el análisis de ${persona(n.especialista)}: ${nota(n.nota)}/10` : `Devuelve el análisis a ${persona(n.especialista)} (${nota(n.nota)}/10): «${n.comentario}»`,
@@ -734,7 +774,7 @@ async function trabajar(estado: EstadoInforme) {
     });
   await Promise.all(
     notas
-      .filter((n) => n.nota < NOTA_MINIMA)
+      .filter((n) => !reusar && n.nota < NOTA_MINIMA)
       .map(async (n) => {
         const e = ESPECIALISTAS.find((x) => x.nombre === n.especialista)!;
         const i = analisis.findIndex((a) => a.especialista === n.especialista);
@@ -747,6 +787,10 @@ async function trabajar(estado: EstadoInforme) {
       }),
   );
 
+  // The specialists' work is kept until the report is saved: a restart from here on doesn't pay it again.
+  if (!reusar)
+    await guardarBorradorInforme(estado.estudioId, { modo: estado.modo, analisis, notas, lecturas: leido.lecturas, urls: [...leido.urls] } satisfies Borrador).catch((e) => console.error("[agenteInforme] borrador", e));
+
   // 3. The director checks, decides and writes (it can ask the specialists); the reviewer reads it before it's accepted.
   let revision: RevisionInforme | null = null;
   const nombreDirector = ensayo ? "ensayo" : modeloDirector();
@@ -754,7 +798,7 @@ async function trabajar(estado: EstadoInforme) {
   let control: ControlInforme | null = null;
   let devueltoPorVerificador = false;
   let entregasEnsayo = 0;
-  await bucle({
+  const trabajoDirector = bucle({
     estado,
     quien: "Director",
     modelo: ensayo
@@ -822,6 +866,19 @@ async function trabajar(estado: EstadoInforme) {
       },
     },
   });
+  try {
+    await trabajoDirector;
+  } catch (e) {
+    // The director stopped (out of turns, a cut answer…) after handing in a valid report that went back for fixes:
+    // that version is kept, and said so, rather than losing everything.
+    if (typeof informe === "string") throw e;
+    estado.pasos.push({
+      hora: new Date().toISOString(),
+      texto: `Carmen no volvió a entregar el informe corregido (${e instanceof Error ? e.message : "error"}): se guarda su última versión válida, sin las últimas correcciones`,
+      tipo: "aviso",
+      quien: "Director",
+    });
+  }
   if (typeof informe === "string") throw new Error("El director no entregó un informe válido");
   await guardarInforme(estado.estudioId, {
     ...(informe as Exclude<ReturnType<typeof validarInforme>, string>),
@@ -892,13 +949,19 @@ export function lanzarInforme(estudioId: string): EstadoInforme {
   const gasto: GastoAgente = { modelo: modo === "real" ? `${modeloEspecialistas()} + ${modeloDirector()}` : "ensayo", entrada: 0, salida: 0, cacheEscrita: 0, cacheLeida: 0, busquedasWeb: 0, dolares: 0 };
   const estado: EstadoInforme = { estudioId, modo, gasto, fase: "especialistas", empezado: new Date().toISOString(), terminado: null, pasos: [], error: null };
   trabajos().set(estudioId, estado);
+  // Saved now and then (and at the end), so a restart mid-way is told and not just lost.
+  const guardarProgreso = () => guardarProgresoInforme(estudioId, { ...estado, proceso: proceso(), actualizado: new Date().toISOString() }).catch((e) => console.error("[agenteInforme] progreso", e));
+  void guardarProgreso();
+  const cada = setInterval(guardarProgreso, GUARDAR_PROGRESO_MS);
   void trabajar(estado)
     .catch((e) => {
       console.error("[agenteInforme]", e);
       estado.error = e instanceof Error ? e.message : "No se pudo hacer el informe";
     })
     .finally(() => {
+      clearInterval(cada);
       estado.terminado = new Date().toISOString();
+      void guardarProgreso();
     });
   return estado;
 }

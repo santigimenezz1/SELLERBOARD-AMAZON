@@ -53,10 +53,23 @@ function pistaTexto(p: Pista, nombre: string): string {
   return `Nombre del archivo: «${nombre}».${p.herramienta ? ` El usuario dice que es de: ${p.herramienta}.` : ""}${p.codigoPais ? ` El usuario dice que el país es: ${p.codigoPais}.` : ""}`;
 }
 
-async function pedir<T>(system: string, contenido: Anthropic.Beta.BetaContentBlockParam[], schema: Record<string, unknown>, esfuerzo: "medium" | "high" = "medium"): Promise<T> {
+/**
+ * Reading files (screenshots, exports) runs on Opus; sorting reviews into themes, a long but simpler job, on Sonnet:
+ * half the price for the same result. The reasoning counts within max_tokens, hence the room for the long ones.
+ */
+const MODELO_LECTURA = "claude-opus-5-5";
+export const MODELO_RESENAS = "claude-sonnet-5-5";
+
+async function pedir<T>(
+  system: string,
+  contenido: Anthropic.Beta.BetaContentBlockParam[],
+  schema: Record<string, unknown>,
+  esfuerzo: "medium" | "high" = "medium",
+  { modelo = MODELO_LECTURA, maxTokens = 16000 }: { modelo?: string; maxTokens?: number } = {},
+): Promise<T> {
   const r = await conectar().beta.messages.create({
-    model: "claude-opus-5-5",
-    max_tokens: 16000,
+    model: modelo,
+    max_tokens: maxTokens,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     output_config: { effort: esfuerzo, format: { type: "json_schema", schema } },
@@ -357,6 +370,7 @@ Para cada nota por separado (1, 2, 3, 4 y 5 estrellas), di qué dicen: agrupa la
     [{ type: "text", text: lista }],
     ESQUEMA_ESTRELLAS,
     "high",
+    { modelo: MODELO_RESENAS, maxTokens: 32000 },
   );
   return r.grupos;
 }
@@ -410,6 +424,8 @@ export async function unirTemasEstrellas(
 Para cada nota por separado, junta los temas parciales que dicen lo mismo en un tema final corto en español, y di qué temas parciales junta («de», sus números dentro de esa nota). No mezcles quejas con elogios. Cada tema parcial va en un solo tema final. Como mucho 8 temas finales por nota: los más repetidos (cuenta las reseñas); lo que no entre, déjalo fuera.`,
     [{ type: "text", text: lista }],
     ESQUEMA_UNIR,
+    "medium",
+    { modelo: MODELO_RESENAS, maxTokens: 32000 },
   );
   return r.grupos;
 }

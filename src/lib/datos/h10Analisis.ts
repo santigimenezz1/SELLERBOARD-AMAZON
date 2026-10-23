@@ -6,9 +6,11 @@ import { temporada, type Temporada } from "./h10Temporada";
  * so countries compare (pounds at a sample rate here; the real import will use the ECB rate of the capture's day).
  */
 
-/** Euros per pound for the preview. */
+/** Euros per pound when the ECB rate of the Xray's day isn't known yet. */
 export const EUR_POR_GBP = 1.16;
-const aEur = (v: number, m: MercadoXray) => (m.moneda === "GBP" ? v * EUR_POR_GBP : v);
+/** Euros per unit of a market's currency: the ECB rate of its Xray's day for pounds. */
+export const cambioAEur = (m: { moneda: string; eurPorGbp?: number }) => (m.moneda === "GBP" ? (m.eurPorGbp ?? EUR_POR_GBP) : 1);
+const aEur = (v: number, m: MercadoXray) => v * cambioAEur(m);
 const redondear = (v: number, d = 0) => Math.round(v * 10 ** d) / 10 ** d;
 const acotar = (v: number) => Math.min(10, Math.max(1, v));
 

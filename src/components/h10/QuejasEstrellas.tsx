@@ -33,11 +33,29 @@ export function QuejasEstrellas({
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const analizar = async () => {
+  /** What it would read and cost, asked before running it (it spends AI credits). */
+  const [presupuesto, setPresupuesto] = useState<{ resenas: number; dolares: number } | null>(null);
+  const url = `/api/h10/estudios/${estudioId}/estrellas`;
+  const preguntar = async () => {
     setOcupado(true);
     setError(null);
     try {
-      const r = await fetch(`/api/h10/estudios/${estudioId}/estrellas`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(objetivo) });
+      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...objetivo, estimar: true }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? "No se pudo calcular el coste");
+      setPresupuesto(j);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo calcular el coste");
+    } finally {
+      setOcupado(false);
+    }
+  };
+  const analizar = async () => {
+    setPresupuesto(null);
+    setOcupado(true);
+    setError(null);
+    try {
+      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(objetivo) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "No se pudo analizar");
       router.refresh();
@@ -47,11 +65,24 @@ export function QuejasEstrellas({
       setOcupado(false);
     }
   };
-  const boton = (texto: string) => (
-    <button onClick={analizar} disabled={ocupado} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-60">
-      {ocupado ? "Analizando… (con muchas reseñas, varios minutos)" : texto}
-    </button>
-  );
+  const boton = (texto: string) =>
+    presupuesto ? (
+      <span className="flex flex-wrap items-center justify-center gap-2 text-sm text-ink-200">
+        La IA leerá {formatNumero(presupuesto.resenas)} reseñas: cuesta unos <strong>{presupuesto.dolares < 0.01 ? "0,01" : presupuesto.dolares.toLocaleString("es-ES", { maximumFractionDigits: 2 })} $</strong>.
+        <button onClick={analizar} className="rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-accent-400">
+          Analizar
+        </button>
+        <button onClick={() => setPresupuesto(null)} className="rounded-lg px-3 py-1.5 text-sm text-ink-300 hover:bg-white/[0.06]">
+          Cancelar
+        </button>
+      </span>
+    ) : (
+      <button onClick={preguntar} disabled={ocupado} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-60">
+        {ocupado ? "Analizando… (con muchas reseñas, varios minutos)" : texto}
+      </button>
+    );
+  // Reviews uploaded after the analysis: «Volver a analizar» takes them in.
+  const nuevas = datos ? total - datos.grupos.reduce((s, g) => s + g.total, 0) : 0;
 
   if (!datos)
     return (
@@ -121,10 +152,16 @@ export function QuejasEstrellas({
           La IA leyó {formatNumero(datos.analizadas)} reseñas el {new Date(datos.generadoEn).toLocaleDateString("es-ES")}. En rojo lo que critican, en verde lo que les gusta; el número es cuántas reseñas de esa
           nota lo dicen (una reseña puede decir varias cosas).
         </span>
-        <button onClick={analizar} disabled={ocupado} className="rounded-md px-2 py-1 text-accent-300 hover:bg-white/[0.06] disabled:opacity-60">
-          {ocupado ? "Analizando…" : "Volver a analizar"}
-        </button>
+        {presupuesto ? (
+          boton("")
+        ) : (
+          <button onClick={preguntar} disabled={ocupado} className="rounded-md px-2 py-1 text-accent-300 hover:bg-white/[0.06] disabled:opacity-60">
+            {ocupado ? "Analizando…" : "Volver a analizar"}
+          </button>
+        )}
       </div>
+      {nuevas > 0 && <p className="text-xs text-warning">Hay {formatNumero(nuevas)} reseñas nuevas que no están en este análisis: pulsa «Volver a analizar» para incluirlas.</p>}
+      {!!datos.sinLeer && <p className="text-xs text-warning">La IA no pudo leer {formatNumero(datos.sinLeer)} reseñas (falló dos veces): el análisis se hizo sin ellas.</p>}
       {error && <p className="text-xs text-danger">{error}</p>}
     </div>
   );

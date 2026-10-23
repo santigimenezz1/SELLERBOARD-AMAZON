@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
+import { permitirIA } from "@/lib/auth/limiteInvitado";
 import { traducirResenasEstudio } from "@/lib/datos/estudiosH10";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
@@ -12,7 +13,10 @@ export const maxDuration = 300;
 /** Translates into Spanish the study's competitor reviews that aren't yet (AI). */
 export async function POST(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
-  if (!(await usuarioDelEstudio((await params).id, true))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const user = await usuarioDelEstudio((await params).id, true);
+  if (!user) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const limite = await permitirIA(user, "analisis");
+  if (limite) return NextResponse.json({ error: limite }, { status: 429 });
   try {
     const r = await traducirResenasEstudio((await params).id);
     await volcarConsumo().catch(() => {});

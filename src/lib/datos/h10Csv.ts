@@ -29,7 +29,8 @@ export function resenasDesdeCsv(filas: string[][], nombreArchivo: string): { asi
   for (const f of datos) {
     const n = Math.round(Number((f[iEstrellas] ?? "").replace(",", ".").match(/\d+(\.\d+)?/)?.[0]));
     const texto = (f[iTexto] ?? "").trim().slice(0, 1500);
-    if (n < 1 || n > 5 || (!texto && !(f[iTitulo] ?? "").trim())) continue;
+    // A row without its stars (or with something else there) isn't a review that can be counted.
+    if (!Number.isFinite(n) || n < 1 || n > 5 || (!texto && !(f[iTitulo] ?? "").trim())) continue;
     caracteres += texto.length;
     if (resenas.length >= MAX_RESENAS || caracteres > MAX_TEXTO_TOTAL) break;
     const si = (f[iVerificada] ?? "").trim().toLowerCase();
@@ -66,8 +67,9 @@ export function historialDesdeCsv(filas: string[][]): { meses: { mes: string; bu
   const semanas: { dia: string; busquedas: number }[] = [];
   for (const f of datos) {
     const mes = f[iFecha]?.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    const v = Number(String(f[iBusquedas] ?? "").replace(/[.\s]/g, "").replace(",", "."));
-    if (!mes || !Number.isFinite(v)) continue;
+    // «12.345», «12,345» or «12345»: searches are whole numbers, so every separator is a thousands one.
+    const v = Number(String(f[iBusquedas] ?? "").replace(/[.,\s]/g, ""));
+    if (!mes || !String(f[iBusquedas] ?? "").trim() || !Number.isFinite(v)) continue;
     porMes.set(`${mes[1]}-${mes[2]}`, [...(porMes.get(`${mes[1]}-${mes[2]}`) ?? []), v]);
     semanas.push({ dia: `${mes[1]}-${mes[2]}-${mes[3]}`, busquedas: v });
   }

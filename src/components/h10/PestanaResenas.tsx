@@ -10,7 +10,7 @@ import type {
 import Link from "next/link";
 import {
   analizarResenas,
-  EUR_POR_GBP,
+  cambioAEur,
   nombrePais,
   type TemaResenas,
 } from "@/lib/datos/h10Analisis";
@@ -210,7 +210,7 @@ function MasFuertes({
       m.competidores.map((c) => ({
         m,
         c,
-        eur: m.moneda === "GBP" ? c.facturacion * EUR_POR_GBP : c.facturacion,
+        eur: c.facturacion * cambioAEur(m),
       })),
     )
     .sort((a, b) => b.eur - a.eur)

@@ -52,6 +52,7 @@ export function PestanaRentabilidad({ estudio, palabras, inicial }: { estudio: E
   const guardados = estudio.supuestos ?? SUPUESTOS_INICIALES;
   const [s, setS] = useState<SupuestosRentabilidad>(guardados);
   const [guardando, setGuardando] = useState(false);
+  const [fallo, setFallo] = useState<string | null>(null);
   const cambiados = JSON.stringify(s) !== JSON.stringify(guardados);
   const todos = rentabilidadEstudio(estudio, palabras, s);
   const [pais, setPais] = useState(todos.find((r) => r.codigoPais === inicial)?.codigoPais ?? todos[0]?.codigoPais);
@@ -61,9 +62,12 @@ export function PestanaRentabilidad({ estudio, palabras, inicial }: { estudio: E
 
   const guardar = async () => {
     setGuardando(true);
+    setFallo(null);
     const res = await fetch(`/api/h10/estudios/${estudio.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supuestos: s }) }).catch(() => null);
+    const b = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
     setGuardando(false);
     if (res?.ok) router.refresh();
+    else setFallo(b?.error ?? "No se pudo guardar: comprueba la conexión y vuelve a intentarlo");
   };
 
   return (
@@ -155,6 +159,7 @@ export function PestanaRentabilidad({ estudio, palabras, inicial }: { estudio: E
                 {guardando && <Spinner tamano="sm" />}
                 {cambiados ? "Guardar mis costes" : "Guardado"}
               </button>
+              {fallo && <p className="w-full text-xs text-danger">{fallo}</p>}
             </div>
           )}
         </Tarjeta>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { estudiosParaVista } from "@/lib/datos/estudiosH10";
+import { estudioParaVista } from "@/lib/datos/estudiosH10";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { VistaH10 } from "@/components/h10/VistaH10";
 
@@ -9,7 +9,7 @@ export default async function EstudioH10Page({ params, searchParams }: PageProps
   const { id } = await params;
   // Another user's study is as if it didn't exist.
   const user = await usuarioDelEstudio(id);
-  const g = user ? (await estudiosParaVista()).find((x) => x.estudio.id === id) : undefined;
+  const g = user ? await estudioParaVista(id) : null;
   if (!g || !user) notFound();
   const pestana = (await searchParams).pestana;
   return (
