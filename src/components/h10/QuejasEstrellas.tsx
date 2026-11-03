@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CodigoPais, QuejasPorEstrellas } from "@/lib/datos/h10Tipos";
+import type { ModoEstrellas } from "@/lib/datos/estudiosH10";
 import { formatNumero } from "@/lib/format";
 
 const COLOR: Record<number, { texto: string; barra: string; borde: string }> = {
@@ -33,8 +34,8 @@ export function QuejasEstrellas({
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** What it would read and cost, asked before running it (it spends AI credits). */
-  const [presupuesto, setPresupuesto] = useState<{ resenas: number; dolares: number } | null>(null);
+  /** What each mode would read and cost, asked before running it (it spends AI credits). */
+  const [presupuesto, setPresupuesto] = useState<Record<ModoEstrellas, { resenas: number; dolares: number }> | null>(null);
   const url = `/api/h10/estudios/${estudioId}/estrellas`;
   const preguntar = async () => {
     setOcupado(true);
@@ -50,12 +51,12 @@ export function QuejasEstrellas({
       setOcupado(false);
     }
   };
-  const analizar = async () => {
+  const analizar = async (modo: ModoEstrellas) => {
     setPresupuesto(null);
     setOcupado(true);
     setError(null);
     try {
-      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(objetivo) });
+      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...objetivo, modo }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "No se pudo analizar");
       router.refresh();
@@ -67,11 +68,28 @@ export function QuejasEstrellas({
   };
   const boton = (texto: string) =>
     presupuesto ? (
-      <span className="flex flex-wrap items-center justify-center gap-2 text-sm text-ink-200">
-        La IA leerá {formatNumero(presupuesto.resenas)} reseñas: cuesta unos <strong>{presupuesto.dolares < 0.01 ? "0,01" : presupuesto.dolares.toLocaleString("es-ES", { maximumFractionDigits: 2 })} $</strong>.
-        <button onClick={analizar} className="rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-accent-400">
-          Analizar
-        </button>
+      <span className="flex flex-wrap items-stretch justify-center gap-2 text-sm text-ink-200">
+        {(
+          [
+            { modo: "todas", titulo: "Leer todas", detalle: "todas las reseñas" },
+            { modo: "selectiva", titulo: "Leer selectiva", detalle: "todas las de 1–3 ★ y el 30 % de las de 4–5 ★" },
+          ] as const
+        ).map(({ modo, titulo, detalle }) => {
+          const p = presupuesto[modo];
+          return (
+            <button
+              key={modo}
+              onClick={() => analizar(modo)}
+              title={detalle}
+              className={`flex flex-col items-center rounded-lg px-3.5 py-1.5 text-sm font-medium ${modo === "todas" ? "bg-accent-500 text-ink-950 hover:bg-accent-400" : "border border-accent-500/50 text-accent-300 hover:bg-accent-500/10"}`}
+            >
+              {titulo}
+              <span className="text-[11px] font-normal opacity-80">
+                {formatNumero(p.resenas)} reseñas · unos {p.dolares < 0.01 ? "0,01" : p.dolares.toLocaleString("es-ES", { maximumFractionDigits: 2 })} $
+              </span>
+            </button>
+          );
+        })}
         <button onClick={() => setPresupuesto(null)} className="rounded-lg px-3 py-1.5 text-sm text-ink-300 hover:bg-white/[0.06]">
           Cancelar
         </button>

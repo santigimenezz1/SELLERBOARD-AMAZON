@@ -830,12 +830,16 @@ export async function estudiosParaVista(): Promise<EstudioParaVista[]> {
 // ---------- Competitors' reviews ----------
 
 /**
- * Reviews of each star sent to the AI at most, and the characters of each: every 1–3 star review (the complaints are
- * what matters), a sample of the good ones (they say less). A whole country or every country reads them shorter.
+ * How many reviews the AI reads: «todas», every one; «selectiva», every 1–3 star review (the complaints are what
+ * matters) and 30 % of the 4–5 star ones (they say less).
  */
-const LIMITES_PRODUCTO = { bajas: Infinity, altas: 80, largo: 500 };
-const LIMITES_AMBITO = { bajas: Infinity, altas: 90, largo: 300 };
-type Limites = typeof LIMITES_PRODUCTO;
+export type ModoEstrellas = "todas" | "selectiva";
+export const esModoEstrellas = (v: unknown): v is ModoEstrellas => v === "todas" || v === "selectiva";
+const PARTE_ALTAS_SELECTIVA = 0.3;
+/** Characters of each review sent to the AI: a whole country or every country reads them shorter. */
+const LARGO_PRODUCTO = 500;
+const LARGO_AMBITO = 300;
+type Limites = { modo: ModoEstrellas; largo: number };
 /** Reviews per AI call: more are read in batches (a few at a time) and their themes merged afterwards. */
 const TANDA_ESTRELLAS = 600;
 const TANDAS_A_LA_VEZ = 4;
@@ -856,7 +860,8 @@ function elegirResenas(fuentes: ResenaCompleta[][], limites: Limites) {
   const grupos: QuejasPorEstrellas["grupos"] = [];
   for (const estrellas of [1, 2, 3, 4, 5] as const) {
     const listas = fuentes.map((l) => l.filter((r) => r.estrellas === estrellas));
-    const max = estrellas >= 4 ? limites.altas : limites.bajas;
+    const total = listas.reduce((t, l) => t + l.length, 0);
+    const max = estrellas >= 4 && limites.modo === "selectiva" ? Math.ceil(total * PARTE_ALTAS_SELECTIVA) : total;
     let tomadas = 0;
     for (let i = 0; tomadas < max && listas.some((l) => i < l.length); i++)
       for (const l of listas)
@@ -865,7 +870,7 @@ function elegirResenas(fuentes: ResenaCompleta[][], limites: Limites) {
           elegidas.push({ n: elegidas.length + 1, estrellas, titulo: r.titulo.slice(0, 120), texto: r.texto.slice(0, limites.largo), original: r.texto });
           tomadas++;
         }
-    grupos.push({ estrellas, total: listas.reduce((t, l) => t + l.length, 0), leidas: tomadas, temas: [] });
+    grupos.push({ estrellas, total, leidas: tomadas, temas: [] });
   }
   return { elegidas, grupos };
 }
@@ -881,11 +886,17 @@ function costeEstrellas(elegidas: { titulo: string; texto: string }[]): number {
   return Math.round(((entrada * 2 + salida * 10) / 1_000_000) * 100) / 100;
 }
 
-/** How many reviews «Analizar con IA» would read and about what it would cost, before running it (no AI). */
-export async function estimarEstrellas(id: string, objetivo: { pais: CodigoPais; asin: string } | { ambito: CodigoPais | "TODOS" }): Promise<{ resenas: number; dolares: number }> {
-  const [fuentes, limites] = "asin" in objetivo ? [[await resenasCompletasDe(id, objetivo.pais, objetivo.asin)], LIMITES_PRODUCTO] : [await fuentesAmbito(id, objetivo.ambito), LIMITES_AMBITO];
-  const { elegidas } = elegirResenas(fuentes, limites);
-  return { resenas: elegidas.length, dolares: costeEstrellas(elegidas) };
+/** How many reviews each mode would read and about what it would cost, before running it (no AI). */
+export async function estimarEstrellas(
+  id: string,
+  objetivo: { pais: CodigoPais; asin: string } | { ambito: CodigoPais | "TODOS" },
+): Promise<Record<ModoEstrellas, { resenas: number; dolares: number }>> {
+  const [fuentes, largo] = "asin" in objetivo ? [[await resenasCompletasDe(id, objetivo.pais, objetivo.asin)], LARGO_PRODUCTO] : [await fuentesAmbito(id, objetivo.ambito), LARGO_AMBITO];
+  const de = (modo: ModoEstrellas) => {
+    const { elegidas } = elegirResenas(fuentes, { modo, largo });
+    return { resenas: elegidas.length, dolares: costeEstrellas(elegidas) };
+  };
+  return { todas: de("todas"), selectiva: de("selectiva") };
 }
 
 async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limites: Limites): Promise<QuejasPorEstrellas> {
@@ -939,10 +950,10 @@ async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limi
 }
 
 /** One competitor's reviews, star by star (AI). Kept with the study. */
-export async function analizarEstrellas(id: string, pais: CodigoPais, asin: string): Promise<QuejasPorEstrellas> {
+export async function analizarEstrellas(id: string, pais: CodigoPais, asin: string, modo: ModoEstrellas): Promise<QuejasPorEstrellas> {
   const e = await entrada(id);
   const competidor = ensamblar(e).estudio.mercados.find((m) => m.codigoPais === pais)?.competidores.find((c) => c.asin === asin);
-  const resultado = await leerEstrellas(competidor ? `${competidor.marca} · ${competidor.titulo}` : asin, [await resenasCompletasDe(id, pais, asin)], LIMITES_PRODUCTO);
+  const resultado = await leerEstrellas(competidor ? `${competidor.marca} · ${competidor.titulo}` : asin, [await resenasCompletasDe(id, pais, asin)], { modo, largo: LARGO_PRODUCTO });
   e.estudio = { ...e.estudio, quejasEstrellas: { ...e.estudio.quejasEstrellas, [`${pais}_${asin}`]: resultado } };
   await guardarEstudio(e.estudio);
   return resultado;
@@ -962,10 +973,10 @@ async function fuentesAmbito(id: string, ambito: CodigoPais | "TODOS"): Promise<
   return Promise.all(productosAmbito(await entrada(id), ambito).map((p) => resenasCompletasDe(id, p.pais, p.asin)));
 }
 
-export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "TODOS"): Promise<QuejasPorEstrellas> {
+export async function analizarEstrellasAmbito(id: string, ambito: CodigoPais | "TODOS", modo: ModoEstrellas): Promise<QuejasPorEstrellas> {
   const e = await entrada(id);
   const n = productosAmbito(e, ambito).length;
-  const resultado = await leerEstrellas(`${e.estudio.nombre} (${n} competidores${ambito === "TODOS" ? ", varios países" : ` de ${nombrePais(ambito)}`})`, await fuentesAmbito(id, ambito), LIMITES_AMBITO);
+  const resultado = await leerEstrellas(`${e.estudio.nombre} (${n} competidores${ambito === "TODOS" ? ", varios países" : ` de ${nombrePais(ambito)}`})`, await fuentesAmbito(id, ambito), { modo, largo: LARGO_AMBITO });
   e.estudio = { ...e.estudio, quejasEstrellas: { ...e.estudio.quejasEstrellas, [ambito]: resultado } };
   await guardarEstudio(e.estudio);
   return resultado;

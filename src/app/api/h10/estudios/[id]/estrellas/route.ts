@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { permitirIA } from "@/lib/auth/limiteInvitado";
-import { analizarEstrellas, analizarEstrellasAmbito, estimarEstrellas } from "@/lib/datos/estudiosH10";
+import { analizarEstrellas, analizarEstrellasAmbito, esModoEstrellas, estimarEstrellas } from "@/lib/datos/estudiosH10";
 import { esCodigoPais } from "@/lib/datos/h10Tipos";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
@@ -11,13 +11,14 @@ type Ctx = { params: Promise<{ id: string }> };
 /**
  * Has the AI say what the reviews of each star say. Body: { pais, asin } for one competitor, or { ambito } for every
  * competitor of a country («DE»…) or of every country («TODOS»). With { estimar: true }, only how many reviews it would
- * read and about what it would cost (no AI), to ask first.
+ * read and about what it would cost in each mode (no AI), to ask first. { modo: "todas" | "selectiva" } says how many
+ * reviews it reads.
  */
 export async function POST(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
   const user = await usuarioDelEstudio((await params).id, true);
   if (!user) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
-  const body = (await req.json().catch(() => ({}))) as { pais?: unknown; asin?: unknown; ambito?: unknown; estimar?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { pais?: unknown; asin?: unknown; ambito?: unknown; estimar?: unknown; modo?: unknown };
   const id = (await params).id;
   try {
     if (body.estimar === true) {
@@ -25,11 +26,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       if (esCodigoPais(body.pais) && typeof body.asin === "string" && /^B\d[A-Z0-9]{8}$/.test(body.asin)) return NextResponse.json(await estimarEstrellas(id, { pais: body.pais, asin: body.asin }));
       return NextResponse.json({ error: "País o ASIN no válido" }, { status: 400 });
     }
+    // «todas» reads every review; «selectiva» every 1–3 star one and 30 % of the 4–5 star ones.
+    const modo = esModoEstrellas(body.modo) ? body.modo : "selectiva";
     const limite = await permitirIA(user, "analisis");
     if (limite) return NextResponse.json({ error: limite }, { status: 429 });
     let analizadas: number;
-    if (body.ambito === "TODOS" || esCodigoPais(body.ambito)) analizadas = (await analizarEstrellasAmbito(id, body.ambito)).analizadas;
-    else if (esCodigoPais(body.pais) && typeof body.asin === "string" && /^B\d[A-Z0-9]{8}$/.test(body.asin)) analizadas = (await analizarEstrellas(id, body.pais, body.asin)).analizadas;
+    if (body.ambito === "TODOS" || esCodigoPais(body.ambito)) analizadas = (await analizarEstrellasAmbito(id, body.ambito, modo)).analizadas;
+    else if (esCodigoPais(body.pais) && typeof body.asin === "string" && /^B\d[A-Z0-9]{8}$/.test(body.asin)) analizadas = (await analizarEstrellas(id, body.pais, body.asin, modo)).analizadas;
     else return NextResponse.json({ error: "País o ASIN no válido" }, { status: 400 });
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true, analizadas });
