@@ -323,6 +323,7 @@ export function PestanaDatos({
                       <span className="font-medium text-ink-100">{it.texto}</span>
                       <span className="block text-[11px] text-ink-500">{it.ayuda}</span>
                       {it.id === "ficha" && <CargarListings estudioId={estudioId} paises={paisesXray} />}
+                      {it.id === "xray" && <BusquedasPrincipales paises={columnas} archivos={archivos} />}
                       {it.id === "cerebro" && <AsinsCerebro paises={columnas} asins={asinsCerebro} />}
                       {it.id === "xray2" && <SugerenciasXray paises={columnas} sugerencias={sugerenciasXray} sinPrincipal={sinPrincipal} onElegir={prepararXray} />}
                     </td>
@@ -419,6 +420,50 @@ function CargarListings({ estudioId, paises }: { estudioId: string; paises: stri
  * Per country, a button that copies its 10 strongest ASINs (from its Xray), comma-separated, ready to paste into
  * Helium 10 Cerebro. Countries without an Xray yet say so.
  */
+/** The keyword of each country's main Xray (the newest one), with a button to copy it to paste in Helium 10. */
+function BusquedasPrincipales({ paises, archivos }: { paises: string[]; archivos: ArchivoH10[] }) {
+  const [copiado, setCopiado] = useState<string | null>(null);
+  const copiar = (p: string, texto: string) =>
+    void navigator.clipboard.writeText(texto).then(() => {
+      setCopiado(p);
+      setTimeout(() => setCopiado((x) => (x === p ? null : x)), 1500);
+    });
+  /** Older files carry the keyword only in their summary («… · … · keyword»). */
+  const busqueda = (p: string) =>
+    archivos
+      .filter((a) => a.herramienta === "xray" && !a.secundaria && a.codigoPais === p && a.estado !== "error")
+      .sort((a, b) => b.subidoEn.localeCompare(a.subidoEn))
+      .map((a) => (a.palabraClave ?? a.resumen.split(" · ")[2] ?? "").trim())
+      .find((t) => /\p{L}/u.test(t));
+  return (
+    <span className="mt-2 flex flex-col gap-1.5">
+      <span className="text-[11px] font-semibold text-ink-300">La palabra clave de la búsqueda principal de cada país:</span>
+      <span className="flex flex-wrap gap-1.5">
+        {paises.map((p) => {
+          const texto = busqueda(p);
+          return texto ? (
+            <span key={p} className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.1] bg-ink-950/40 py-0.5 pr-0.5 pl-2 text-xs text-ink-100">
+              <Pais codigo={p} corto />
+              <span className="font-medium">{texto}</span>
+              <button
+                onClick={() => copiar(p, texto)}
+                title={`Copiar «${texto}»`}
+                className="rounded px-1.5 py-px text-[11px] text-accent-300 hover:bg-white/[0.06]"
+              >
+                {copiado === p ? <span className="text-success">✓ Copiada</span> : "Copiar"}
+              </button>
+            </span>
+          ) : (
+            <span key={p} className="inline-flex items-center gap-1.5 px-1 text-[11px] text-ink-500">
+              <Pais codigo={p} corto /> sin Xray
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
+
 function AsinsCerebro({ paises, asins }: { paises: string[]; asins: Record<string, string[]> }) {
   const [copiado, setCopiado] = useState<string | null>(null);
   const copiar = (p: string, lista: string[]) =>
