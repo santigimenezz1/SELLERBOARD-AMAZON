@@ -192,6 +192,11 @@ const menciones = (c: ResenasCompetidorH10) =>
 
 /** «Mejoras para tu producto» is hidden for now (it comes back later); true shows it again. */
 const CON_MEJORAS = false;
+/**
+ * «De qué se quejan» and «Qué valoran» from Helium 10's «Review Analysis» (and its figures at the top) are hidden: the
+ * tab works from the full reviews, as in every study. true shows them again.
+ */
+const CON_TEMAS_H10 = false;
 
 /**
  * The 10 strongest competitors (by revenue, in euros) of the country shown, or of every country: their rating and
@@ -453,7 +458,7 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {(a
+        {(a && (CON_TEMAS_H10 || !completas.length)
           ? [
               {
                 t: "Competidores",
@@ -562,7 +567,7 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
 
       <MasFuertes estudio={estudio} pais={pais} />
 
-      {a && (
+      {CON_TEMAS_H10 && a && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Tarjeta
             titulo={`De qué se quejan ${donde}`}
