@@ -449,8 +449,11 @@ export type RevisionInforme = { nota: number; problemas: { seccion: string; prob
 
 /** How the team worked on a report: every step, each specialist's analysis and what it cost. */
 export type LanzamientoPropio = { asin: string; codigoPais: CodigoPais; desde: string };
-/** A product improvement noted by hand in «Mejoras de producto», ticked once it's done. */
-export type MejoraProducto = { id: string; texto: string; hecha: boolean };
+/**
+ * A card noted by hand in «Mejoras de producto», ticked once it's done. `tipo`: a market's failing («Fallas del mercado»,
+ * the cards made before there were two blocks) or an improvement of your own.
+ */
+export type MejoraProducto = { id: string; texto: string; hecha: boolean; tipo?: "mercado" | "propia" };
 
 /** A specialist's key decisions in figures (handed in with the analysis; the code compares them). */
 export type DecisionesEspecialista = {

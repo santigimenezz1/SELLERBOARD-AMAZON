@@ -323,7 +323,6 @@ export function PestanaDatos({
                       <span className="font-medium text-ink-100">{it.texto}</span>
                       <span className="block text-[11px] text-ink-500">{it.ayuda}</span>
                       {it.id === "ficha" && <CargarListings estudioId={estudioId} paises={paisesXray} />}
-                      {it.id === "xray" && <BusquedasPrincipales paises={columnas} archivos={archivos} />}
                       {it.id === "cerebro" && <AsinsCerebro paises={columnas} asins={asinsCerebro} />}
                       {it.id === "xray2" && <SugerenciasXray paises={columnas} sugerencias={sugerenciasXray} sinPrincipal={sinPrincipal} onElegir={prepararXray} />}
                     </td>
@@ -420,75 +419,6 @@ function CargarListings({ estudioId, paises }: { estudioId: string; paises: stri
  * Per country, a button that copies its 10 strongest ASINs (from its Xray), comma-separated, ready to paste into
  * Helium 10 Cerebro. Countries without an Xray yet say so.
  */
-/**
- * The keyword of each country's main Xray, one line per country as in the secondary ones: green once its Xray is
- * uploaded (a click copies it, to paste in Helium 10); countries without one say so.
- */
-function BusquedasPrincipales({ paises, archivos }: { paises: string[]; archivos: ArchivoH10[] }) {
-  const [copiada, setCopiada] = useState<string | null>(null);
-  const copiar = (clave: string, texto: string) =>
-    void navigator.clipboard.writeText(texto).then(() => {
-      setCopiada(clave);
-      setTimeout(() => setCopiada((x) => (x === clave ? null : x)), 1500);
-    });
-  /** Whether the country has a main Xray at all (with or without its search). */
-  const subido = (p: string) => archivos.some((a) => a.herramienta === "xray" && !a.secundaria && a.codigoPais === p && a.estado !== "error");
-  /** Each distinct search of the country's main Xrays, newest first (older files carry it only in their summary). */
-  const busquedas = (p: string) => [
-    ...new Map(
-      archivos
-        .filter((a) => a.herramienta === "xray" && !a.secundaria && a.codigoPais === p && a.estado !== "error")
-        .sort((a, b) => b.subidoEn.localeCompare(a.subidoEn))
-        .map((a) => (a.palabraClave ?? a.resumen.split(" · ")[2] ?? "").trim())
-        .filter((t) => /\p{L}/u.test(t))
-        .map((t) => [normalizar(t), t] as const),
-    ).values(),
-  ];
-  return (
-    <span className="mt-2 flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold text-ink-300">
-        Búsqueda principal de cada país. Toca una para copiarla. <span className="text-success">En verde, ya subida</span>
-      </span>
-      {paises.map((p) => {
-        const lista = busquedas(p);
-        return (
-          <span key={p} className="flex flex-wrap items-center gap-1.5">
-            <Pais codigo={p} corto />
-            {!lista.length ? (
-              subido(p) ? (
-                <span className="text-[11px] text-warning" title="El CSV de Xray no trae la búsqueda: hay que escribirla al subirlo">
-                  Xray subido, pero sin la búsqueda: vuelve a subirlo escribiendo en «Búsqueda» la que usaste
-                </span>
-              ) : (
-                <span className="text-[11px] text-ink-500">Aún no has subido el Xray principal de {nombrePais(p)}</span>
-              )
-            ) : (
-              lista.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => copiar(`${p}|${t}`, t)}
-                  title={`Copiar «${t}»`}
-                  className="rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-xs text-ink-100 hover:border-success/70"
-                >
-                  {copiada === `${p}|${t}` ? (
-                    "✓ Copiada"
-                  ) : (
-                    <>
-                      <span className="mr-1 text-success">✓</span>
-                      {t}
-                    </>
-                  )}
-                </button>
-              ))
-            )}
-          </span>
-        );
-      })}
-    </span>
-  );
-}
-
-
 function AsinsCerebro({ paises, asins }: { paises: string[]; asins: Record<string, string[]> }) {
   const [copiado, setCopiado] = useState<string | null>(null);
   const copiar = (p: string, lista: string[]) =>

@@ -277,7 +277,7 @@ function leerMejoras(v: unknown): MejoraProducto[] {
   return v.slice(0, 200).map((m) => {
     const o = (m && typeof m === "object" ? m : {}) as Record<string, unknown>;
     const id = typeof o.id === "string" && /^[\w-]{1,40}$/.test(o.id) ? o.id : randomUUID();
-    return { id, texto: texto(o.texto, 2000), hecha: o.hecha === true };
+    return { id, texto: texto(o.texto, 2000), hecha: o.hecha === true, tipo: o.tipo === "propia" ? ("propia" as const) : ("mercado" as const) };
   });
 }
 
