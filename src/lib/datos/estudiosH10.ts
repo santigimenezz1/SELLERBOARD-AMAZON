@@ -41,6 +41,7 @@ import {
   type PalabrasMercado,
   type ListingAmazon,
   type LanzamientoPropio,
+  type MejoraProducto,
 } from "./h10Tipos";
 import { listingsDesdeJson } from "./h10Fichas";
 import { traducirResenas } from "@/lib/ia/traducirResenas";
@@ -68,6 +69,7 @@ type EstudioGuardado = {
   supuestos?: SupuestosRentabilidad;
   asinsManuales?: string[];
   lanzamiento?: LanzamientoPropio;
+  mejoras?: MejoraProducto[];
   /** «ES|B0…» taken out of the «Listings» top 10. */
   listingsQuitados?: string[];
   /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
@@ -269,6 +271,16 @@ function leerLanzamiento(v: unknown): LanzamientoPropio | undefined {
   return { asin, codigoPais: o.codigoPais, desde: o.desde };
 }
 
+/** The whole list of product improvements, as the tab sends it: up to 200, each text up to 2,000 characters. */
+function leerMejoras(v: unknown): MejoraProducto[] {
+  if (!Array.isArray(v)) throw new Error("Lista de mejoras no válida");
+  return v.slice(0, 200).map((m) => {
+    const o = (m && typeof m === "object" ? m : {}) as Record<string, unknown>;
+    const id = typeof o.id === "string" && /^[\w-]{1,40}$/.test(o.id) ? o.id : randomUUID();
+    return { id, texto: texto(o.texto, 2000), hecha: o.hecha === true };
+  });
+}
+
 /** «ES|B0DS9VCV6L»: a listing of the study in one country. */
 const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(ES|DE|FR|IT|GB)\|[A-Z0-9]{10}$/.test(v);
 
@@ -278,7 +290,7 @@ const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(
  */
 export async function editarEstudio(
   id: string,
-  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown },
+  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown; mejoras?: unknown },
 ): Promise<void> {
   const e = await entrada(id);
   if (cambios.quitarListing !== undefined && !esClaveListing(cambios.quitarListing)) throw new Error("Listing no válido");
@@ -290,6 +302,7 @@ export async function editarEstudio(
     descripcion: cambios.descripcion !== undefined ? texto(cambios.descripcion, 200) : e.estudio.descripcion,
     ...(cambios.supuestos !== undefined && { supuestos: leerSupuestos(cambios.supuestos, e.estudio.supuestos ?? SUPUESTOS_INICIALES) }),
     ...(cambios.lanzamiento !== undefined && { lanzamiento: leerLanzamiento(cambios.lanzamiento) }),
+    ...(cambios.mejoras !== undefined && { mejoras: leerMejoras(cambios.mejoras) }),
     actualizadoEn: new Date().toISOString(),
   };
   // Taken out: no empty field left in the document.
@@ -801,6 +814,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       amazon: [...amazon.values()].map((v) => ({ ficha: v.ficha, puntos: v.puntos.slice(-PUNTOS_EN_PAGINA) })),
       asinsManuales: estudio.asinsManuales ?? [],
       ...(estudio.lanzamiento && { lanzamiento: estudio.lanzamiento }),
+      mejoras: estudio.mejoras ?? [],
       listingsQuitados: estudio.listingsQuitados ?? [],
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],

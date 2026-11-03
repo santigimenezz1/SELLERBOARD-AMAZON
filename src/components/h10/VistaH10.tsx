@@ -22,6 +22,7 @@ import { revisarDatos } from "@/lib/datos/h10Calidad";
 import { PrediccionRealidad } from "./PrediccionRealidad";
 import { PestanaListings } from "./PestanaListings";
 import { PestanaAgentes } from "./PestanaAgentes";
+import { PestanaMejoras } from "./PestanaMejoras";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
@@ -34,6 +35,7 @@ const PESTANAS = [
   { id: "rentabilidad", texto: "Rentabilidad" },
   { id: "conclusiones", texto: "Conclusiones" },
   { id: "agentes", texto: "Agentes" },
+  { id: "mejoras", texto: "Mejoras de producto" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
 /**
@@ -135,7 +137,7 @@ export function VistaH10({
 
       {/* Tabs */}
       <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.06]">
-        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
+        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && (p.id !== "mejoras" || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
           <button
             key={p.id}
             onClick={() => irA(p.id)}
@@ -217,6 +219,12 @@ export function VistaH10({
           <SinDatos texto="La rentabilidad necesita el Xray de al menos un país; la calculadora de Amazon la hace mucho más precisa." onIrADatos={datosAqui} />
         ))}
       {pestana === "agentes" && <PestanaAgentes key={`agentes-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} conBanco={!invitado} />}
+      {/* Always mounted (hidden when not chosen): coming back to it keeps what was just written, without reloading the study. */}
+      {!estudio.ejemplo && (
+        <div className={pestana === "mejoras" ? "" : "hidden"}>
+          <PestanaMejoras key={`mejoras-${estudio.id}`} estudioId={estudio.id} inicial={estudio.mejoras ?? []} />
+        </div>
+      )}
       {pestana === "listings" &&
         (resumen ? (
           <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} conExtension={!invitado} />

@@ -66,6 +66,8 @@ export type EstudioH10 = {
   asinsManuales?: string[];
   /** Your own product once launched (its ASIN, country and launch day): the report's forecast is compared with its real sales. */
   lanzamiento?: LanzamientoPropio;
+  /** The product improvements noted by hand, in their order. */
+  mejoras?: MejoraProducto[];
   /** Listings taken out of the «Listings» top 10 by hand, as «ES|B0…»: the next one by revenue takes their place. */
   listingsQuitados?: string[];
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
@@ -447,6 +449,8 @@ export type RevisionInforme = { nota: number; problemas: { seccion: string; prob
 
 /** How the team worked on a report: every step, each specialist's analysis and what it cost. */
 export type LanzamientoPropio = { asin: string; codigoPais: CodigoPais; desde: string };
+/** A product improvement noted by hand in «Mejoras de producto», ticked once it's done. */
+export type MejoraProducto = { id: string; texto: string; hecha: boolean };
 
 /** A specialist's key decisions in figures (handed in with the analysis; the code compares them). */
 export type DecisionesEspecialista = {
