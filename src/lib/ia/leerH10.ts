@@ -67,15 +67,18 @@ async function pedir<T>(
   esfuerzo: "medium" | "high" = "medium",
   { modelo = MODELO_LECTURA, maxTokens = 16000 }: { modelo?: string; maxTokens?: number } = {},
 ): Promise<T> {
-  const r = await conectar().beta.messages.create({
-    model: modelo,
-    max_tokens: maxTokens,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: esfuerzo, format: { type: "json_schema", schema } },
-    system,
-    messages: [{ role: "user", content: contenido }],
-  });
+  // Streamed: the SDK refuses a non-streamed request whose answer could take over 10 minutes (32,000 tokens does).
+  const r = await conectar()
+    .beta.messages.stream({
+      model: modelo,
+      max_tokens: maxTokens,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { effort: esfuerzo, format: { type: "json_schema", schema } },
+      system,
+      messages: [{ role: "user", content: contenido }],
+    })
+    .finalMessage();
   if (r.stop_reason === "refusal") throw new Error("La IA no quiso leer este archivo");
   if (r.stop_reason === "max_tokens") throw new Error("El archivo tiene demasiados datos para leerlo de una vez");
   const t = r.content.find((b) => b.type === "text")?.text;

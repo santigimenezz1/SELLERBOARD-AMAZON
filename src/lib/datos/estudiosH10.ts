@@ -912,17 +912,20 @@ async function leerEstrellas(producto: string, fuentes: ResenaCompleta[][], limi
   // A batch that fails is tried again once; if it fails again it's left out (and said so), not the whole analysis.
   const parciales: Awaited<ReturnType<typeof quejasPorEstrellas>>[] = [];
   const fallidas: typeof elegidas = [];
+  let ultimoError: unknown = null;
   const leerTanda = (t: typeof elegidas) =>
     quejasPorEstrellas(producto, t)
       .catch(() => quejasPorEstrellas(producto, t))
       .catch((e) => {
         console.error("[estudiosH10] tanda de estrellas", e);
+        ultimoError = e;
         fallidas.push(...t);
         return null;
       });
   for (let i = 0; i < tandas.length; i += TANDAS_A_LA_VEZ)
     for (const p of await Promise.all(tandas.slice(i, i + TANDAS_A_LA_VEZ).map(leerTanda))) if (p) parciales.push(p);
-  if (!parciales.length) throw new Error("La IA no pudo leer las reseñas: vuelve a intentarlo en un rato");
+  // Every batch failed: say why (no credit, invalid key, too many requests…), not just that it failed.
+  if (!parciales.length) throw new Error(`La IA no pudo leer las reseñas: ${ultimoError ? mensajeError(ultimoError) : "vuelve a intentarlo en un rato"}`);
   let respuesta: { estrellas: number; temas: { texto: string; tipo: "queja" | "elogio"; resenas: number[] }[] }[];
   if (parciales.length === 1) respuesta = parciales[0];
   else {
