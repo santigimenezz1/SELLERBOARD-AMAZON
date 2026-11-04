@@ -25,6 +25,14 @@ const posicion = (v: unknown) => numero(v, -LIMITE_LIENZO, LIMITE_LIENZO);
 const nombreArchivo = (n: string) => n.normalize("NFKD").replace(/[^\w.\- ]+/g, "").replace(/\s+/g, "_").slice(-120) || "imagen";
 const esAsin = (v: unknown): v is string => typeof v === "string" && /^[A-Z0-9]{10}$/.test(v);
 
+/** A typed ASIN: empty takes it out; anything else must be 10 letters or digits. */
+function leerAsin(v: unknown): string | undefined {
+  const a = typeof v === "string" ? v.trim().toUpperCase() : "";
+  if (!a) return undefined;
+  if (!esAsin(a)) throw new Error("Un ASIN tiene 10 letras o números (por ejemplo B0DS9VCV6L)");
+  return a;
+}
+
 export async function listarTableros(): Promise<TableroVariantes[]> {
   if (g.__variantes) return g.__variantes;
   const snap = await ref().get();
@@ -38,7 +46,9 @@ let cola: Promise<unknown> = Promise.resolve();
 /** Applies a change to the boards, one change after another so none is lost (dragging saves often). */
 function modificar(cambio: (lista: TableroVariantes[]) => TableroVariantes[]): Promise<void> {
   const paso = cola.then(async () => {
-    const tableros = cambio(await listarTableros());
+    // Without empty (undefined) fields: Firestore refuses a whole document that has one (an image has no note colour,
+    // a note no attribute…), and the change would be lost.
+    const tableros = JSON.parse(JSON.stringify(cambio(await listarTableros()))) as TableroVariantes[];
     await ref().set({ tableros, actualizadoEn: new Date().toISOString() });
     contarEscrituras(1);
     g.__variantes = tableros;
@@ -69,11 +79,19 @@ export async function crearTablero(nombre: unknown): Promise<TableroVariantes> {
   return nuevo;
 }
 
-export async function renombrarTablero(id: string, nombre: unknown): Promise<void> {
-  const limpio = texto(nombre, 80);
-  if (!limpio) throw new Error("Ponle un nombre");
+/** Renames the board and/or changes its section headings (empty heading: back to the default one). */
+export async function editarTablero(id: string, c: { nombre?: unknown; etiquetaKit?: unknown; etiquetaVariantes?: unknown }): Promise<void> {
+  const limpio = c.nombre !== undefined ? texto(c.nombre, 80) : null;
+  if (limpio === "") throw new Error("Ponle un nombre");
   await tablero(id);
-  await cambiarTablero(id, (t) => ({ ...t, nombre: limpio }));
+  await cambiarTablero(id, (t) => {
+    const nuevo = { ...t, ...(limpio && { nombre: limpio }) };
+    if (c.etiquetaKit !== undefined) nuevo.etiquetaKit = texto(c.etiquetaKit, 60) || undefined;
+    if (c.etiquetaVariantes !== undefined) nuevo.etiquetaVariantes = texto(c.etiquetaVariantes, 60) || undefined;
+    if (!nuevo.etiquetaKit) delete nuevo.etiquetaKit;
+    if (!nuevo.etiquetaVariantes) delete nuevo.etiquetaVariantes;
+    return nuevo;
+  });
 }
 
 export async function borrarTablero(id: string): Promise<void> {
@@ -229,9 +247,10 @@ export async function editarNodo(idTablero: string, idNodo: string, c: Record<st
     nombre: c.nombre !== undefined ? texto(c.nombre, 80) : actual.nombre,
     tamanoTitulo: numero(c.tamanoTitulo, TITULO_PX.min, TITULO_PX.max) ?? actual.tamanoTitulo,
     sinTitulo: c.sinTitulo !== undefined ? c.sinTitulo === true : actual.sinTitulo,
+    etiqueta: c.etiqueta !== undefined ? texto(c.etiqueta, 40) || undefined : actual.etiqueta,
     colorTexto: COLORES_TEXTO.includes(c.colorTexto as (typeof COLORES_TEXTO)[number]) ? (c.colorTexto as string) : actual.colorTexto,
     atributo: c.atributo !== undefined ? texto(c.atributo, 80) : actual.atributo,
-    asin: c.asin !== undefined ? (esAsin(c.asin) ? c.asin : undefined) : actual.asin,
+    asin: c.asin !== undefined ? leerAsin(c.asin) : actual.asin,
     notas: c.notas !== undefined ? texto(c.notas, 2000) : actual.notas,
     color: COLORES_NOTA.includes(c.color as (typeof COLORES_NOTA)[number]) ? (c.color as string) : actual.color,
     padre: c.padre !== undefined ? padre : actual.padre,
@@ -240,6 +259,7 @@ export async function editarNodo(idTablero: string, idNodo: string, c: Record<st
   if (esTexto(actual.tipo) || esTexto(nuevo.tipo)) nuevo.tipo = actual.tipo;
   if (nuevo.tipo === "producto" || nuevo.tipo === "titulo") nuevo.padre = null;
   if (!nuevo.sinTitulo) delete nuevo.sinTitulo;
+  if (!nuevo.etiqueta) delete nuevo.etiqueta;
   if (!nuevo.colorTexto || nuevo.colorTexto === COLORES_TEXTO[0]) delete nuevo.colorTexto;
   if (!nuevo.asin) delete nuevo.asin;
   if (nuevo.tamanoTitulo === undefined) delete nuevo.tamanoTitulo;

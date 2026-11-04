@@ -3,7 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
-import { type NodoVariante, type TableroVariantes, type TipoNodo } from "@/lib/datos/variantesTipos";
+import { ETIQUETAS_SECCION, type NodoVariante, type TableroVariantes, type TipoNodo } from "@/lib/datos/variantesTipos";
 
 /** Line colour of the arrows. */
 const LINEA = "border-white/35";
@@ -95,14 +95,30 @@ function Rama({
       {/* The product or variant */}
       <div className="flex w-full shrink-0 flex-col gap-2 rounded-xl border border-white/[0.08] bg-ink-900/80 p-3 md:w-56">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold tracking-wide text-accent-300 uppercase">{etiqueta}</span>
+          <Editable
+            valor={raiz.etiqueta ?? etiqueta}
+            onGuardar={(v) => onEditar(raiz, { etiqueta: v && v !== etiqueta ? v : "" })}
+            placeholder={etiqueta}
+            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] font-semibold tracking-wide text-accent-300 uppercase hover:border-white/[0.08] focus:border-accent-500/60 focus:outline-none"
+          />
           <button onClick={() => onBorrar(raiz)} title="Borrar" aria-label={`Borrar ${etiqueta.toLowerCase()}`} className={borrarBoton}>
             <Cruz />
           </button>
         </div>
         <Foto tablero={tablero} nodo={raiz} className="aspect-square w-full" />
         <Editable valor={raiz.nombre} onGuardar={(v) => onEditar(raiz, { nombre: v })} placeholder="Nombre" className="w-full rounded-md border border-transparent bg-transparent px-1.5 py-1 text-sm font-semibold text-ink-100 hover:border-white/[0.08] focus:border-accent-500/60 focus:outline-none" />
-        {raiz.asin && <span className="px-1.5 font-mono text-[11px] text-ink-500">{raiz.asin}</span>}
+        <Editable
+          valor={raiz.atributo ?? ""}
+          onGuardar={(v) => onEditar(raiz, { atributo: v })}
+          placeholder="Detalle (color, talla…)"
+          className="w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-xs text-ink-300 placeholder:text-ink-600 hover:border-white/[0.08] focus:border-accent-500/60 focus:outline-none"
+        />
+        <Editable
+          valor={raiz.asin ?? ""}
+          onGuardar={(v) => onEditar(raiz, { asin: v.toUpperCase() })}
+          placeholder="ASIN"
+          className="w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-mono text-[11px] text-ink-400 uppercase placeholder:text-ink-600 placeholder:normal-case hover:border-white/[0.08] focus:border-accent-500/60 focus:outline-none"
+        />
       </div>
 
       {/* Arrow from it to the column of elements */}
@@ -208,9 +224,13 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
   };
   const editar = async (n: NodoVariante, cambios: Partial<NodoVariante>) => {
     setNodos((ns) => ns.map((x) => (x.id === n.id ? { ...x, ...cambios } : x)));
+    setError(null);
     const r = await fetch(`/api/variantes/${t.id}/${n.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cambios) }).catch(() => null);
-    if (!r?.ok) setError("No se pudo guardar");
-    else router.refresh();
+    if (!r?.ok) {
+      setError(((await r?.json().catch(() => ({}))) as { error?: string } | undefined)?.error ?? "No se pudo guardar");
+      setNodos((ns) => ns.map((x) => (x.id === n.id ? n : x)));
+    }
+    router.refresh();
   };
   const borrar = async (n: NodoVariante) => {
     const cuelgan = nodos.filter((x) => x.padre === n.id).length;
@@ -220,12 +240,17 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
     setNodos((ns) => ns.filter((x) => x.id !== n.id).map((x) => (x.padre === n.id ? { ...x, padre: n.padre } : x)));
     router.refresh();
   };
-  const renombrar = async (nombre: string) => {
-    if (!nombre) return;
-    const r = await fetch(`/api/variantes/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre }) }).catch(() => null);
-    if (!r?.ok) setError("No se pudo cambiar el nombre");
+  /** The product's name or a section heading. */
+  const editarProducto = async (cambios: { nombre?: string; etiquetaKit?: string; etiquetaVariantes?: string }) => {
+    if (cambios.nombre === "") return;
+    setError(null);
+    const r = await fetch(`/api/variantes/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cambios) }).catch(() => null);
+    if (!r?.ok) setError("No se pudo guardar");
     router.refresh();
   };
+  const encabezado = "rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-bold tracking-wide text-ink-100 uppercase hover:border-white/[0.08] focus:border-accent-500/60 focus:outline-none";
+  const kit = t.etiquetaKit ?? ETIQUETAS_SECCION.kit;
+  const variantesTitulo = t.etiquetaVariantes ?? ETIQUETAS_SECCION.variantes;
   const borrarProducto = async () => {
     const r = await fetch(`/api/variantes/${t.id}`, { method: "DELETE" }).catch(() => null);
     if (!r?.ok) return setError("No se pudo borrar");
@@ -247,7 +272,7 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Editable
           valor={t.nombre}
-          onGuardar={renombrar}
+          onGuardar={(nombre) => editarProducto({ nombre })}
           placeholder="Nombre del producto"
           className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1 text-3xl font-bold tracking-tight text-white hover:border-white/[0.1] focus:border-accent-500/60 focus:outline-none sm:text-4xl"
         />
@@ -285,12 +310,15 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
           return (
             <div key={p.id} className="flex flex-col gap-8">
               <section className="flex flex-col gap-3">
-                <h2 className="border-b border-white/[0.06] pb-2 text-sm font-bold tracking-wide text-ink-100">{principales.length > 1 ? `KIT · PRODUCTO ${i + 1}` : "KIT"}</h2>
+                <div className="flex items-center gap-2 border-b border-white/[0.06] pb-2">
+                  <Editable valor={kit} onGuardar={(v) => editarProducto({ etiquetaKit: v === ETIQUETAS_SECCION.kit ? "" : v })} placeholder={ETIQUETAS_SECCION.kit} className={`${encabezado} min-w-0 flex-1`} />
+                  {principales.length > 1 && <span className="shrink-0 text-xs text-ink-500">Producto {i + 1}</span>}
+                </div>
                 <Rama
                   tablero={t.id}
                   raiz={p}
                   elementos={deTipo(p.id, "componente")}
-                  etiqueta="Producto principal"
+                  etiqueta={ETIQUETAS_SECCION.producto}
                   ocupado={ocupado({ tipo: "componente", padre: p })}
                   onAnadir={() => pedirImagen({ tipo: "componente", padre: p })}
                   onEditar={editar}
@@ -300,9 +328,15 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
 
               <section className="flex flex-col gap-4">
                 <div className="flex flex-wrap items-end justify-between gap-3 border-b border-white/[0.06] pb-2">
-                  <h2 className="text-sm font-bold tracking-wide text-ink-100">
-                    VARIANTES <span className="ml-1 font-normal text-ink-500">{variantes.length}</span>
-                  </h2>
+                  <span className="flex min-w-0 flex-1 items-center gap-1">
+                    <Editable
+                      valor={variantesTitulo}
+                      onGuardar={(v) => editarProducto({ etiquetaVariantes: v === ETIQUETAS_SECCION.variantes ? "" : v })}
+                      placeholder={ETIQUETAS_SECCION.variantes}
+                      className={`${encabezado} min-w-0 flex-1`}
+                    />
+                    <span className="shrink-0 text-sm text-ink-500">{variantes.length}</span>
+                  </span>
                   <button
                     onClick={() => pedirImagen(dVariante)}
                     disabled={!!subiendo}
@@ -320,7 +354,7 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
                       tablero={t.id}
                       raiz={v}
                       elementos={deTipo(v.id, "componente")}
-                      etiqueta="Variante"
+                      etiqueta={ETIQUETAS_SECCION.variante}
                       ocupado={ocupado({ tipo: "componente", padre: v })}
                       onAnadir={() => pedirImagen({ tipo: "componente", padre: v })}
                       onEditar={editar}

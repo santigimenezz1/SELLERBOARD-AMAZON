@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { getSessionUser } from "@/lib/auth/session";
-import { agregarNodo, borrarTablero, moverNodos, renombrarTablero } from "@/lib/datos/variantes";
+import { agregarNodo, borrarTablero, editarTablero, moverNodos } from "@/lib/datos/variantes";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -29,14 +29,14 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   }
 }
 
-/** Renames the board ({ nombre }) or moves several elements at once ({ posiciones: [{ id, x, y }] }). */
+/** Renames the board and/or changes its headings ({ nombre, etiquetaKit, etiquetaVariantes }), or moves several elements at once ({ posiciones: [{ id, x, y }] }). */
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const no = await comprobar(req);
   if (no) return no;
   try {
-    const cuerpo = (await req.json().catch(() => ({}))) as { nombre?: unknown; posiciones?: unknown };
+    const cuerpo = (await req.json().catch(() => ({}))) as { nombre?: unknown; posiciones?: unknown; etiquetaKit?: unknown; etiquetaVariantes?: unknown };
     if (cuerpo.posiciones !== undefined) await moverNodos((await params).id, cuerpo.posiciones);
-    else await renombrarTablero((await params).id, cuerpo.nombre);
+    else await editarTablero((await params).id, cuerpo);
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (e) {

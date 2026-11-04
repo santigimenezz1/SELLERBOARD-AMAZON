@@ -187,11 +187,19 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
     </>
   );
 
+  // No product yet: the bar to create one and a message under it (the message must not cover the bar's buttons).
   if (!t)
     return (
-      <div className={MARCO}>
-        <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5">{tableroYNuevo}</div>
-        <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ink-400">Crea tu primer producto con «＋ Nuevo producto».</p>
+      <div className="flex flex-col gap-4">
+        <div className="relative z-10 flex flex-wrap items-center gap-1.5">{tableroYNuevo}</div>
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/[0.15] px-4 py-16 text-center text-sm text-ink-400">
+          <p>Aún no hay productos. Crea el primero y luego añade su foto, los elementos del kit y sus variantes.</p>
+          {nombreNuevo === null && (
+            <button onClick={() => setNombreNuevo("")} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400">
+              ＋ Nuevo producto
+            </button>
+          )}
+        </div>
       </div>
     );
   if (!libre) return <VistaKit key={t.id} t={t} cabecera={tableroYNuevo} preparar={preparar} onBorrado={() => router.refresh()} />;
@@ -645,7 +653,15 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
               )}
             </div>
           ) : (
-            <div key={n.id} onPointerDown={(e) => empezarNodo(e, n)} className="pointer-events-auto absolute cursor-grab active:cursor-grabbing" style={{ left: n.x, top: n.y, width: n.ancho }}>
+            <div
+              key={n.id}
+              onPointerDown={(e) => empezarNodo(e, n)}
+              // On the box, not on the title: the board captures the pointer, so a double click lands here.
+              onDoubleClick={() => !n.sinTitulo && setEditando(n.id)}
+              title={n.sinTitulo ? undefined : "Doble clic para editar el título"}
+              className="pointer-events-auto absolute cursor-grab active:cursor-grabbing"
+              style={{ left: n.x, top: n.y, width: n.ancho }}
+            >
               {n.sinTitulo ? null : editando === n.id ? (
                 <input
                   autoFocus
@@ -659,7 +675,6 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
                 />
               ) : (
                 <p
-                  onDoubleClick={() => setEditando(n.id)}
                   title={`${n.nombre} (doble clic para editar)`}
                   style={{ fontSize: n.tamanoTitulo ?? TITULO_PX.normal, height: altoTitulo(n) - 4, lineHeight: `${altoTitulo(n) - 4}px`, color: n.colorTexto }}
                   // A big title may be wider than its image: it spreads to both sides, centred over it.

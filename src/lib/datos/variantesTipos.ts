@@ -15,6 +15,8 @@ export type NodoVariante = {
   nombre: string;
   /** Font size of that title in px (TITULO_PX when not set), changed apart from the image's size; a free title's size. */
   tamanoTitulo?: number;
+  /** The small label over an image in the ordered view («Producto principal», «Variante»), when changed. */
+  etiqueta?: string;
   /** An image shown without its title. */
   sinTitulo?: boolean;
   /** Colour of the text (a title, an image's title or a note's text), one of COLORES_TEXTO; white when not set. */
@@ -38,7 +40,17 @@ export type NodoVariante = {
   tipoArchivo: string;
 };
 
-export type TableroVariantes = { id: string; nombre: string; nodos: NodoVariante[]; creadoEn: string };
+export type TableroVariantes = {
+  id: string;
+  nombre: string;
+  nodos: NodoVariante[];
+  creadoEn: string;
+  /** The ordered view's section headings, when changed (ETIQUETAS_SECCION otherwise). */
+  etiquetaKit?: string;
+  etiquetaVariantes?: string;
+};
+/** The ordered view's headings and labels as they come. */
+export const ETIQUETAS_SECCION = { kit: "KIT", variantes: "VARIANTES", producto: "Producto principal", variante: "Variante" } as const;
 
 /** The board has no edges: positions just stay within this (huge) range. */
 export const LIMITE_LIENZO = 1_000_000;
