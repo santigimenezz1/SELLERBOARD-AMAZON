@@ -5,7 +5,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { familiaCatalogo } from "@/lib/amazon/apis";
 import { bucket } from "./documentos";
 import { contarEscrituras, contarLecturas } from "./consumo";
-import { ANCHOS, COLORES_NOTA, LIMITE_LIENZO, esTipoNodo, type NodoVariante, type TableroVariantes } from "./variantesTipos";
+import { ANCHOS, COLORES_NOTA, COLORES_TEXTO, LIMITE_LIENZO, TITULO_PX, esTexto, esTipoNodo, type NodoVariante, type TableroVariantes } from "./variantesTipos";
 
 /*
  * «Variantes» boards. The list is one doc, `config/variantes`, kept in memory; each node's image lives in Firebase
@@ -87,7 +87,7 @@ export async function agregarNodo(idTablero: string, archivo: File, c: Record<st
   if (archivo.size === 0) throw new Error("La imagen está vacía");
   if (archivo.size > TAMANO_MAXIMO_VARIANTE) throw new Error("La imagen pasa de 10 MB");
   const t = await tablero(idTablero);
-  const tipo = esTipoNodo(c.tipo) && c.tipo !== "nota" ? c.tipo : "componente";
+  const tipo = esTipoNodo(c.tipo) && !esTexto(c.tipo) ? c.tipo : "componente";
   const padre = typeof c.padre === "string" && t.nodos.some((n) => n.id === c.padre) ? c.padre : null;
   const nodo: NodoVariante = {
     id: randomUUID(),
@@ -102,6 +102,26 @@ export async function agregarNodo(idTablero: string, archivo: File, c: Record<st
     tipoArchivo: archivo.type,
   };
   await guardarImagen(idTablero, nodo, Buffer.from(await archivo.arrayBuffer()));
+  await cambiarTablero(idTablero, (x) => ({ ...x, nodos: [...x.nodos, nodo] }));
+  return nodo;
+}
+
+/** Adds a free-standing title, placed where it's asked for (no arrows). */
+export async function agregarTitulo(idTablero: string, c: Record<string, unknown>): Promise<NodoVariante> {
+  await tablero(idTablero);
+  const nodo: NodoVariante = {
+    id: randomUUID(),
+    tipo: "titulo",
+    nombre: texto(c.nombre, 80) || "Título",
+    notas: "",
+    tamanoTitulo: TITULO_PX.libre,
+    x: posicion(c.x) ?? 100,
+    y: posicion(c.y) ?? 100,
+    ancho: ANCHOS.titulo,
+    padre: null,
+    archivo: "",
+    tipoArchivo: "",
+  };
   await cambiarTablero(idTablero, (x) => ({ ...x, nodos: [...x.nodos, nodo] }));
   return nodo;
 }
@@ -207,16 +227,22 @@ export async function editarNodo(idTablero: string, idNodo: string, c: Record<st
     ancho: numero(c.ancho, 60, 600) ?? actual.ancho,
     tipo: esTipoNodo(c.tipo) ? c.tipo : actual.tipo,
     nombre: c.nombre !== undefined ? texto(c.nombre, 80) : actual.nombre,
+    tamanoTitulo: numero(c.tamanoTitulo, TITULO_PX.min, TITULO_PX.max) ?? actual.tamanoTitulo,
+    sinTitulo: c.sinTitulo !== undefined ? c.sinTitulo === true : actual.sinTitulo,
+    colorTexto: COLORES_TEXTO.includes(c.colorTexto as (typeof COLORES_TEXTO)[number]) ? (c.colorTexto as string) : actual.colorTexto,
     atributo: c.atributo !== undefined ? texto(c.atributo, 80) : actual.atributo,
     asin: c.asin !== undefined ? (esAsin(c.asin) ? c.asin : undefined) : actual.asin,
     notas: c.notas !== undefined ? texto(c.notas, 2000) : actual.notas,
     color: COLORES_NOTA.includes(c.color as (typeof COLORES_NOTA)[number]) ? (c.color as string) : actual.color,
     padre: c.padre !== undefined ? padre : actual.padre,
   };
-  // A note stays a note, and an image an image.
-  if ((actual.tipo === "nota") !== (nuevo.tipo === "nota")) nuevo.tipo = actual.tipo;
-  if (nuevo.tipo === "producto") nuevo.padre = null;
+  // A note stays a note, a title a title, and an image an image.
+  if (esTexto(actual.tipo) || esTexto(nuevo.tipo)) nuevo.tipo = actual.tipo;
+  if (nuevo.tipo === "producto" || nuevo.tipo === "titulo") nuevo.padre = null;
+  if (!nuevo.sinTitulo) delete nuevo.sinTitulo;
+  if (!nuevo.colorTexto || nuevo.colorTexto === COLORES_TEXTO[0]) delete nuevo.colorTexto;
   if (!nuevo.asin) delete nuevo.asin;
+  if (nuevo.tamanoTitulo === undefined) delete nuevo.tamanoTitulo;
   await cambiarTablero(idTablero, (x) => ({ ...x, nodos: x.nodos.map((n) => (n.id === idNodo ? nuevo : n)) }));
 }
 

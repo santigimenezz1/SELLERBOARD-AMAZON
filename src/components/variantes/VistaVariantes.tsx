@@ -3,22 +3,27 @@
 import { useEffect, useRef, useState, type PointerEvent as EventoPuntero, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
-import { ANCHOS, COLORES_NOTA, type NodoVariante, type TableroVariantes, type TipoNodo } from "@/lib/datos/variantesTipos";
+import { VistaKit } from "./VistaKit";
+import { ANCHOS, COLORES_NOTA, COLORES_TEXTO, TITULO_PX, esTexto, type NodoVariante, type TableroVariantes, type TipoNodo } from "@/lib/datos/variantesTipos";
 
 /** Buttons floating over the board. */
 const flotante = "inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.1] bg-ink-900/90 px-2.5 text-xs text-ink-200 backdrop-blur transition-colors hover:bg-ink-800 disabled:opacity-40";
 /** Where this browser remembers the open board. */
 const CLAVE_TABLERO = "variantes.tablero";
+/** Where this browser remembers the chosen view: in order (kit and variants) or the free board. */
+const CLAVE_VISTA = "variantes.vista";
 /** Images are shrunk to this longest side before uploading. */
 const LADO_MAXIMO = 1200;
 const ZOOM_MIN = 0.15;
 const ZOOM_MAX = 3;
-/** Height of the title above each image (with its margin). */
-const ALTO_TITULO = 26;
+/** Height of the title above an image (with its margin): it grows with the title's own size. */
+const altoTitulo = (n: NodoVariante) => (n.sinTitulo ? 0 : altoTexto(n));
+/** The height a title takes at its size. */
+const altoTexto = (n: NodoVariante) => Math.max(26, Math.round((n.tamanoTitulo ?? TITULO_PX.normal) * 1.35) + 6);
 /** The board fills the screen's width and nearly all its height (what's left under the menu and the title). */
 const MARCO = "relative left-1/2 h-[calc(100dvh-12rem)] min-h-[420px] w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-xl border border-white/[0.08] bg-black";
 /** The frame of an image by level: listing orange, variant blue, part grey. */
-const ANILLO: Record<Exclude<TipoNodo, "nota">, string> = { producto: "ring-accent-500/70", variante: "ring-[#3987e5]/70", componente: "ring-white/20" };
+const ANILLO: Record<Exclude<TipoNodo, "nota" | "titulo">, string> = { producto: "ring-accent-500/70", variante: "ring-[#3987e5]/70", componente: "ring-white/20" };
 type ProductoPropio = { asin: string; titulo: string };
 
 /** A photo shrunk (PNG stays PNG, so cut-out images keep their transparent background). */
@@ -100,12 +105,20 @@ function organizar(nodos: NodoVariante[], alto: (n: NodoVariante) => number): Ma
 export function VistaVariantes({ tableros, productos }: { tableros: TableroVariantes[]; productos: ProductoPropio[] }) {
   const router = useRouter();
   const [elegido, setElegido] = useState<string | null>(null);
+  const [libre, setLibre] = useState(false);
   useEffect(() => {
     try {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- read once after mount: localStorage doesn't exist on the server
       setElegido(localStorage.getItem(CLAVE_TABLERO));
+      setLibre(localStorage.getItem(CLAVE_VISTA) === "libre");
     } catch {}
   }, []);
+  const cambiarVista = (l: boolean) => {
+    setLibre(l);
+    try {
+      localStorage.setItem(CLAVE_VISTA, l ? "libre" : "ordenada");
+    } catch {}
+  };
   const t = tableros.find((x) => x.id === elegido) ?? tableros[0];
   const [nombreNuevo, setNombreNuevo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +142,7 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
   const tableroYNuevo = (
     <>
       {tableros.length > 0 && (
-        <select value={t?.id} onChange={(e) => elegir(e.target.value)} aria-label="Tablero" className="h-8 max-w-52 rounded-lg border border-white/[0.1] bg-ink-900/90 px-2 text-xs text-ink-100 outline-none">
+        <select value={t?.id} onChange={(e) => elegir(e.target.value)} aria-label="Producto" className="h-8 max-w-52 rounded-lg border border-white/[0.1] bg-ink-900/90 px-2 text-xs text-ink-100 outline-none">
           {tableros.map((x) => (
             <option key={x.id} value={x.id}>
               {x.nombre}
@@ -139,7 +152,7 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
       )}
       {nombreNuevo === null ? (
         <button onClick={() => setNombreNuevo("")} className={flotante}>
-          <span aria-hidden>＋</span> Tablero
+          <span aria-hidden>＋</span> Nuevo producto
         </button>
       ) : (
         <form
@@ -149,7 +162,7 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
           }}
           className="flex items-center gap-1.5"
         >
-          <input autoFocus value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} maxLength={80} placeholder="Nombre (ej. Rebounder negro)" className="h-8 w-52 rounded-lg border border-white/[0.1] bg-ink-900/90 px-2.5 text-xs text-ink-100 outline-none focus:border-accent-500/60" />
+          <input autoFocus value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} maxLength={80} placeholder="Nombre del producto (ej. Rebounder)" className="h-8 w-52 rounded-lg border border-white/[0.1] bg-ink-900/90 px-2.5 text-xs text-ink-100 outline-none focus:border-accent-500/60" />
           <button type="submit" className="h-8 rounded-lg bg-accent-500 px-2.5 text-xs font-medium text-ink-950 hover:bg-accent-400">
             Crear
           </button>
@@ -157,6 +170,18 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
             Cancelar
           </button>
         </form>
+      )}
+      {t && (
+        <span className="ml-1 inline-flex overflow-hidden rounded-lg border border-white/[0.1]" role="group" aria-label="Vista">
+          {([
+            [false, "Vista ordenada"],
+            [true, "Tablero libre"],
+          ] as const).map(([l, texto]) => (
+            <button key={texto} onClick={() => cambiarVista(l)} aria-pressed={libre === l} className={`h-8 px-2.5 text-xs transition-colors ${libre === l ? "bg-white/[0.1] text-ink-100" : "bg-ink-900/90 text-ink-400 hover:text-ink-100"}`}>
+              {texto}
+            </button>
+          ))}
+        </span>
       )}
       {error && <span className="rounded-md bg-danger/15 px-2 py-1 text-xs text-danger">{error}</span>}
     </>
@@ -166,10 +191,71 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
     return (
       <div className={MARCO}>
         <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5">{tableroYNuevo}</div>
-        <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ink-400">Crea tu primer tablero con «＋ Tablero».</p>
+        <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ink-400">Crea tu primer producto con «＋ Nuevo producto».</p>
       </div>
     );
+  if (!libre) return <VistaKit key={t.id} t={t} cabecera={tableroYNuevo} preparar={preparar} onBorrado={() => router.refresh()} />;
   return <Lienzo key={t.id} t={t} productos={productos} cabecera={tableroYNuevo} onBorrado={() => router.refresh()} />;
+}
+
+/** The colour of a text (a title, an image's title or a note's text), saved at once. */
+function ColorTexto({
+  n,
+  cambiar,
+  guardar,
+}: {
+  n: NodoVariante;
+  cambiar: (id: string, c: Partial<NodoVariante>) => void;
+  guardar: (id: string, c: Partial<NodoVariante>) => Promise<boolean>;
+}) {
+  const actual = n.colorTexto ?? COLORES_TEXTO[0];
+  return (
+    <span className="flex items-center gap-1">
+      <span className="mr-0.5">Texto</span>
+      {COLORES_TEXTO.map((c) => (
+        <button
+          key={c}
+          onClick={() => (cambiar(n.id, { colorTexto: c }), void guardar(n.id, { colorTexto: c }))}
+          aria-label={`Color del texto ${c}`}
+          aria-pressed={actual === c}
+          className={`size-4 rounded-full border-2 ${actual === c ? "border-accent-400" : "border-white/20"}`}
+          style={{ background: c }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** The size slider of a title (a free one or an image's), saved when let go. */
+function TamanoTitulo({
+  n,
+  normal,
+  cambiar,
+  guardar,
+}: {
+  n: NodoVariante;
+  normal: number;
+  cambiar: (id: string, c: Partial<NodoVariante>) => void;
+  guardar: (id: string, c: Partial<NodoVariante>) => Promise<boolean>;
+}) {
+  const valor = n.tamanoTitulo ?? normal;
+  return (
+    <label className="flex items-center gap-2">
+      Título
+      <input
+        type="range"
+        min={TITULO_PX.min}
+        max={TITULO_PX.max}
+        step={1}
+        value={valor}
+        onChange={(e) => cambiar(n.id, { tamanoTitulo: Number(e.target.value) })}
+        onPointerUp={() => void guardar(n.id, { tamanoTitulo: valor })}
+        onKeyUp={() => void guardar(n.id, { tamanoTitulo: valor })}
+        className="w-28 accent-accent-500"
+      />
+      <span className="tabular w-9 text-ink-500">{valor} px</span>
+    </label>
+  );
 }
 
 type Arrastre = { tipo: "nodo"; id: string; offX: number; offY: number; inicioX: number; inicioY: number; movido: boolean } | { tipo: "vista"; inicioX: number; inicioY: number; px: number; py: number };
@@ -206,8 +292,12 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
   const seleccionado = nodos.find((n) => n.id === elegido) ?? null;
   // The box arrows start and end at: an image without its title, a note as it is.
   const caja = (n: NodoVariante): Caja =>
-    n.tipo === "nota" ? { x: n.x, y: n.y, ancho: n.ancho, alto: altoNota[n.id] ?? 60 } : { x: n.x, y: n.y + ALTO_TITULO, ancho: n.ancho, alto: n.ancho * (proporcion[n.id] ?? 1) };
-  const altoTotal = (n: NodoVariante) => (n.tipo === "nota" ? caja(n).alto : ALTO_TITULO + caja(n).alto);
+    n.tipo === "nota"
+      ? { x: n.x, y: n.y, ancho: n.ancho, alto: altoNota[n.id] ?? 60 }
+      : n.tipo === "titulo"
+        ? { x: n.x, y: n.y, ancho: n.ancho, alto: altoTexto(n) }
+        : { x: n.x, y: n.y + altoTitulo(n), ancho: n.ancho, alto: n.ancho * (proporcion[n.id] ?? 1) };
+  const altoTotal = (n: NodoVariante) => (esTexto(n.tipo) ? caja(n).alto : altoTitulo(n) + caja(n).alto);
 
   // Notes grow with their text: their height is measured to aim the arrows.
   useEffect(() => {
@@ -321,7 +411,7 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
     setError(null);
     setSubiendo(true);
     try {
-      const padre = seleccionado && seleccionado.tipo !== "nota" ? seleccionado : null;
+      const padre = seleccionado && !esTexto(seleccionado.tipo) ? seleccionado : null;
       const tipo: TipoNodo = !padre ? "producto" : padre.tipo === "producto" ? "variante" : "componente";
       const { x, y } = sitioNuevo(ANCHOS[tipo]);
       const f = new FormData();
@@ -349,10 +439,27 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
     const r = await fetch(`/api/variantes/${t.id}/notas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ padre: seleccionado?.id ?? null, x: Math.round(x), y: Math.round(y), color: seleccionado?.tipo === "nota" ? seleccionado.color : undefined }),
+      body: JSON.stringify({ padre: seleccionado && seleccionado.tipo !== "titulo" ? seleccionado.id : null, x: Math.round(x), y: Math.round(y), color: seleccionado?.tipo === "nota" ? seleccionado.color : undefined }),
     }).catch(() => null);
     const b = (await r?.json().catch(() => ({}))) as { error?: string; nodo?: NodoVariante } | undefined;
     if (!r?.ok || !b?.nodo) return setError(b?.error ?? "No se pudo crear la nota");
+    setNodos((ns) => [...ns, b.nodo!]);
+    setElegido(b.nodo.id);
+    setEditando(b.nodo.id);
+    mostrar(b.nodo);
+    router.refresh();
+  };
+  /** A free-standing title, placed in view and ready to type; then drag it wherever you want. */
+  const titulo = async () => {
+    setError(null);
+    const { x, y } = sitioNuevo(ANCHOS.titulo);
+    const r = await fetch(`/api/variantes/${t.id}/notas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo: "titulo", x: Math.round(x), y: Math.round(y) }),
+    }).catch(() => null);
+    const b = (await r?.json().catch(() => ({}))) as { error?: string; nodo?: NodoVariante } | undefined;
+    if (!r?.ok || !b?.nodo) return setError(b?.error ?? "No se pudo crear el título");
     setNodos((ns) => [...ns, b.nodo!]);
     setElegido(b.nodo.id);
     setEditando(b.nodo.id);
@@ -371,7 +478,11 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
     router.refresh();
   };
   const ordenar = async () => {
-    const pos = organizar(nodos, altoTotal);
+    // Free titles stay where you put them.
+    const pos = organizar(
+      nodos.filter((n) => n.tipo !== "titulo"),
+      altoTotal,
+    );
     setNodos((ns) => ns.map((n) => ({ ...n, ...pos.get(n.id) })));
     const r = await fetch(`/api/variantes/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ posiciones: [...pos].map(([id, p]) => ({ id, ...p })) }) }).catch(() => null);
     if (!r?.ok) setError("No se pudo guardar el orden");
@@ -394,7 +505,7 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
     arrastre.current = { tipo: "vista", inicioX: e.clientX, inicioY: e.clientY, px: vista.px, py: vista.py };
     if (e.button === 0) {
       setElegido(null);
-      setEditando(null);
+      cerrarEdicion();
     }
   };
   const empezarNodo = (e: EventoPuntero<HTMLDivElement>, n: NodoVariante) => {
@@ -418,7 +529,7 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
     arrastre.current = null;
     if (!a || a.tipo === "vista") return;
     if (!a.movido) {
-      if (a.id !== editando) setEditando(null);
+      if (a.id !== editando) cerrarEdicion();
       return setElegido(a.id);
     }
     const n = nodos.find((x) => x.id === a.id);
@@ -426,10 +537,19 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
   };
 
   /** Saves a title or note being typed into, when leaving it. */
+  // Always saved: compared with the page's data it could look unchanged after an earlier save, and it's one write.
   const terminarEdicion = (n: NodoVariante) => {
     setEditando(null);
-    const original = t.nodos.find((x) => x.id === n.id);
-    if (n.tipo === "nota" ? original?.notas !== n.notas : original?.nombre !== n.nombre) void guardar(n.id, n.tipo === "nota" ? { notas: n.notas } : { nombre: n.nombre });
+    void guardar(n.id, n.tipo === "nota" ? { notas: n.notas } : { nombre: n.nombre }).then((ok) => ok && router.refresh());
+  };
+  /**
+   * Closes the title or note being typed into, saving it. Clicking the board or another element removes the field
+   * before the browser tells it it was left, so its own «on leave» save would never run.
+   */
+  const cerrarEdicion = () => {
+    const n = editando ? nodos.find((x) => x.id === editando) : undefined;
+    if (n) terminarEdicion(n);
+    else setEditando(null);
   };
 
   const renombrar = async () => {
@@ -490,14 +610,24 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
                   onFocus={(e) => e.currentTarget.select()}
                   rows={Math.max(2, n.notas.split("\n").length)}
                   maxLength={2000}
+                  style={{ color: n.colorTexto }}
                   className="block w-full resize-none bg-transparent text-white outline-none [field-sizing:content]"
                 />
               ) : (
-                <p className="whitespace-pre-line">{n.notas}</p>
+                <p className="whitespace-pre-line" style={{ color: n.colorTexto }}>
+                  {n.notas}
+                </p>
               )}
             </div>
-          ) : (
-            <div key={n.id} onPointerDown={(e) => empezarNodo(e, n)} className="pointer-events-auto absolute cursor-grab active:cursor-grabbing" style={{ left: n.x, top: n.y, width: n.ancho }}>
+          ) : n.tipo === "titulo" ? (
+            <div
+              key={n.id}
+              onPointerDown={(e) => empezarNodo(e, n)}
+              onDoubleClick={() => setEditando(n.id)}
+              title="Doble clic para editar"
+              className={`pointer-events-auto absolute w-max rounded-md px-1 font-bold whitespace-nowrap text-white ${editando === n.id ? "cursor-text" : "cursor-grab active:cursor-grabbing"} ${n.id === elegido ? "ring-2 ring-white/70" : ""}`}
+              style={{ left: n.x, top: n.y, fontSize: n.tamanoTitulo ?? TITULO_PX.libre, lineHeight: `${altoTexto(n) - 4}px`, color: n.colorTexto }}
+            >
               {editando === n.id ? (
                 <input
                   autoFocus
@@ -505,11 +635,36 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
                   onChange={(e) => cambiar(n.id, { nombre: e.target.value })}
                   onBlur={() => terminarEdicion(n)}
                   onKeyDown={(e) => (e.key === "Enter" || e.key === "Escape") && e.currentTarget.blur()}
+                  onFocus={(e) => e.currentTarget.select()}
                   maxLength={80}
-                  className="mb-1 h-[22px] w-full rounded bg-ink-900 px-1 text-center text-sm font-semibold text-ink-100 outline-none ring-1 ring-accent-500"
+                  style={{ color: n.colorTexto }}
+                  className="bg-transparent font-bold text-white outline-none [field-sizing:content]"
                 />
               ) : (
-                <p onDoubleClick={() => setEditando(n.id)} title={`${n.nombre} (doble clic para editar)`} className="mb-1 h-[22px] truncate text-center text-sm leading-[22px] font-semibold text-ink-100">
+                n.nombre || <span className="text-ink-500">Título</span>
+              )}
+            </div>
+          ) : (
+            <div key={n.id} onPointerDown={(e) => empezarNodo(e, n)} className="pointer-events-auto absolute cursor-grab active:cursor-grabbing" style={{ left: n.x, top: n.y, width: n.ancho }}>
+              {n.sinTitulo ? null : editando === n.id ? (
+                <input
+                  autoFocus
+                  value={n.nombre}
+                  onChange={(e) => cambiar(n.id, { nombre: e.target.value })}
+                  onBlur={() => terminarEdicion(n)}
+                  onKeyDown={(e) => (e.key === "Enter" || e.key === "Escape") && e.currentTarget.blur()}
+                  maxLength={80}
+                  style={{ fontSize: n.tamanoTitulo ?? TITULO_PX.normal, height: altoTitulo(n) - 4, color: n.colorTexto }}
+                  className="mb-1 w-full rounded bg-ink-900 px-1 text-center font-semibold text-ink-100 outline-none ring-1 ring-accent-500"
+                />
+              ) : (
+                <p
+                  onDoubleClick={() => setEditando(n.id)}
+                  title={`${n.nombre} (doble clic para editar)`}
+                  style={{ fontSize: n.tamanoTitulo ?? TITULO_PX.normal, height: altoTitulo(n) - 4, lineHeight: `${altoTitulo(n) - 4}px`, color: n.colorTexto }}
+                  // A big title may be wider than its image: it spreads to both sides, centred over it.
+                  className="relative left-1/2 mb-1 w-max max-w-[1200px] min-w-full -translate-x-1/2 truncate text-center font-semibold text-ink-100"
+                >
                   {n.nombre || <span className="text-ink-500">Sin título</span>}
                 </p>
               )}
@@ -560,6 +715,9 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
         </button>
         <button onClick={() => void nota()} title={seleccionado ? `Con flecha desde «${seleccionado.nombre || "la nota"}»` : "Una nota suelta (selecciona antes una imagen para unirla con flecha)"} className={flotante}>
           <span aria-hidden className="size-2.5 rounded-sm" style={{ background: COLORES_NOTA[0] }} /> Nota
+        </button>
+        <button onClick={() => void titulo()} className={flotante} title="Un título suelto: arrástralo donde quieras">
+          <span aria-hidden className="font-bold text-white">T</span> Título
         </button>
         <button onClick={() => void ordenar()} disabled={!nodos.length} className={flotante} title="Coloca todo en columnas, siguiendo las flechas">
           Organizar
@@ -612,7 +770,7 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
         <input ref={inputImagen} type="file" accept="image/*" hidden onChange={(e) => (void subir(e.target.files?.[0]), (e.target.value = ""))} />
       </div>
 
-      {/* The selected element's own small bar: colour (notes), size (images), delete. */}
+      {/* The selected element's own small bar: colour (notes), size (titles and images), whether an image shows its title, delete. */}
       {seleccionado && (
         <div onPointerDown={(e) => e.stopPropagation()} className="absolute bottom-3 left-1/2 flex -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border border-white/[0.1] bg-ink-900/95 px-3 py-2 text-xs text-ink-300 shadow-2xl backdrop-blur">
           {seleccionado.tipo === "nota" ? (
@@ -630,14 +788,38 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
               <button onClick={() => setEditando(seleccionado.id)} className="rounded-md px-2 py-1 text-ink-200 hover:bg-white/[0.06]">
                 Editar texto
               </button>
+              <ColorTexto n={seleccionado} cambiar={cambiar} guardar={guardar} />
+            </>
+          ) : seleccionado.tipo === "titulo" ? (
+            <>
+              <button onClick={() => setEditando(seleccionado.id)} className="rounded-md px-2 py-1 text-ink-200 hover:bg-white/[0.06]">
+                Editar texto
+              </button>
+              <TamanoTitulo n={seleccionado} normal={TITULO_PX.libre} cambiar={cambiar} guardar={guardar} />
+              <ColorTexto n={seleccionado} cambiar={cambiar} guardar={guardar} />
             </>
           ) : (
             <>
-              <button onClick={() => setEditando(seleccionado.id)} className="rounded-md px-2 py-1 text-ink-200 hover:bg-white/[0.06]">
-                Editar título
-              </button>
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={!seleccionado.sinTitulo}
+                  onChange={(e) => (cambiar(seleccionado.id, { sinTitulo: !e.target.checked }), void guardar(seleccionado.id, { sinTitulo: !e.target.checked }))}
+                  className="accent-accent-500"
+                />
+                Mostrar título
+              </label>
+              {!seleccionado.sinTitulo && (
+                <>
+                  <button onClick={() => setEditando(seleccionado.id)} className="rounded-md px-2 py-1 text-ink-200 hover:bg-white/[0.06]">
+                    Editar título
+                  </button>
+                  <TamanoTitulo n={seleccionado} normal={TITULO_PX.normal} cambiar={cambiar} guardar={guardar} />
+                  <ColorTexto n={seleccionado} cambiar={cambiar} guardar={guardar} />
+                </>
+              )}
               <label className="flex items-center gap-2">
-                Tamaño
+                Imagen
                 <input
                   type="range"
                   min={60}
