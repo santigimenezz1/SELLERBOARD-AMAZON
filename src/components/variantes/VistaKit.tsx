@@ -3,13 +3,13 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
-import { ETIQUETAS_SECCION, type NodoVariante, type TableroVariantes, type TipoNodo } from "@/lib/datos/variantesTipos";
+import { COLORES_NOTA, ETIQUETAS_SECCION, type NodoVariante, type TableroVariantes, type TipoNodo } from "@/lib/datos/variantesTipos";
 
 /** Line colour of the arrows. */
 const LINEA = "border-white/35";
 
 /** Where an image goes: the main product (no parent), a variant of a product, or an element of either. */
-type Destino = { tipo: Exclude<TipoNodo, "nota" | "titulo">; padre: NodoVariante | null };
+type Destino = { tipo: Exclude<TipoNodo, "nota" | "titulo">; padre: NodoVariante | null } | { reemplazar: NodoVariante };
 
 /** A text saved when you leave the field, only if it changed. */
 function Editable({
@@ -48,12 +48,20 @@ function Editable({
   );
 }
 
-/** A stored image, contained in its box. */
-function Foto({ tablero, nodo, className }: { tablero: string; nodo: NodoVariante; className: string }) {
+/** A stored image, contained in its box, with a «Reemplazar» button over it (on hover, always on touch screens). */
+function Foto({ tablero, nodo, className, onReemplazar, ocupado }: { tablero: string; nodo: NodoVariante; className: string; onReemplazar: () => void; ocupado: boolean }) {
   return (
-    <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-1 ${className}`}>
+    <div className={`group/foto relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-1 ${className}`}>
+      <button
+        onClick={onReemplazar}
+        disabled={ocupado}
+        title="Reemplazar la imagen"
+        className="absolute inset-x-1 bottom-1 z-10 flex items-center justify-center gap-1 rounded-md bg-ink-950/80 px-1.5 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover/foto:opacity-100 focus:opacity-100 disabled:opacity-100 [@media(hover:none)]:opacity-100"
+      >
+        {ocupado ? <Spinner tamano="sm" /> : "↺ Reemplazar"}
+      </button>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={`/api/variantes/${tablero}/${nodo.id}`} alt={nodo.nombre} loading="lazy" className="size-full object-contain" />
+      <img src={`/api/variantes/${tablero}/${nodo.id}?v=${encodeURIComponent(nodo.archivo)}`} alt={nodo.nombre} loading="lazy" className="size-full object-contain" />
     </div>
   );
 }
@@ -69,7 +77,7 @@ function Cruz() {
 
 /**
  * One branch: the image on the left and, with an arrow to each, what it contains on the right (each element with its
- * image, its name and a text saying what it is), plus a dashed «Añadir elemento» at the end.
+ * image, its name and a text saying what it is, or a coloured note), plus «Añadir elemento» and «Añadir nota» at the end.
  */
 function Rama({
   tablero,
@@ -78,8 +86,11 @@ function Rama({
   etiqueta,
   ocupado,
   onAnadir,
+  onAnadirNota,
   onEditar,
   onBorrar,
+  onReemplazar,
+  reemplazando,
 }: {
   tablero: string;
   raiz: NodoVariante;
@@ -87,8 +98,12 @@ function Rama({
   etiqueta: string;
   ocupado: boolean;
   onAnadir: () => void;
+  onAnadirNota: () => void;
   onEditar: (n: NodoVariante, c: Partial<NodoVariante>) => void;
   onBorrar: (n: NodoVariante) => void;
+  onReemplazar: (n: NodoVariante) => void;
+  /** The element whose image is being replaced. */
+  reemplazando: string | null;
 }) {
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -105,7 +120,7 @@ function Rama({
             <Cruz />
           </button>
         </div>
-        <Foto tablero={tablero} nodo={raiz} className="aspect-square w-full" />
+        <Foto tablero={tablero} nodo={raiz} className="aspect-square w-full" onReemplazar={() => onReemplazar(raiz)} ocupado={reemplazando === raiz.id} />
         <Editable valor={raiz.nombre} onGuardar={(v) => onEditar(raiz, { nombre: v })} placeholder="Nombre" className="w-full rounded-md border border-transparent bg-transparent px-1.5 py-1 text-sm font-semibold text-ink-100 hover:border-white/[0.08] focus:border-accent-500/60 focus:outline-none" />
         <Editable
           valor={raiz.atributo ?? ""}
@@ -137,9 +152,39 @@ function Rama({
               )}
               <span aria-hidden className={`absolute top-1/2 left-0 hidden w-9 border-t-2 md:block ${LINEA} ${n ? "" : "border-dashed"}`} />
               <span aria-hidden className="absolute top-1/2 left-8 hidden -translate-y-1/2 border-y-[5px] border-l-[8px] border-y-transparent border-l-white/50 md:block" />
-              {n ? (
+              {n?.tipo === "nota" ? (
+                <div
+                  className="flex items-start gap-2 rounded-xl border p-2.5"
+                  style={{ background: `color-mix(in srgb, ${n.color ?? COLORES_NOTA[0]} 30%, #0b0b0f)`, borderColor: n.color ?? COLORES_NOTA[0] }}
+                >
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <Editable
+                      valor={n.notas}
+                      onGuardar={(v) => onEditar(n, { notas: v })}
+                      placeholder="Escribe la nota…"
+                      multilinea
+                      className="w-full resize-y rounded-md border border-transparent bg-transparent px-1.5 py-1 text-sm leading-relaxed text-white placeholder:text-white/40 hover:border-white/[0.12] focus:border-white/40 focus:outline-none"
+                    />
+                    <span className="flex items-center gap-1 px-1.5">
+                      {COLORES_NOTA.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => onEditar(n, { color: c })}
+                          aria-label={`Color de la nota ${c}`}
+                          aria-pressed={(n.color ?? COLORES_NOTA[0]) === c}
+                          className={`size-3.5 rounded-full border-2 ${(n.color ?? COLORES_NOTA[0]) === c ? "border-white" : "border-transparent"}`}
+                          style={{ background: c }}
+                        />
+                      ))}
+                    </span>
+                  </div>
+                  <button onClick={() => onBorrar(n)} title="Borrar" aria-label="Borrar nota" className={borrarBoton}>
+                    <Cruz />
+                  </button>
+                </div>
+              ) : n ? (
                 <div className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-ink-900/80 p-2.5">
-                  <Foto tablero={tablero} nodo={n} className="size-20" />
+                  <Foto tablero={tablero} nodo={n} className="size-20" onReemplazar={() => onReemplazar(n)} ocupado={reemplazando === n.id} />
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <Editable valor={n.nombre} onGuardar={(v) => onEditar(n, { nombre: v })} placeholder="Nombre del elemento" className="w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-sm font-semibold text-ink-100 hover:border-white/[0.08] focus:border-accent-500/60 focus:outline-none" />
                     <Editable
@@ -155,13 +200,21 @@ function Rama({
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={onAnadir}
-                  disabled={ocupado}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.15] px-3 py-4 text-sm text-ink-400 transition-colors hover:border-accent-500/50 hover:text-ink-100 disabled:opacity-50"
-                >
-                  {ocupado ? <Spinner tamano="sm" /> : <span aria-hidden>＋</span>} Añadir elemento (imagen)
-                </button>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    onClick={onAnadir}
+                    disabled={ocupado}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.15] px-3 py-4 text-sm text-ink-400 transition-colors hover:border-accent-500/50 hover:text-ink-100 disabled:opacity-50"
+                  >
+                    {ocupado ? <Spinner tamano="sm" /> : <span aria-hidden>＋</span>} Añadir elemento (imagen)
+                  </button>
+                  <button
+                    onClick={onAnadirNota}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.15] px-3 py-4 text-sm text-ink-400 transition-colors hover:border-accent-500/50 hover:text-ink-100"
+                  >
+                    <span aria-hidden className="size-2.5 rounded-sm" style={{ background: COLORES_NOTA[0] }} /> Añadir nota
+                  </button>
+                </div>
               )}
             </li>
           );
@@ -194,9 +247,29 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
     destino.current = d;
     input.current?.click();
   };
+  /** The element whose image is being replaced. */
+  const [reemplazando, setReemplazando] = useState<string | null>(null);
+  const reemplazar = async (n: NodoVariante, archivo: File) => {
+    setError(null);
+    setReemplazando(n.id);
+    try {
+      const f = new FormData();
+      f.set("archivo", await preparar(archivo));
+      const r = await fetch(`/api/variantes/${t.id}/${n.id}`, { method: "PUT", body: f });
+      const b = (await r.json().catch(() => ({}))) as { error?: string; nodo?: NodoVariante };
+      if (!r.ok || !b.nodo) throw new Error(b.error ?? `Error ${r.status}`);
+      setNodos((ns) => ns.map((x) => (x.id === n.id ? b.nodo! : x)));
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo reemplazar la imagen");
+    } finally {
+      setReemplazando(null);
+    }
+  };
   const subir = async (archivo: File | undefined) => {
     const d = destino.current;
     if (!archivo || !d) return;
+    if ("reemplazar" in d) return reemplazar(d.reemplazar, archivo);
     const clave = `${d.tipo}-${d.padre?.id ?? "raiz"}`;
     setError(null);
     setSubiendo(clave);
@@ -221,6 +294,20 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
     } finally {
       setSubiendo(null);
     }
+  };
+  /** A note hanging from a product or variant, below what it already has (it starts as «Nota»: click it to write). */
+  const anadirNota = async (padre: NodoVariante) => {
+    setError(null);
+    const hermanos = nodos.filter((n) => n.padre === padre.id);
+    const r = await fetch(`/api/variantes/${t.id}/notas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ padre: padre.id, x: Math.round(padre.x + padre.ancho + 200), y: Math.round(hermanos.length ? Math.max(...hermanos.map((n) => n.y)) + 220 : padre.y) }),
+    }).catch(() => null);
+    const b = (await r?.json().catch(() => ({}))) as { error?: string; nodo?: NodoVariante } | undefined;
+    if (!r?.ok || !b?.nodo) return setError(b?.error ?? "No se pudo crear la nota");
+    setNodos((ns) => [...ns, b.nodo!]);
+    router.refresh();
   };
   const editar = async (n: NodoVariante, cambios: Partial<NodoVariante>) => {
     setNodos((ns) => ns.map((x) => (x.id === n.id ? { ...x, ...cambios } : x)));
@@ -260,9 +347,14 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
 
   const principales = nodos.filter((n) => n.tipo === "producto");
   const deTipo = (padre: string, tipo: TipoNodo) => nodos.filter((n) => n.padre === padre && n.tipo === tipo).sort((a, b) => a.y - b.y);
-  const notas = nodos.filter((n) => n.tipo === "nota").length;
+  /** What hangs from a product or variant on its right: its elements and its notes, in their order on the board. */
+  const contenido = (padre: string) => nodos.filter((n) => n.padre === padre && (n.tipo === "componente" || n.tipo === "nota")).sort((a, b) => a.y - b.y);
+  // Notes shown here (hanging from a product or a variant) don't count as «only on the free board».
+  const visibles = new Set(nodos.filter((n) => n.tipo === "producto" || n.tipo === "variante").map((n) => n.id));
+  const notas = nodos.filter((n) => n.tipo === "nota" && !(n.padre && visibles.has(n.padre))).length;
   const titulos = nodos.filter((n) => n.tipo === "titulo").length;
-  const ocupado = (d: Destino) => subiendo === `${d.tipo}-${d.padre?.id ?? "raiz"}`;
+  const ocupado = (d: Destino) => !("reemplazar" in d) && subiendo === `${d.tipo}-${d.padre?.id ?? "raiz"}`;
+  const conReemplazo = { onReemplazar: (n: NodoVariante) => pedirImagen({ reemplazar: n }), reemplazando };
 
   return (
     <div className="flex flex-col gap-6">
@@ -317,12 +409,14 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
                 <Rama
                   tablero={t.id}
                   raiz={p}
-                  elementos={deTipo(p.id, "componente")}
+                  elementos={contenido(p.id)}
+                  onAnadirNota={() => void anadirNota(p)}
                   etiqueta={ETIQUETAS_SECCION.producto}
                   ocupado={ocupado({ tipo: "componente", padre: p })}
                   onAnadir={() => pedirImagen({ tipo: "componente", padre: p })}
                   onEditar={editar}
                   onBorrar={borrar}
+                  {...conReemplazo}
                 />
               </section>
 
@@ -353,12 +447,14 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
                       key={v.id}
                       tablero={t.id}
                       raiz={v}
-                      elementos={deTipo(v.id, "componente")}
+                      elementos={contenido(v.id)}
+                      onAnadirNota={() => void anadirNota(v)}
                       etiqueta={ETIQUETAS_SECCION.variante}
                       ocupado={ocupado({ tipo: "componente", padre: v })}
                       onAnadir={() => pedirImagen({ tipo: "componente", padre: v })}
                       onEditar={editar}
                       onBorrar={borrar}
+                      {...conReemplazo}
                     />
                   ))
                 )}

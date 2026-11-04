@@ -296,6 +296,8 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
   const capa = useRef<HTMLDivElement>(null);
   const arrastre = useRef<Arrastre | null>(null);
   const inputImagen = useRef<HTMLInputElement>(null);
+  /** The file picker that replaces the selected image. */
+  const inputReemplazo = useRef<HTMLInputElement>(null);
 
   const seleccionado = nodos.find((n) => n.id === elegido) ?? null;
   // The box arrows start and end at: an image without its title, a note as it is.
@@ -436,6 +438,32 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo subir");
+    } finally {
+      setSubiendo(false);
+    }
+  };
+  /** A new image for the selected element: name, texts, arrows and place stay. */
+  const reemplazar = async (archivo: File | undefined) => {
+    const n = seleccionado;
+    if (!archivo || !n || esTexto(n.tipo)) return;
+    setError(null);
+    setSubiendo(true);
+    try {
+      const f = new FormData();
+      f.set("archivo", await preparar(archivo));
+      const r = await fetch(`/api/variantes/${t.id}/${n.id}`, { method: "PUT", body: f });
+      const b = (await r.json().catch(() => ({}))) as { error?: string; nodo?: NodoVariante };
+      if (!r.ok || !b.nodo) throw new Error(b.error ?? `Error ${r.status}`);
+      cambiar(n.id, { archivo: b.nodo.archivo, tipoArchivo: b.nodo.tipoArchivo });
+      // Its proportions may change: measured again when the new one loads.
+      setProporcion((p) => {
+        const { [n.id]: _, ...resto } = p;
+        void _;
+        return resto;
+      });
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo reemplazar la imagen");
     } finally {
       setSubiendo(false);
     }
@@ -686,7 +714,7 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
               <div className={`overflow-hidden rounded-lg bg-white/[0.04] ${n.id === elegido ? "ring-2 ring-white" : `ring-2 ${ANILLO[n.tipo]}`}`} style={{ height: n.ancho * (proporcion[n.id] ?? 1) }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={`/api/variantes/${t.id}/${n.id}`}
+                  src={`/api/variantes/${t.id}/${n.id}?v=${encodeURIComponent(n.archivo)}`}
                   alt={n.nombre}
                   draggable={false}
                   onLoad={(e) => {
@@ -783,6 +811,7 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
         )}
         {error && <span className="rounded-md bg-danger/15 px-2 py-1 text-xs text-danger">{error}</span>}
         <input ref={inputImagen} type="file" accept="image/*" hidden onChange={(e) => (void subir(e.target.files?.[0]), (e.target.value = ""))} />
+        <input ref={inputReemplazo} type="file" accept="image/*" hidden onChange={(e) => (void reemplazar(e.target.files?.[0]), (e.target.value = ""))} />
       </div>
 
       {/* The selected element's own small bar: colour (notes), size (titles and images), whether an image shows its title, delete. */}
@@ -833,6 +862,9 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
                   <ColorTexto n={seleccionado} cambiar={cambiar} guardar={guardar} />
                 </>
               )}
+              <button onClick={() => inputReemplazo.current?.click()} disabled={subiendo} className="rounded-md px-2 py-1 text-ink-200 hover:bg-white/[0.06] disabled:opacity-50">
+                {subiendo ? "Subiendo…" : "↺ Reemplazar imagen"}
+              </button>
               <label className="flex items-center gap-2">
                 Imagen
                 <input

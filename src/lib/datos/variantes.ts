@@ -99,11 +99,33 @@ export async function borrarTablero(id: string): Promise<void> {
   await modificar((lista) => lista.filter((t) => t.id !== id));
 }
 
-/** Adds a listing, variant or component with its image; variants and components hang from `padre`. */
-export async function agregarNodo(idTablero: string, archivo: File, c: Record<string, unknown>): Promise<NodoVariante> {
+/** The checks every uploaded image goes through. */
+function comprobarImagen(archivo: File) {
   if (!archivo.type.startsWith("image/")) throw new Error("Tiene que ser una imagen");
   if (archivo.size === 0) throw new Error("La imagen está vacía");
   if (archivo.size > TAMANO_MAXIMO_VARIANTE) throw new Error("La imagen pasa de 10 MB");
+}
+
+/**
+ * Puts a new image on an element (everything else stays: name, texts, arrows, place). The file gets a new name, so
+ * the browser shows the new one instead of the one it kept, and the old file is deleted.
+ */
+export async function reemplazarImagen(idTablero: string, idNodo: string, archivo: File): Promise<NodoVariante> {
+  comprobarImagen(archivo);
+  const t = await tablero(idTablero);
+  const actual = t.nodos.find((n) => n.id === idNodo);
+  if (!actual) throw new Error("Elemento no encontrado");
+  if (esTexto(actual.tipo)) throw new Error("Las notas y los títulos no llevan imagen");
+  const nuevo: NodoVariante = { ...actual, archivo: `${Date.now().toString(36)}_${nombreArchivo(archivo.name)}`.slice(-120), tipoArchivo: archivo.type };
+  await guardarImagen(idTablero, nuevo, Buffer.from(await archivo.arrayBuffer()));
+  await cambiarTablero(idTablero, (x) => ({ ...x, nodos: x.nodos.map((n) => (n.id === idNodo ? nuevo : n)) }));
+  if (actual.archivo && actual.archivo !== nuevo.archivo) await bucket().file(ruta(idTablero, actual)).delete({ ignoreNotFound: true }).catch(() => {});
+  return nuevo;
+}
+
+/** Adds a listing, variant or component with its image; variants and components hang from `padre`. */
+export async function agregarNodo(idTablero: string, archivo: File, c: Record<string, unknown>): Promise<NodoVariante> {
+  comprobarImagen(archivo);
   const t = await tablero(idTablero);
   const tipo = esTipoNodo(c.tipo) && !esTexto(c.tipo) ? c.tipo : "componente";
   const padre = typeof c.padre === "string" && t.nodos.some((n) => n.id === c.padre) ? c.padre : null;
