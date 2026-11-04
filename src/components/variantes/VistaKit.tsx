@@ -17,12 +17,15 @@ function Editable({
   onGuardar,
   placeholder,
   multilinea = false,
+  enfocar = false,
   className,
 }: {
   valor: string;
   onGuardar: (v: string) => void;
   placeholder: string;
   multilinea?: boolean;
+  /** Opens with the cursor in it and its text selected. */
+  enfocar?: boolean;
   className: string;
 }) {
   const [texto, setTexto] = useState(valor);
@@ -34,7 +37,17 @@ function Editable({
   }
   const salir = () => texto.trim() !== valor.trim() && onGuardar(texto.trim());
   return multilinea ? (
-    <textarea value={texto} onChange={(e) => setTexto(e.target.value)} onBlur={salir} placeholder={placeholder} maxLength={2000} rows={3} className={className} />
+    <textarea
+      value={texto}
+      onChange={(e) => setTexto(e.target.value)}
+      onBlur={salir}
+      autoFocus={enfocar}
+      onFocus={(e) => enfocar && e.currentTarget.select()}
+      placeholder={placeholder}
+      maxLength={2000}
+      rows={3}
+      className={className}
+    />
   ) : (
     <input
       value={texto}
@@ -47,6 +60,9 @@ function Editable({
     />
   );
 }
+
+/** Whether `id` hangs (through notes) from `raiz`. */
+const debajoDe = (raiz: string, id: string, hijas: (id: string) => NodoVariante[]): boolean => hijas(raiz).some((h) => h.id === id || debajoDe(h.id, id, hijas));
 
 /** A stored image, contained in its box, with a «Reemplazar» button over it (on hover, always on touch screens). */
 function Foto({ tablero, nodo, className, onReemplazar, ocupado }: { tablero: string; nodo: NodoVariante; className: string; onReemplazar: () => void; ocupado: boolean }) {
@@ -62,6 +78,102 @@ function Foto({ tablero, nodo, className, onReemplazar, ocupado }: { tablero: st
       </button>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={`/api/variantes/${tablero}/${nodo.id}?v=${encodeURIComponent(nodo.archivo)}`} alt={nodo.nombre} loading="lazy" className="size-full object-contain" />
+    </div>
+  );
+}
+
+/** What a note needs from the view: the notes under it, which one is selected or open, and the actions. */
+type OpcionesNota = {
+  hijas: (id: string) => NodoVariante[];
+  elegida: string | null;
+  abierta: string | null;
+  onElegir: (id: string) => void;
+  onAbrir: (id: string | null) => void;
+  onEditar: (n: NodoVariante, c: Partial<NodoVariante>) => void;
+  onBorrar: (n: NodoVariante) => void;
+};
+
+/**
+ * A note: just its text, with a small «Editar» tab. Opened (when just created, or from that tab) it shows its text to
+ * edit, its colours and «Borrar». A click selects it (so «Añadir nota» hangs the next one from it). The notes hanging
+ * from it follow on its right, each with its arrow.
+ */
+function ArbolNota({ n, o }: { n: NodoVariante; o: OpcionesNota }) {
+  const color = n.color ?? COLORES_NOTA[0];
+  const abierta = o.abierta === n.id;
+  const elegida = o.elegida === n.id;
+  const hijas = o.hijas(n.id);
+  return (
+    <div className="flex flex-col gap-2 md:flex-row md:items-center">
+      <div
+        onClick={() => !abierta && o.onElegir(n.id)}
+        className={`relative min-w-0 flex-1 rounded-xl border p-3 transition-shadow md:max-w-sm ${abierta ? "" : "cursor-pointer"} ${elegida ? "ring-2 ring-white" : ""}`}
+        style={{ background: `color-mix(in srgb, ${color} 30%, #0b0b0f)`, borderColor: color }}
+        title={abierta ? undefined : elegida ? "Seleccionada: «Añadir nota» la cuelga de esta" : "Toca para seleccionarla"}
+      >
+        {abierta ? (
+          <div className="flex flex-col gap-2">
+            <Editable
+              valor={n.notas}
+              onGuardar={(v) => o.onEditar(n, { notas: v })}
+              placeholder="Escribe la nota…"
+              multilinea
+              enfocar
+              className="w-full resize-y rounded-md border border-white/[0.15] bg-black/20 px-2 py-1.5 text-sm leading-relaxed text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none"
+            />
+            <div className="flex flex-wrap items-center gap-1.5">
+              {COLORES_NOTA.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => o.onEditar(n, { color: c })}
+                  aria-label={`Color de la nota ${c}`}
+                  aria-pressed={color === c}
+                  className={`size-4 rounded-full border-2 ${color === c ? "border-white" : "border-transparent"}`}
+                  style={{ background: c }}
+                />
+              ))}
+              <span className="flex-1" />
+              <button onClick={() => o.onBorrar(n)} className="rounded-md px-2 py-1 text-xs text-white/70 hover:bg-black/20 hover:text-danger">
+                Borrar
+              </button>
+              <button onClick={() => o.onAbrir(null)} className="rounded-md bg-white/90 px-2.5 py-1 text-xs font-medium text-ink-950 hover:bg-white">
+                Listo
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="pr-12 text-sm leading-relaxed whitespace-pre-line text-white">{n.notas}</p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                o.onAbrir(n.id);
+              }}
+              className="absolute top-0 right-2 -translate-y-1/2 rounded-full border px-2 py-px text-[10px] font-medium text-white"
+              style={{ background: `color-mix(in srgb, ${color} 60%, #0b0b0f)`, borderColor: color }}
+            >
+              ✎ Editar
+            </button>
+          </>
+        )}
+      </div>
+      {hijas.length > 0 && (
+        <>
+          <div aria-hidden className={`hidden w-6 shrink-0 border-t-2 md:block ${LINEA}`} />
+          <ul className="flex min-w-0 flex-1 flex-col pl-6 md:pl-0">
+            {hijas.map((h, i) => (
+              <li key={h.id} className="relative py-1.5 md:pl-10">
+                {hijas.length > 1 && (
+                  <span aria-hidden className={`absolute left-0 hidden border-l-2 md:block ${LINEA} ${i === 0 ? "top-1/2 bottom-0" : i === hijas.length - 1 ? "top-0 bottom-1/2" : "inset-y-0"}`} />
+                )}
+                <span aria-hidden className={`absolute top-1/2 left-0 hidden w-9 border-t-2 md:block ${LINEA}`} />
+                <span aria-hidden className="absolute top-1/2 left-8 hidden -translate-y-1/2 border-y-[5px] border-l-[8px] border-y-transparent border-l-white/50 md:block" />
+                <ArbolNota n={h} o={o} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
@@ -87,6 +199,7 @@ function Rama({
   ocupado,
   onAnadir,
   onAnadirNota,
+  opcionesNota,
   onEditar,
   onBorrar,
   onReemplazar,
@@ -99,6 +212,7 @@ function Rama({
   ocupado: boolean;
   onAnadir: () => void;
   onAnadirNota: () => void;
+  opcionesNota: OpcionesNota;
   onEditar: (n: NodoVariante, c: Partial<NodoVariante>) => void;
   onBorrar: (n: NodoVariante) => void;
   onReemplazar: (n: NodoVariante) => void;
@@ -153,35 +267,7 @@ function Rama({
               <span aria-hidden className={`absolute top-1/2 left-0 hidden w-9 border-t-2 md:block ${LINEA} ${n ? "" : "border-dashed"}`} />
               <span aria-hidden className="absolute top-1/2 left-8 hidden -translate-y-1/2 border-y-[5px] border-l-[8px] border-y-transparent border-l-white/50 md:block" />
               {n?.tipo === "nota" ? (
-                <div
-                  className="flex items-start gap-2 rounded-xl border p-2.5"
-                  style={{ background: `color-mix(in srgb, ${n.color ?? COLORES_NOTA[0]} 30%, #0b0b0f)`, borderColor: n.color ?? COLORES_NOTA[0] }}
-                >
-                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <Editable
-                      valor={n.notas}
-                      onGuardar={(v) => onEditar(n, { notas: v })}
-                      placeholder="Escribe la nota…"
-                      multilinea
-                      className="w-full resize-y rounded-md border border-transparent bg-transparent px-1.5 py-1 text-sm leading-relaxed text-white placeholder:text-white/40 hover:border-white/[0.12] focus:border-white/40 focus:outline-none"
-                    />
-                    <span className="flex items-center gap-1 px-1.5">
-                      {COLORES_NOTA.map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => onEditar(n, { color: c })}
-                          aria-label={`Color de la nota ${c}`}
-                          aria-pressed={(n.color ?? COLORES_NOTA[0]) === c}
-                          className={`size-3.5 rounded-full border-2 ${(n.color ?? COLORES_NOTA[0]) === c ? "border-white" : "border-transparent"}`}
-                          style={{ background: c }}
-                        />
-                      ))}
-                    </span>
-                  </div>
-                  <button onClick={() => onBorrar(n)} title="Borrar" aria-label="Borrar nota" className={borrarBoton}>
-                    <Cruz />
-                  </button>
-                </div>
+                <ArbolNota n={n} o={opcionesNota} />
               ) : n ? (
                 <div className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-ink-900/80 p-2.5">
                   <Foto tablero={tablero} nodo={n} className="size-20" onReemplazar={() => onReemplazar(n)} ocupado={reemplazando === n.id} />
@@ -212,7 +298,8 @@ function Rama({
                     onClick={onAnadirNota}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.15] px-3 py-4 text-sm text-ink-400 transition-colors hover:border-accent-500/50 hover:text-ink-100"
                   >
-                    <span aria-hidden className="size-2.5 rounded-sm" style={{ background: COLORES_NOTA[0] }} /> Añadir nota
+                    <span aria-hidden className="size-2.5 rounded-sm" style={{ background: COLORES_NOTA[0] }} />
+                    {opcionesNota.elegida && elementos.some((e) => e.id === opcionesNota.elegida || debajoDe(e.id, opcionesNota.elegida!, opcionesNota.hijas)) ? "Añadir nota a la seleccionada" : "Añadir nota"}
                   </button>
                 </div>
               )}
@@ -295,9 +382,18 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
       setSubiendo(null);
     }
   };
-  /** A note hanging from a product or variant, below what it already has (it starts as «Nota»: click it to write). */
-  const anadirNota = async (padre: NodoVariante) => {
+  /** The note selected (the next one hangs from it) and the note opened to edit. */
+  const [notaElegida, setNotaElegida] = useState<string | null>(null);
+  const [notaAbierta, setNotaAbierta] = useState<string | null>(null);
+  const hijasDe = (id: string) => nodos.filter((n) => n.padre === id && n.tipo === "nota").sort((a, b) => a.y - b.y);
+  /**
+   * A new note, opened to write and pick its colour: it hangs from the selected note when it belongs to this block,
+   * otherwise from the block's image (the product or the variant).
+   */
+  const anadirNota = async (raiz: NodoVariante) => {
     setError(null);
+    const elegida = notaElegida ? nodos.find((n) => n.id === notaElegida) : undefined;
+    const padre = elegida && debajoDe(raiz.id, elegida.id, (id) => nodos.filter((n) => n.padre === id && (n.tipo === "nota" || n.tipo === "componente"))) ? elegida : raiz;
     const hermanos = nodos.filter((n) => n.padre === padre.id);
     const r = await fetch(`/api/variantes/${t.id}/notas`, {
       method: "POST",
@@ -307,6 +403,8 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
     const b = (await r?.json().catch(() => ({}))) as { error?: string; nodo?: NodoVariante } | undefined;
     if (!r?.ok || !b?.nodo) return setError(b?.error ?? "No se pudo crear la nota");
     setNodos((ns) => [...ns, b.nodo!]);
+    setNotaElegida(null);
+    setNotaAbierta(b.nodo.id);
     router.refresh();
   };
   const editar = async (n: NodoVariante, cambios: Partial<NodoVariante>) => {
@@ -325,6 +423,8 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
     const r = await fetch(`/api/variantes/${t.id}/${n.id}`, { method: "DELETE" }).catch(() => null);
     if (!r?.ok) return setError("No se pudo borrar");
     setNodos((ns) => ns.filter((x) => x.id !== n.id).map((x) => (x.padre === n.id ? { ...x, padre: n.padre } : x)));
+    if (notaElegida === n.id) setNotaElegida(null);
+    if (notaAbierta === n.id) setNotaAbierta(null);
     router.refresh();
   };
   /** The product's name or a section heading. */
@@ -351,14 +451,28 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
   const contenido = (padre: string) => nodos.filter((n) => n.padre === padre && (n.tipo === "componente" || n.tipo === "nota")).sort((a, b) => a.y - b.y);
   // Notes shown here (hanging from a product or a variant) don't count as «only on the free board».
   const visibles = new Set(nodos.filter((n) => n.tipo === "producto" || n.tipo === "variante").map((n) => n.id));
-  const notas = nodos.filter((n) => n.tipo === "nota" && !(n.padre && visibles.has(n.padre))).length;
+  const colgada = (n: NodoVariante): boolean => {
+    const p = n.padre ? nodos.find((x) => x.id === n.padre) : undefined;
+    return !!p && (visibles.has(p.id) || (p.tipo === "nota" && colgada(p)));
+  };
+  const notas = nodos.filter((n) => n.tipo === "nota" && !colgada(n)).length;
   const titulos = nodos.filter((n) => n.tipo === "titulo").length;
   const ocupado = (d: Destino) => !("reemplazar" in d) && subiendo === `${d.tipo}-${d.padre?.id ?? "raiz"}`;
   const conReemplazo = { onReemplazar: (n: NodoVariante) => pedirImagen({ reemplazar: n }), reemplazando };
+  const opcionesNota: OpcionesNota = {
+    hijas: hijasDe,
+    elegida: notaElegida,
+    abierta: notaAbierta,
+    // A second click on the selected note unselects it.
+    onElegir: (id) => setNotaElegida((x) => (x === id ? null : id)),
+    onAbrir: setNotaAbierta,
+    onEditar: (n, c) => void editar(n, c),
+    onBorrar: (n) => void borrar(n),
+  };
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-1.5">{cabecera}</div>
+      {cabecera && <div className="flex flex-wrap items-center gap-1.5">{cabecera}</div>}
 
       {/* The product's name, big and white: click to edit it */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -411,6 +525,7 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
                   raiz={p}
                   elementos={contenido(p.id)}
                   onAnadirNota={() => void anadirNota(p)}
+                  opcionesNota={opcionesNota}
                   etiqueta={ETIQUETAS_SECCION.producto}
                   ocupado={ocupado({ tipo: "componente", padre: p })}
                   onAnadir={() => pedirImagen({ tipo: "componente", padre: p })}
@@ -449,6 +564,7 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
                       raiz={v}
                       elementos={contenido(v.id)}
                       onAnadirNota={() => void anadirNota(v)}
+                      opcionesNota={opcionesNota}
                       etiqueta={ETIQUETAS_SECCION.variante}
                       ocupado={ocupado({ tipo: "componente", padre: v })}
                       onAnadir={() => pedirImagen({ tipo: "componente", padre: v })}

@@ -12,6 +12,8 @@ const flotante = "inline-flex h-8 items-center gap-1.5 rounded-lg border border-
 const CLAVE_TABLERO = "variantes.tablero";
 /** Where this browser remembers the chosen view: in order (kit and variants) or the free board. */
 const CLAVE_VISTA = "variantes.vista";
+/** The selector's choice that shows every product, one under another (the free board shows one at a time). */
+const TODOS = "todos";
 /** Images are shrunk to this longest side before uploading. */
 const LADO_MAXIMO = 1200;
 const ZOOM_MIN = 0.15;
@@ -119,7 +121,21 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
       localStorage.setItem(CLAVE_VISTA, l ? "libre" : "ordenada");
     } catch {}
   };
-  const t = tableros.find((x) => x.id === elegido) ?? tableros[0];
+  // Oldest first: the newest product is the last one.
+  const ordenados = [...tableros].sort((a, b) => a.creadoEn.localeCompare(b.creadoEn));
+  // Every product at once, unless one was chosen (the free board always shows just one).
+  const todos = !libre && (elegido === null || elegido === TODOS || !tableros.some((x) => x.id === elegido));
+  const t = tableros.find((x) => x.id === elegido) ?? ordenados[ordenados.length - 1];
+  /** A product just created, to bring it into view once it's on the page. */
+  const [mostrarNuevo, setMostrarNuevo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!mostrarNuevo) return;
+    const el = document.getElementById(`producto-${mostrarNuevo}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- done once it's in view
+    setMostrarNuevo(null);
+  }, [mostrarNuevo, tableros]);
   const [nombreNuevo, setNombreNuevo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -135,15 +151,18 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
     const b = (await r?.json().catch(() => ({}))) as { error?: string; tablero?: TableroVariantes } | undefined;
     if (!r?.ok || !b?.tablero) return setError(b?.error ?? "No se pudo crear");
     setNombreNuevo(null);
-    elegir(b.tablero.id);
+    // Showing all of them: it appears last, and the page goes down to it. Otherwise it's the one shown.
+    if (todos) setMostrarNuevo(b.tablero.id);
+    else elegir(b.tablero.id);
     router.refresh();
   };
 
   const tableroYNuevo = (
     <>
       {tableros.length > 0 && (
-        <select value={t?.id} onChange={(e) => elegir(e.target.value)} aria-label="Producto" className="h-8 max-w-52 rounded-lg border border-white/[0.1] bg-ink-900/90 px-2 text-xs text-ink-100 outline-none">
-          {tableros.map((x) => (
+        <select value={todos ? TODOS : t?.id} onChange={(e) => elegir(e.target.value)} aria-label="Producto" className="h-8 max-w-52 rounded-lg border border-white/[0.1] bg-ink-900/90 px-2 text-xs text-ink-100 outline-none">
+          {!libre && <option value={TODOS}>Todos los productos ({tableros.length})</option>}
+          {ordenados.map((x) => (
             <option key={x.id} value={x.id}>
               {x.nombre}
             </option>
@@ -200,6 +219,17 @@ export function VistaVariantes({ tableros, productos }: { tableros: TableroVaria
             </button>
           )}
         </div>
+      </div>
+    );
+  if (todos)
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="sticky top-16 z-20 -mx-1 flex flex-wrap items-center gap-1.5 bg-ink-950/90 px-1 py-2 backdrop-blur">{tableroYNuevo}</div>
+        {ordenados.map((x, i) => (
+          <div key={x.id} id={`producto-${x.id}`} className={`scroll-mt-32 ${i ? "border-t-2 border-white/[0.08] pt-8" : ""}`}>
+            <VistaKit t={x} cabecera={null} preparar={preparar} onBorrado={() => router.refresh()} />
+          </div>
+        ))}
       </div>
     );
   if (!libre) return <VistaKit key={t.id} t={t} cabecera={tableroYNuevo} preparar={preparar} onBorrado={() => router.refresh()} />;
