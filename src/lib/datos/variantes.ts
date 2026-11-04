@@ -169,6 +169,8 @@ export async function agregarTitulo(idTablero: string, c: Record<string, unknown
 /** Adds a coloured note, with its arrow from `padre` when given. */
 export async function agregarNota(idTablero: string, c: Record<string, unknown>): Promise<NodoVariante> {
   const t = await tablero(idTablero);
+  // `padres`: several elements whose arrows join into one towards the new note (the first one is its parent).
+  const padres = (Array.isArray(c.padres) ? c.padres : [c.padre]).filter((p, i, l): p is string => typeof p === "string" && l.indexOf(p) === i && t.nodos.some((n) => n.id === p)).slice(0, 30);
   const nodo: NodoVariante = {
     id: randomUUID(),
     tipo: "nota",
@@ -178,7 +180,8 @@ export async function agregarNota(idTablero: string, c: Record<string, unknown>)
     x: posicion(c.x) ?? 100,
     y: posicion(c.y) ?? 100,
     ancho: ANCHOS.nota,
-    padre: typeof c.padre === "string" && t.nodos.some((n) => n.id === c.padre) ? c.padre : null,
+    padre: padres[0] ?? null,
+    ...(padres.length > 1 && { padresExtra: padres.slice(1) }),
     archivo: "",
     tipoArchivo: "",
   };
@@ -307,7 +310,20 @@ export async function borrarNodo(idTablero: string, idNodo: string): Promise<voi
   const nodo = t.nodos.find((n) => n.id === idNodo);
   if (!nodo) return;
   if (nodo.archivo) await bucket().file(ruta(idTablero, nodo)).delete({ ignoreNotFound: true });
-  await cambiarTablero(idTablero, (x) => ({ ...x, nodos: x.nodos.filter((n) => n.id !== idNodo).map((n) => (n.padre === idNodo ? { ...n, padre: nodo.padre } : n)) }));
+  // What hung from it now hangs from its own parent; a joined arrow just loses that branch.
+  await cambiarTablero(idTablero, (x) => ({
+    ...x,
+    nodos: x.nodos
+      .filter((n) => n.id !== idNodo)
+      .map((n) => {
+        const extra = n.padresExtra?.filter((p) => p !== idNodo);
+        const nuevo = { ...n, ...(n.padre === idNodo && { padre: nodo.padre }), ...(n.padresExtra && { padresExtra: extra }) };
+        // When the parent it falls back on is already one of its joined ones, it's not repeated.
+        if (nuevo.padresExtra) nuevo.padresExtra = nuevo.padresExtra.filter((p) => p !== nuevo.padre);
+        if (!nuevo.padresExtra?.length) delete nuevo.padresExtra;
+        return nuevo;
+      }),
+  }));
 }
 
 /** A link to the node's image valid for an hour. */

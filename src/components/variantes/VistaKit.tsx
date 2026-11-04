@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/Spinner";
 import { COLORES_NOTA, ETIQUETAS_SECCION, type NodoVariante, type TableroVariantes, type TipoNodo } from "@/lib/datos/variantesTipos";
@@ -85,9 +85,10 @@ function Foto({ tablero, nodo, className, onReemplazar, ocupado }: { tablero: st
 /** What a note needs from the view: the notes under it, which one is selected or open, and the actions. */
 type OpcionesNota = {
   hijas: (id: string) => NodoVariante[];
-  elegida: string | null;
+  /** The selected notes (Control + click adds or takes one). */
+  elegidas: string[];
   abierta: string | null;
-  onElegir: (id: string) => void;
+  onElegir: (id: string, varias: boolean) => void;
   onAbrir: (id: string | null) => void;
   onEditar: (n: NodoVariante, c: Partial<NodoVariante>) => void;
   onBorrar: (n: NodoVariante) => void;
@@ -101,15 +102,16 @@ type OpcionesNota = {
 function ArbolNota({ n, o }: { n: NodoVariante; o: OpcionesNota }) {
   const color = n.color ?? COLORES_NOTA[0];
   const abierta = o.abierta === n.id;
-  const elegida = o.elegida === n.id;
+  const elegida = o.elegidas.includes(n.id);
   const hijas = o.hijas(n.id);
   return (
     <div className="flex flex-col gap-2 md:flex-row md:items-center">
       <div
-        onClick={() => !abierta && o.onElegir(n.id)}
+        data-nodo={n.id}
+        onClick={(e) => !abierta && o.onElegir(n.id, e.ctrlKey || e.metaKey)}
         className={`relative min-w-0 flex-1 rounded-xl border p-3 transition-shadow md:max-w-sm ${abierta ? "" : "cursor-pointer"} ${elegida ? "ring-2 ring-white" : ""}`}
         style={{ background: `color-mix(in srgb, ${color} 30%, #0b0b0f)`, borderColor: color }}
-        title={abierta ? undefined : elegida ? "Seleccionada: «Añadir nota» la cuelga de esta" : "Toca para seleccionarla"}
+        title={abierta ? undefined : elegida ? "Seleccionada: «Añadir nota» la cuelga de esta (Control + clic para elegir varias)" : "Toca para seleccionarla (Control + clic para elegir varias)"}
       >
         {abierta ? (
           <div className="flex flex-col gap-2">
@@ -143,17 +145,31 @@ function ArbolNota({ n, o }: { n: NodoVariante; o: OpcionesNota }) {
           </div>
         ) : (
           <>
-            <p className="pr-12 text-sm leading-relaxed whitespace-pre-line text-white">{n.notas}</p>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                o.onAbrir(n.id);
-              }}
-              className="absolute top-0 right-2 -translate-y-1/2 rounded-full border px-2 py-px text-[10px] font-medium text-white"
-              style={{ background: `color-mix(in srgb, ${color} 60%, #0b0b0f)`, borderColor: color }}
-            >
-              ✎ Editar
-            </button>
+            <p className="pr-6 text-sm leading-relaxed whitespace-pre-line text-white">{n.notas}</p>
+            <span className="absolute top-0 right-2 flex -translate-y-1/2 items-center gap-1">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  o.onAbrir(n.id);
+                }}
+                className="rounded-full border px-2 py-px text-[10px] font-medium text-white"
+                style={{ background: `color-mix(in srgb, ${color} 60%, #0b0b0f)`, borderColor: color }}
+              >
+                ✎ Editar
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  o.onBorrar(n);
+                }}
+                title="Borrar la nota"
+                aria-label="Borrar la nota"
+                className="flex size-5 items-center justify-center rounded-full border text-[11px] leading-none text-white hover:text-danger"
+                style={{ background: `color-mix(in srgb, ${color} 60%, #0b0b0f)`, borderColor: color }}
+              >
+                ✕
+              </button>
+            </span>
           </>
         )}
       </div>
@@ -299,7 +315,10 @@ function Rama({
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/[0.15] px-3 py-4 text-sm text-ink-400 transition-colors hover:border-accent-500/50 hover:text-ink-100"
                   >
                     <span aria-hidden className="size-2.5 rounded-sm" style={{ background: COLORES_NOTA[0] }} />
-                    {opcionesNota.elegida && elementos.some((e) => e.id === opcionesNota.elegida || debajoDe(e.id, opcionesNota.elegida!, opcionesNota.hijas)) ? "Añadir nota a la seleccionada" : "Añadir nota"}
+                    {(() => {
+                      const aqui = opcionesNota.elegidas.filter((id) => elementos.some((e) => e.id === id || debajoDe(e.id, id, opcionesNota.hijas))).length;
+                      return aqui > 1 ? `Añadir nota uniendo las ${aqui} seleccionadas` : aqui ? "Añadir nota a la seleccionada" : "Añadir nota";
+                    })()}
                   </button>
                 </div>
               )}
@@ -383,7 +402,7 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
     }
   };
   /** The note selected (the next one hangs from it) and the note opened to edit. */
-  const [notaElegida, setNotaElegida] = useState<string | null>(null);
+  const [notasElegidas, setNotasElegidas] = useState<string[]>([]);
   const [notaAbierta, setNotaAbierta] = useState<string | null>(null);
   const hijasDe = (id: string) => nodos.filter((n) => n.padre === id && n.tipo === "nota").sort((a, b) => a.y - b.y);
   /**
@@ -392,18 +411,27 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
    */
   const anadirNota = async (raiz: NodoVariante) => {
     setError(null);
-    const elegida = notaElegida ? nodos.find((n) => n.id === notaElegida) : undefined;
-    const padre = elegida && debajoDe(raiz.id, elegida.id, (id) => nodos.filter((n) => n.padre === id && (n.tipo === "nota" || n.tipo === "componente"))) ? elegida : raiz;
+    // The selected notes of this block, in their order on screen: the new note hangs from the middle one, so the other
+    // arrows join it from above and below.
+    const aqui = notasElegidas
+      .filter((id) => debajoDe(raiz.id, id, (x) => nodos.filter((n) => n.padre === x && (n.tipo === "nota" || n.tipo === "componente"))))
+      .map((id) => document.querySelector(`[data-nodo="${id}"]`))
+      .filter((el): el is Element => !!el)
+      .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+      .map((el) => el.getAttribute("data-nodo")!);
+    const medio = aqui[Math.floor((aqui.length - 1) / 2)];
+    const padres = aqui.length ? [medio, ...aqui.filter((id) => id !== medio)] : [raiz.id];
+    const padre = nodos.find((n) => n.id === padres[0]) ?? raiz;
     const hermanos = nodos.filter((n) => n.padre === padre.id);
     const r = await fetch(`/api/variantes/${t.id}/notas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ padre: padre.id, x: Math.round(padre.x + padre.ancho + 200), y: Math.round(hermanos.length ? Math.max(...hermanos.map((n) => n.y)) + 220 : padre.y) }),
+      body: JSON.stringify({ padres, x: Math.round(padre.x + padre.ancho + 200), y: Math.round(hermanos.length ? Math.max(...hermanos.map((n) => n.y)) + 220 : padre.y) }),
     }).catch(() => null);
     const b = (await r?.json().catch(() => ({}))) as { error?: string; nodo?: NodoVariante } | undefined;
     if (!r?.ok || !b?.nodo) return setError(b?.error ?? "No se pudo crear la nota");
     setNodos((ns) => [...ns, b.nodo!]);
-    setNotaElegida(null);
+    setNotasElegidas([]);
     setNotaAbierta(b.nodo.id);
     router.refresh();
   };
@@ -423,7 +451,7 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
     const r = await fetch(`/api/variantes/${t.id}/${n.id}`, { method: "DELETE" }).catch(() => null);
     if (!r?.ok) return setError("No se pudo borrar");
     setNodos((ns) => ns.filter((x) => x.id !== n.id).map((x) => (x.padre === n.id ? { ...x, padre: n.padre } : x)));
-    if (notaElegida === n.id) setNotaElegida(null);
+    setNotasElegidas((l) => l.filter((id) => id !== n.id));
     if (notaAbierta === n.id) setNotaAbierta(null);
     router.refresh();
   };
@@ -458,20 +486,60 @@ export function VistaKit({ t, cabecera, preparar, onBorrado }: { t: TableroVaria
   const notas = nodos.filter((n) => n.tipo === "nota" && !colgada(n)).length;
   const titulos = nodos.filter((n) => n.tipo === "titulo").length;
   const ocupado = (d: Destino) => !("reemplazar" in d) && subiendo === `${d.tipo}-${d.padre?.id ?? "raiz"}`;
+  const caja = useRef<HTMLDivElement>(null);
+  const [uniones, setUniones] = useState<string[]>([]);
+  useLayoutEffect(() => {
+    const c = caja.current;
+    if (!c) return;
+    const medir = () => {
+      const base = c.getBoundingClientRect();
+      const lineas: string[] = [];
+      for (const n of nodos) {
+        if (!n.padresExtra?.length) continue;
+        const destino = c.querySelector(`[data-nodo="${n.id}"]`)?.getBoundingClientRect();
+        if (!destino || !destino.width) continue;
+        // Where its own arrow starts (40 px to the left of the card), at the card's middle.
+        const jx = destino.left - base.left - 40;
+        const jy = destino.top - base.top + destino.height / 2;
+        for (const p of n.padresExtra) {
+          const o = c.querySelector(`[data-nodo="${p}"]`)?.getBoundingClientRect();
+          if (!o || !o.width) continue;
+          const sx = o.right - base.left + 6;
+          const sy = o.top - base.top + o.height / 2;
+          const m = Math.max(16, (jx - sx) / 2);
+          lineas.push(`M${sx} ${sy} C${sx + m} ${sy} ${jx - m} ${jy} ${jx} ${jy}`);
+        }
+      }
+      setUniones((antes) => (antes.join("|") === lineas.join("|") ? antes : lineas));
+    };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, [nodos, notaAbierta]);
+
   const conReemplazo = { onReemplazar: (n: NodoVariante) => pedirImagen({ reemplazar: n }), reemplazando };
   const opcionesNota: OpcionesNota = {
     hijas: hijasDe,
-    elegida: notaElegida,
+    elegidas: notasElegidas,
     abierta: notaAbierta,
-    // A second click on the selected note unselects it.
-    onElegir: (id) => setNotaElegida((x) => (x === id ? null : id)),
+    // A click selects just that one (again: none); with Control it's added to or taken from the selection.
+    onElegir: (id, varias) => setNotasElegidas((l) => (varias ? (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]) : l.length === 1 && l[0] === id ? [] : [id])),
     onAbrir: setNotaAbierta,
     onEditar: (n, c) => void editar(n, c),
     onBorrar: (n) => void borrar(n),
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div ref={caja} className="relative flex flex-col gap-6">
+      {/* The joined arrows: from each other selected note to where the new note's arrow starts */}
+      {uniones.length > 0 && (
+        <svg aria-hidden className="pointer-events-none absolute inset-0 hidden size-full overflow-visible md:block">
+          {uniones.map((d) => (
+            <path key={d} d={d} fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth={2} />
+          ))}
+        </svg>
+      )}
       {cabecera && <div className="flex flex-wrap items-center gap-1.5">{cabecera}</div>}
 
       {/* The product's name, big and white: click to edit it */}

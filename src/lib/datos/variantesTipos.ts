@@ -35,6 +35,8 @@ export type NodoVariante = {
   ancho: number;
   /** The node its arrow comes from. */
   padre: string | null;
+  /** More nodes whose arrows join that one into a single arrow (a note made from several selected notes). */
+  padresExtra?: string[];
   /** The stored image (empty for notes). */
   archivo: string;
   tipoArchivo: string;

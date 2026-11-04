@@ -650,11 +650,13 @@ function Lienzo({ t, productos, cabecera, onBorrado }: { t: TableroVariantes; pr
               <path d="M0 0L10 5L0 10z" fill="rgba(255,255,255,0.7)" />
             </marker>
           </defs>
-          {nodos.map((n) => {
-            const p = nodos.find((x) => x.id === n.padre);
-            const d = p && curva(caja(p), caja(n));
-            return d ? <path key={n.id} d={d} fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth={1.5 / Math.max(vista.zoom, 0.5)} markerEnd={`url(#punta-${t.id})`} /> : null;
-          })}
+          {nodos.flatMap((n) =>
+            [n.padre, ...(n.padresExtra ?? [])].map((idPadre) => {
+              const p = nodos.find((x) => x.id === idPadre);
+              const d = p && curva(caja(p), caja(n));
+              return d ? <path key={`${n.id}-${idPadre}`} d={d} fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth={1.5 / Math.max(vista.zoom, 0.5)} markerEnd={`url(#punta-${t.id})`} /> : null;
+            }),
+          )}
         </svg>
         {nodos.map((n) =>
           n.tipo === "nota" ? (
