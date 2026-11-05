@@ -27,6 +27,20 @@ export type ResumenProducto = {
   unidades30: number;
   ventas30: number;
   activo: boolean;
+  /** The same card seen from one marketplace (by its id): only the marketplaces where the product is. */
+  porMercado: Record<string, MercadoProducto>;
+};
+
+/** A product in one marketplace: its listing there, its price, its sales of the last 30 days and the stock it sells from. */
+export type MercadoProducto = {
+  titulo: string | null;
+  imagen: string | null;
+  precio: PrecioMercado | null;
+  ranking: FichaMercado["ranking"][number] | null;
+  unidades30: number;
+  ventas30: number;
+  /** Sellable units in the stock pool this marketplace sells from (the EU pool or the UK one). */
+  stockVendible: number;
 };
 
 export type DetalleProducto = {
@@ -62,6 +76,8 @@ export async function listarProductos(): Promise<{ productos: ResumenProducto[];
   const skus = new Map<string, Set<string>>();
   const titulos = new Map<string, string>();
   const ventas = new Map<string, { u: number; v: number }>();
+  /** Sales of the last 30 days by «ASIN|marketplace». */
+  const ventasMercado = new Map<string, { u: number; v: number }>();
   const anotarSku = (asin: string, sku: string) => {
     if (!asin || !sku) return;
     asins.add(asin);
@@ -75,14 +91,23 @@ export async function listarProductos(): Promise<{ productos: ResumenProducto[];
       s.u += l.unidades;
       s.v += l.ventaTotal;
       ventas.set(l.asin, s);
+      const m = ventasMercado.get(`${l.asin}|${l.marketplaceId}`) ?? { u: 0, v: 0 };
+      m.u += l.unidades;
+      m.v += l.ventaTotal;
+      ventasMercado.set(`${l.asin}|${l.marketplaceId}`, m);
     }
   }
   const stockPorAsin = new Map<string, number>();
+  /** Sellable stock by «ASIN|region». */
+  const stockRegion = new Map<string, number>();
   for (const a of stock?.articulos ?? []) {
     anotarSku(a.asin, a.sku);
     if (!titulos.has(a.asin) && tituloReal(a.nombre)) titulos.set(a.asin, a.nombre);
     stockPorAsin.set(a.asin, (stockPorAsin.get(a.asin) ?? 0) + Object.values(a.porRegion).reduce((s, c) => s + c.vendible, 0));
+    for (const [region, c] of Object.entries(a.porRegion)) stockRegion.set(`${a.asin}|${region}`, (stockRegion.get(`${a.asin}|${region}`) ?? 0) + c.vendible);
   }
+  // Each marketplace sells from its region's pool.
+  const regionDe = new Map((stock?.regiones ?? []).flatMap((r) => r.marketplaceIds.map((id) => [id, r.id] as const)));
 
   const productos = [...asins].map((asin): ResumenProducto => {
     const f = fichasEnAlmacen().get(asin);
@@ -104,6 +129,30 @@ export async function listarProductos(): Promise<{ productos: ResumenProducto[];
       unidades30: s.u,
       ventas30: Math.round(s.v * 100) / 100,
       activo: mercadosConOferta.length > 0 || stockVendible > 0 || s.u > 0,
+      porMercado: Object.fromEntries(
+        marketplaces.flatMap((mk) => {
+          const fm = f?.mercados[mk.id];
+          const precio = f?.precios[mk.id] ?? null;
+          const v = ventasMercado.get(`${asin}|${mk.id}`) ?? { u: 0, v: 0 };
+          // Only where the product is: a listing there, an offer, or sales.
+          if (!fm && !precio && !v.u) return [];
+          const region = regionDe.get(mk.id);
+          return [
+            [
+              mk.id,
+              {
+                titulo: tituloReal(fm?.titulo),
+                imagen: fm?.imagenes[0] ?? null,
+                precio,
+                ranking: fm?.ranking.at(-1) ?? null,
+                unidades30: v.u,
+                ventas30: Math.round(v.v * 100) / 100,
+                stockVendible: region ? (stockRegion.get(`${asin}|${region}`) ?? 0) : 0,
+              } satisfies MercadoProducto,
+            ],
+          ];
+        }),
+      ),
     };
   });
   productos.sort((a, b) => Number(b.activo) - Number(a.activo) || b.unidades30 - a.unidades30 || b.stockVendible - a.stockVendible || a.titulo.localeCompare(b.titulo, "es"));
