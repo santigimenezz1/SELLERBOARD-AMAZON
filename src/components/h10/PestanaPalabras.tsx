@@ -6,6 +6,12 @@ import { clasificarPalabra, nombrePais, palabrasParaTitulo, posicionesDeRivales,
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { Barras, Pais, Tarjeta } from "./comun";
 
+/** The three key columns (searches, CPR, title density), marked in green. */
+const CLAVE_CABECERA = "bg-success/10 text-success";
+const CLAVE_CELDA = "bg-success/[0.06]";
+/** CPR is sales in 8 days: what that means a day («≈4,9/día»). */
+const alDia = (cpr: number) => (cpr / 8).toLocaleString("es-ES", { maximumFractionDigits: cpr / 8 < 10 ? 1 : 0 });
+
 /** A figure the uploaded file didn't have (not a 0). */
 const SIN_DATO = <span className="text-ink-600" title="El archivo no trae este dato">—</span>;
 
@@ -79,11 +85,15 @@ export function PestanaPalabras({ estudio, palabras, inicial, ejemplo }: { estud
               <tr className="border-b border-white/[0.08] text-left text-xs text-ink-400">
                 <th className="px-2 py-2 font-medium">Palabra clave</th>
                 <th className="px-2 py-2 font-medium">Tipo</th>
-                <th className="px-2 py-2 text-right font-medium">Búsquedas</th>
+                <th className={`px-2 py-2 text-right font-medium ${CLAVE_CABECERA}`}>Búsquedas</th>
                 <th className="px-2 py-2 text-right font-medium" title="Variación de búsquedas frente al mes anterior">Tendencia</th>
                 <th className="px-2 py-2 text-right font-medium" title="Productos que Amazon muestra para esa búsqueda">Productos</th>
-                <th className="px-2 py-2 text-right font-medium" title="Ventas en 8 días que hacen falta para llegar a la primera página (CPR de Cerebro)">Ventas para pág. 1</th>
-                <th className="px-2 py-2 text-right font-medium" title="Cuántos de los primeros productos la llevan en el título">En títulos</th>
+                <th className={`px-2 py-2 text-right font-medium ${CLAVE_CABECERA}`} title="Ventas en 8 días que hacen falta para llegar a la primera página (CPR de Cerebro), y lo que supone al día">
+                  CPR (pág. 1)
+                </th>
+                <th className={`px-2 py-2 text-right font-medium ${CLAVE_CABECERA}`} title="Cuántos de los primeros productos la llevan en el título">
+                  En títulos
+                </th>
                 <th className="px-2 py-2 text-right font-medium">Puja PPC</th>
                 {datos.rivales.map((r) => (
                   <th key={r} className="px-2 py-2 text-right font-medium whitespace-nowrap" title={`Posición orgánica de ${r}`}>
@@ -101,7 +111,7 @@ export function PestanaPalabras({ estudio, palabras, inicial, ejemplo }: { estud
                       {CLASES[clases[i]].texto}
                     </span>
                   </td>
-                  <td className={`px-2 py-2 text-right ${p.busquedas === 0 ? "text-warning" : "text-ink-100"}`}>{formatNumero(p.busquedas)}</td>
+                  <td className={`px-2 py-2 text-right font-medium ${CLAVE_CELDA} ${p.busquedas === 0 ? "text-warning" : "text-ink-100"}`}>{formatNumero(p.busquedas)}</td>
                   <td className={`px-2 py-2 text-right ${(p.tendencia ?? 0) > 0 ? "text-success" : (p.tendencia ?? 0) < 0 ? "text-danger" : "text-ink-400"}`}>
                     {p.tendencia === null ? (
                       SIN_DATO
@@ -113,8 +123,16 @@ export function PestanaPalabras({ estudio, palabras, inicial, ejemplo }: { estud
                     )}
                   </td>
                   <td className="px-2 py-2 text-right">{p.competidores === null ? SIN_DATO : formatNumero(p.competidores)}</td>
-                  <td className="px-2 py-2 text-right">{p.cpr ?? SIN_DATO}</td>
-                  <td className="px-2 py-2 text-right">{p.densidadTitulos ?? SIN_DATO}</td>
+                  <td className={`px-2 py-2 text-right font-medium whitespace-nowrap text-ink-100 ${CLAVE_CELDA}`} title={p.cpr === null ? undefined : `${p.cpr} ventas en 8 días ≈ ${alDia(p.cpr)} al día`}>
+                    {p.cpr === null ? (
+                      SIN_DATO
+                    ) : (
+                      <>
+                        {p.cpr} <span className="text-[11px] font-normal text-ink-400">≈{alDia(p.cpr)}/día</span>
+                      </>
+                    )}
+                  </td>
+                  <td className={`px-2 py-2 text-right font-medium text-ink-100 ${CLAVE_CELDA}`}>{p.densidadTitulos ?? SIN_DATO}</td>
                   <td className="px-2 py-2 text-right">{p.pujaPpc === null ? SIN_DATO : formatMoneda(p.pujaPpc, moneda)}</td>
                   {p.posiciones.map((pos, j) => (
                     <td key={j} className="px-2 py-2 text-right">
