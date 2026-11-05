@@ -43,6 +43,7 @@ export function useListingPropio(estudioId: string, inicial: Partial<Record<Codi
     [estudioId],
   );
   return {
+    estudioId,
     estado,
     de: (pais: CodigoPais): ListingPropio => ({ ...VACIO, ...listings[pais], bullets: Array.from({ length: 5 }, (_, i) => listings[pais]?.bullets[i] ?? "") }),
     cambiar: (pais: CodigoPais, cambios: Partial<ListingPropio>) => {
@@ -148,16 +149,67 @@ export function ConstructorListing({ pais, palabras, listings }: { pais: CodigoP
   const pct = totalBusquedas ? Math.round((busquedasCubiertas / totalBusquedas) * 100) : 0;
   const sinDestino = palabras.filter((p) => !p.destino).length;
 
+  // «Proponer con IA»: a draft written from the chosen keywords, your improvements and the market's failings.
+  const [proponiendo, setProponiendo] = useState(false);
+  const [errorIA, setErrorIA] = useState<string | null>(null);
+  const proponer = async () => {
+    const hayTexto = l.titulo.trim() || l.bullets.some((b) => b.trim());
+    if (
+      hayTexto &&
+      !confirm(
+        "La propuesta de la IA sustituirá el título y los bullets que tienes ahora (la IA parte de ellos para mejorarlos). Cuesta unos céntimos. ¿Seguir?",
+      )
+    )
+      return;
+    setErrorIA(null);
+    setProponiendo(true);
+    try {
+      const r = await fetch(`/api/h10/estudios/${listings.estudioId}/listing-ia`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pais, palabras, actual: l }),
+      });
+      const b = (await r.json().catch(() => ({}))) as { error?: string; listing?: ListingPropio };
+      if (!r.ok || !b.listing) throw new Error(b.error ?? `Error ${r.status}`);
+      listings.cambiar(pais, b.listing);
+    } catch (e) {
+      setErrorIA(e instanceof Error ? e.message : "No se pudo proponer");
+    } finally {
+      setProponiendo(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6">
       {/* 2 · The listing */}
       <section className="flex flex-col gap-4">
         <h3 className={encabezado}>
-          2 · LISTING
-          <span className={`ml-2 text-xs font-normal ${listings.estado === "error" ? "text-danger" : "text-ink-500"}`}>
-            {listings.estado === "guardando" ? "Guardando…" : listings.estado === "error" ? "No se pudo guardar: revisa la conexión" : ""}
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              2 · LISTING
+              <span className={`ml-2 text-xs font-normal ${listings.estado === "error" ? "text-danger" : "text-ink-500"}`}>
+                {listings.estado === "guardando" ? "Guardando…" : listings.estado === "error" ? "No se pudo guardar: revisa la conexión" : ""}
+              </span>
+            </span>
+            <button
+              onClick={() => void proponer()}
+              disabled={proponiendo || !palabras.length}
+              title={
+                palabras.length
+                  ? "Un borrador del título y los 5 bullets en el idioma del país, con tus palabras, sus destinos y tus mejoras"
+                  : "Elige antes palabras de este país"
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-semibold tracking-normal text-ink-950 hover:bg-accent-400 disabled:opacity-50"
+            >
+              {proponiendo ? "Escribiendo… (unos segundos)" : "✨ Proponer con IA"}
+            </button>
           </span>
         </h3>
+        {errorIA && (
+          <p role="alert" className="rounded-lg bg-danger/15 px-3 py-2 text-sm text-danger">
+            {errorIA}
+          </p>
+        )}
 
         {/* Title */}
         <div className="flex flex-col gap-2 rounded-xl border border-white/[0.08] bg-ink-900/80 p-3">
