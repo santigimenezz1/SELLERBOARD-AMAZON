@@ -68,6 +68,8 @@ export type EstudioH10 = {
   lanzamiento?: LanzamientoPropio;
   /** The product improvements noted by hand, in their order. */
   mejoras?: MejoraProducto[];
+  /** The keywords taken to «Lanzamiento», in their order. */
+  palabrasLanzamiento?: PalabraLanzamiento[];
   /** Listings taken out of the «Listings» top 10 by hand, as «ES|B0…»: the next one by revenue takes their place. */
   listingsQuitados?: string[];
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
@@ -469,6 +471,11 @@ export type LanzamientoPropio = { asin: string; codigoPais: CodigoPais; desde: s
  * the cards made before there were two blocks) or an improvement of your own.
  */
 export type MejoraProducto = { id: string; texto: string; hecha: boolean; tipo?: "mercado" | "propia" };
+/**
+ * A keyword taken to «Lanzamiento», in the order of the launch strategy, with a note. Its key figures are kept as they
+ * were when chosen (shown if the keyword is no longer in the study's data).
+ */
+export type PalabraLanzamiento = { pais: CodigoPais; texto: string; nota: string; busquedas: number; cpr: number | null; densidadTitulos: number | null };
 
 /** A specialist's key decisions in figures (handed in with the analysis; the code compares them). */
 export type DecisionesEspecialista = {

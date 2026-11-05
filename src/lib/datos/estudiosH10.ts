@@ -42,6 +42,7 @@ import {
   type ListingAmazon,
   type LanzamientoPropio,
   type MejoraProducto,
+  type PalabraLanzamiento,
 } from "./h10Tipos";
 import { listingsDesdeJson } from "./h10Fichas";
 import { traducirResenas } from "@/lib/ia/traducirResenas";
@@ -70,6 +71,7 @@ type EstudioGuardado = {
   asinsManuales?: string[];
   lanzamiento?: LanzamientoPropio;
   mejoras?: MejoraProducto[];
+  palabrasLanzamiento?: PalabraLanzamiento[];
   /** «ES|B0…» taken out of the «Listings» top 10. */
   listingsQuitados?: string[];
   /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
@@ -283,6 +285,22 @@ function leerMejoras(v: unknown): MejoraProducto[] {
   });
 }
 
+/** The whole list of keywords in «Lanzamiento», as the tab sends it: up to 300, each country and word once. */
+function leerPalabrasLanzamiento(v: unknown): PalabraLanzamiento[] {
+  if (!Array.isArray(v)) throw new Error("Lista de palabras no válida");
+  const cifra = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? Math.round(x * 100) / 100 : null);
+  const vistas = new Set<string>();
+  const salida: PalabraLanzamiento[] = [];
+  for (const p of v.slice(0, 300)) {
+    const o = (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
+    const palabra = texto(o.texto, 120).toLowerCase();
+    if (!esCodigoPais(o.pais) || !palabra || vistas.has(`${o.pais}|${palabra}`)) continue;
+    vistas.add(`${o.pais}|${palabra}`);
+    salida.push({ pais: o.pais, texto: palabra, nota: texto(o.nota, 1000), busquedas: cifra(o.busquedas) ?? 0, cpr: cifra(o.cpr), densidadTitulos: cifra(o.densidadTitulos) });
+  }
+  return salida;
+}
+
 /** «ES|B0DS9VCV6L»: a listing of the study in one country. */
 const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(ES|DE|FR|IT|GB)\|[A-Z0-9]{10}$/.test(v);
 
@@ -292,7 +310,7 @@ const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(
  */
 export async function editarEstudio(
   id: string,
-  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown; mejoras?: unknown },
+  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown; mejoras?: unknown; palabrasLanzamiento?: unknown },
 ): Promise<void> {
   const e = await entrada(id);
   if (cambios.quitarListing !== undefined && !esClaveListing(cambios.quitarListing)) throw new Error("Listing no válido");
@@ -305,6 +323,7 @@ export async function editarEstudio(
     ...(cambios.supuestos !== undefined && { supuestos: leerSupuestos(cambios.supuestos, e.estudio.supuestos ?? SUPUESTOS_INICIALES) }),
     ...(cambios.lanzamiento !== undefined && { lanzamiento: leerLanzamiento(cambios.lanzamiento) }),
     ...(cambios.mejoras !== undefined && { mejoras: leerMejoras(cambios.mejoras) }),
+    ...(cambios.palabrasLanzamiento !== undefined && { palabrasLanzamiento: leerPalabrasLanzamiento(cambios.palabrasLanzamiento) }),
     actualizadoEn: new Date().toISOString(),
   };
   // Taken out: no empty field left in the document.
@@ -880,6 +899,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       asinsManuales: estudio.asinsManuales ?? [],
       ...(estudio.lanzamiento && { lanzamiento: estudio.lanzamiento }),
       mejoras: estudio.mejoras ?? [],
+      palabrasLanzamiento: estudio.palabrasLanzamiento ?? [],
       listingsQuitados: estudio.listingsQuitados ?? [],
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],

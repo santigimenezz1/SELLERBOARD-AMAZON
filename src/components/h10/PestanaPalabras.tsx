@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { EstudioH10, PalabrasMercado } from "@/lib/datos/h10Tipos";
+import type { CodigoPais, EstudioH10, PalabraClave, PalabrasMercado } from "@/lib/datos/h10Tipos";
+import { clavePalabra } from "./PestanaLanzamiento";
 import { clasificarPalabra, nombrePais, palabrasParaTitulo, posicionesDeRivales, type ClasePalabra } from "@/lib/datos/h10Analisis";
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { Barras, Pais, Tarjeta } from "./comun";
@@ -30,7 +31,20 @@ function Posicion({ valor }: { valor: number | null }) {
 
 /** «Palabras clave»: what people search in each country, which words the title needs and where each competitor ranks. */
 /** `inicial`: the country shown first (the study’s best one). */
-export function PestanaPalabras({ estudio, palabras, inicial, ejemplo }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado>; inicial: string; ejemplo: boolean }) {
+export function PestanaPalabras({
+  estudio,
+  palabras,
+  inicial,
+  ejemplo,
+  lanzamiento,
+}: {
+  estudio: EstudioH10;
+  palabras: Record<string, PalabrasMercado>;
+  inicial: string;
+  ejemplo: boolean;
+  /** The keywords in «Lanzamiento» and how to add or take one (none in the sample studies). */
+  lanzamiento?: { elegidas: Set<string>; alternar: (pais: CodigoPais, p: PalabraClave) => void };
+}) {
   const paises = [...new Set([...estudio.mercados.map((m) => m.codigoPais as string), ...Object.keys(palabras)])].filter((p) => palabras[p]);
   const [pais, setPais] = useState(paises.find((p) => p === inicial) ?? paises[0]);
   const datos = palabras[pais];
@@ -83,6 +97,11 @@ export function PestanaPalabras({ estudio, palabras, inicial, ejemplo }: { estud
           <table className="tabular w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b border-white/[0.08] text-left text-xs text-ink-400">
+                {lanzamiento && (
+                  <th className="px-2 py-2 text-center font-medium" title="Llévala a la pestaña «Lanzamiento» para ordenar tu estrategia">
+                    Lanz.
+                  </th>
+                )}
                 <th className="px-2 py-2 font-medium">Palabra clave</th>
                 <th className="px-2 py-2 font-medium">Tipo</th>
                 <th className={`px-2 py-2 text-right font-medium ${CLAVE_CABECERA}`}>Búsquedas</th>
@@ -105,6 +124,22 @@ export function PestanaPalabras({ estudio, palabras, inicial, ejemplo }: { estud
             <tbody>
               {lista.map((p, i) => (
                 <tr key={p.texto} className="border-b border-white/[0.05]">
+                  {lanzamiento &&
+                    (() => {
+                      const dentro = lanzamiento.elegidas.has(clavePalabra(pais, p.texto));
+                      return (
+                        <td className="px-2 py-2 text-center">
+                          <button
+                            onClick={() => lanzamiento.alternar(pais as CodigoPais, p)}
+                            aria-pressed={dentro}
+                            title={dentro ? "Está en «Lanzamiento»: pulsa para quitarla" : "Llevar a «Lanzamiento»"}
+                            className={`flex size-6 items-center justify-center rounded-md border text-xs font-semibold transition-colors ${dentro ? "border-accent-500 bg-accent-500 text-ink-950" : "border-white/[0.15] text-ink-400 hover:border-accent-500/60 hover:text-accent-300"}`}
+                          >
+                            {dentro ? "✓" : "＋"}
+                          </button>
+                        </td>
+                      );
+                    })()}
                   <td className="px-2 py-2 font-medium text-ink-100">{p.texto}</td>
                   <td className="px-2 py-2">
                     <span title={CLASES[clases[i]].ayuda} className={`rounded px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap ${CLASES[clases[i]].clase}`}>

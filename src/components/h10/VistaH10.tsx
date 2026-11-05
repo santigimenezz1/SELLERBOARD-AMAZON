@@ -23,6 +23,7 @@ import { PrediccionRealidad } from "./PrediccionRealidad";
 import { PestanaListings } from "./PestanaListings";
 import { PestanaAgentes } from "./PestanaAgentes";
 import { PestanaMejoras } from "./PestanaMejoras";
+import { PestanaLanzamiento, usePalabrasLanzamiento } from "./PestanaLanzamiento";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
@@ -36,6 +37,7 @@ const PESTANAS = [
   { id: "conclusiones", texto: "Conclusiones" },
   { id: "agentes", texto: "Agentes" },
   { id: "mejoras", texto: "Mejoras de producto" },
+  { id: "lanzamiento", texto: "Lanzamiento" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
 /**
@@ -130,6 +132,8 @@ export function VistaH10({
   const resumen = estudio.mercados.length ? resumirEstudio(estudio) : null;
   const paisInicial = resumen?.mejor.mercado.codigoPais ?? Object.keys(palabrasEstudio)[0] ?? "ES";
   const datosAqui = estudio.ejemplo ? undefined : () => irA("datos");
+  // The keywords taken to «Lanzamiento»: picked in «Palabras clave», ordered in «Lanzamiento».
+  const lanzamiento = usePalabrasLanzamiento(estudio.id, estudio.palabrasLanzamiento ?? []);
 
   return (
     <div className="flex flex-col gap-4">
@@ -137,7 +141,7 @@ export function VistaH10({
 
       {/* Tabs */}
       <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.06]">
-        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && (p.id !== "mejoras" || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
+        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
           <button
             key={p.id}
             onClick={() => irA(p.id)}
@@ -198,7 +202,7 @@ export function VistaH10({
       )}
       {pestana === "palabras" &&
         (Object.keys(palabrasEstudio).length ? (
-          <PestanaPalabras key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={paisInicial} ejemplo={!!estudio.ejemplo} />
+          <PestanaPalabras key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={paisInicial} ejemplo={!!estudio.ejemplo} lanzamiento={estudio.ejemplo ? undefined : lanzamiento} />
         ) : (
           <SinDatos texto="Para ver las palabras clave, sube el Cerebro o el Magnet (CSV o captura) de algún país." onIrADatos={datosAqui} />
         ))}
@@ -225,6 +229,7 @@ export function VistaH10({
           <PestanaMejoras key={`mejoras-${estudio.id}`} estudioId={estudio.id} inicial={estudio.mejoras ?? []} />
         </div>
       )}
+      {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} />}
       {pestana === "listings" &&
         (resumen ? (
           <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} conExtension={!invitado} />
