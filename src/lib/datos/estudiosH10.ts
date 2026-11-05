@@ -43,6 +43,8 @@ import {
   type LanzamientoPropio,
   type MejoraProducto,
   type PalabraLanzamiento,
+  type ListingPropio,
+  DESTINOS_PALABRA,
 } from "./h10Tipos";
 import { listingsDesdeJson } from "./h10Fichas";
 import { traducirResenas } from "@/lib/ia/traducirResenas";
@@ -72,6 +74,7 @@ type EstudioGuardado = {
   lanzamiento?: LanzamientoPropio;
   mejoras?: MejoraProducto[];
   palabrasLanzamiento?: PalabraLanzamiento[];
+  listingPropio?: Partial<Record<CodigoPais, ListingPropio>>;
   /** «ES|B0…» taken out of the «Listings» top 10. */
   listingsQuitados?: string[];
   /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
@@ -296,7 +299,31 @@ function leerPalabrasLanzamiento(v: unknown): PalabraLanzamiento[] {
     const palabra = texto(o.texto, 120).toLowerCase();
     if (!esCodigoPais(o.pais) || !palabra || vistas.has(`${o.pais}|${palabra}`)) continue;
     vistas.add(`${o.pais}|${palabra}`);
-    salida.push({ pais: o.pais, texto: palabra, nota: texto(o.nota, 1000), busquedas: cifra(o.busquedas) ?? 0, cpr: cifra(o.cpr), densidadTitulos: cifra(o.densidadTitulos) });
+    const destino = DESTINOS_PALABRA.find((d) => d === o.destino);
+    salida.push({
+      pais: o.pais,
+      texto: palabra,
+      nota: texto(o.nota, 1000),
+      busquedas: cifra(o.busquedas) ?? 0,
+      cpr: cifra(o.cpr),
+      densidadTitulos: cifra(o.densidadTitulos),
+      ...(destino && { destino }),
+    });
+  }
+  return salida;
+}
+
+/** Your listing of each country, as the tab sends it: a title (up to 500 characters) and 5 bullets (1,000 each). */
+function leerListingPropio(v: unknown): Partial<Record<CodigoPais, ListingPropio>> {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  const salida: Partial<Record<CodigoPais, ListingPropio>> = {};
+  for (const [pais, l] of Object.entries(o)) {
+    if (!esCodigoPais(pais) || !l || typeof l !== "object") continue;
+    const x = l as Record<string, unknown>;
+    const bullets = Array.isArray(x.bullets) ? x.bullets : [];
+    // Kept as typed (spaces and line breaks too): only the length is limited.
+    const crudo = (t: unknown, max: number) => (typeof t === "string" ? t.slice(0, max) : "");
+    salida[pais] = { titulo: crudo(x.titulo, 500), bullets: Array.from({ length: 5 }, (_, i) => crudo(bullets[i], 1000)) };
   }
   return salida;
 }
@@ -310,7 +337,7 @@ const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(
  */
 export async function editarEstudio(
   id: string,
-  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown; mejoras?: unknown; palabrasLanzamiento?: unknown },
+  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown; mejoras?: unknown; palabrasLanzamiento?: unknown; listingPropio?: unknown },
 ): Promise<void> {
   const e = await entrada(id);
   if (cambios.quitarListing !== undefined && !esClaveListing(cambios.quitarListing)) throw new Error("Listing no válido");
@@ -324,6 +351,7 @@ export async function editarEstudio(
     ...(cambios.lanzamiento !== undefined && { lanzamiento: leerLanzamiento(cambios.lanzamiento) }),
     ...(cambios.mejoras !== undefined && { mejoras: leerMejoras(cambios.mejoras) }),
     ...(cambios.palabrasLanzamiento !== undefined && { palabrasLanzamiento: leerPalabrasLanzamiento(cambios.palabrasLanzamiento) }),
+    ...(cambios.listingPropio !== undefined && { listingPropio: leerListingPropio(cambios.listingPropio) }),
     actualizadoEn: new Date().toISOString(),
   };
   // Taken out: no empty field left in the document.
@@ -900,6 +928,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       ...(estudio.lanzamiento && { lanzamiento: estudio.lanzamiento }),
       mejoras: estudio.mejoras ?? [],
       palabrasLanzamiento: estudio.palabrasLanzamiento ?? [],
+      listingPropio: estudio.listingPropio ?? {},
       listingsQuitados: estudio.listingsQuitados ?? [],
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],

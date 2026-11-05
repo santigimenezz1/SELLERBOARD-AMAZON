@@ -70,6 +70,8 @@ export type EstudioH10 = {
   mejoras?: MejoraProducto[];
   /** The keywords taken to «Lanzamiento», in their order. */
   palabrasLanzamiento?: PalabraLanzamiento[];
+  /** Your own listing for each country, written in «Lanzamiento». */
+  listingPropio?: Partial<Record<CodigoPais, ListingPropio>>;
   /** Listings taken out of the «Listings» top 10 by hand, as «ES|B0…»: the next one by revenue takes their place. */
   listingsQuitados?: string[];
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
@@ -475,7 +477,21 @@ export type MejoraProducto = { id: string; texto: string; hecha: boolean; tipo?:
  * A keyword taken to «Lanzamiento», in the order of the launch strategy, with a note. Its key figures are kept as they
  * were when chosen (shown if the keyword is no longer in the study's data).
  */
-export type PalabraLanzamiento = { pais: CodigoPais; texto: string; nota: string; busquedas: number; cpr: number | null; densidadTitulos: number | null };
+export type PalabraLanzamiento = {
+  pais: CodigoPais;
+  texto: string;
+  nota: string;
+  busquedas: number;
+  cpr: number | null;
+  densidadTitulos: number | null;
+  /** Where it goes in the listing (none yet: still to decide). */
+  destino?: DestinoPalabra;
+};
+/** Where a launch keyword goes: opening the title, in the title, in the bullets, in the hidden search terms, or only in PPC. */
+export type DestinoPalabra = "principal" | "titulo" | "bullets" | "backend" | "ppc";
+export const DESTINOS_PALABRA: DestinoPalabra[] = ["principal", "titulo", "bullets", "backend", "ppc"];
+/** Your own listing for a country, written in «Lanzamiento»: title and the 5 bullets (the search terms are worked out). */
+export type ListingPropio = { titulo: string; bullets: string[] };
 
 /** A specialist's key decisions in figures (handed in with the analysis; the code compares them). */
 export type DecisionesEspecialista = {

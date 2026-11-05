@@ -24,6 +24,7 @@ import { PestanaListings } from "./PestanaListings";
 import { PestanaAgentes } from "./PestanaAgentes";
 import { PestanaMejoras } from "./PestanaMejoras";
 import { PestanaLanzamiento, usePalabrasLanzamiento } from "./PestanaLanzamiento";
+import { useListingPropio } from "./ListingPropio";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
@@ -134,6 +135,8 @@ export function VistaH10({
   const datosAqui = estudio.ejemplo ? undefined : () => irA("datos");
   // The keywords taken to «Lanzamiento»: picked in «Palabras clave», ordered in «Lanzamiento».
   const lanzamiento = usePalabrasLanzamiento(estudio.id, estudio.palabrasLanzamiento ?? []);
+  // Your own listing of each country (title and bullets), written in «Lanzamiento».
+  const listings = useListingPropio(estudio.id, estudio.listingPropio ?? {});
 
   return (
     <div className="flex flex-col gap-4">
@@ -229,7 +232,7 @@ export function VistaH10({
           <PestanaMejoras key={`mejoras-${estudio.id}`} estudioId={estudio.id} inicial={estudio.mejoras ?? []} />
         </div>
       )}
-      {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} />}
+      {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
       {pestana === "listings" &&
         (resumen ? (
           <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} conExtension={!invitado} />

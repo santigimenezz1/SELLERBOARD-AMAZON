@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CodigoPais, PalabraClave, PalabraLanzamiento, PalabrasMercado } from "@/lib/datos/h10Tipos";
+import { DESTINOS_PALABRA, type CodigoPais, type DestinoPalabra, type PalabraClave, type PalabraLanzamiento, type PalabrasMercado } from "@/lib/datos/h10Tipos";
+import { ConstructorListing, type ListingsPropios } from "./ListingPropio";
 import { formatNumero } from "@/lib/format";
 import { Pais } from "./comun";
 
@@ -90,6 +91,8 @@ export function usePalabrasLanzamiento(estudioId: string, inicial: PalabraLanzam
       cambiar(nueva);
     },
     quitar: (i: number) => cambiar(lista.filter((_, n) => n !== i)),
+    /** Where the keyword goes in the listing (the same one again takes it back to «to decide»). */
+    destino: (i: number, d: DestinoPalabra) => cambiar(lista.map((x, n) => (n === i ? { ...x, destino: x.destino === d ? undefined : d } : x))),
     nota: (i: number, texto: string) =>
       cambiar(
         lista.map((x, n) => (n === i ? { ...x, nota: texto } : x)),
@@ -99,6 +102,15 @@ export function usePalabrasLanzamiento(estudioId: string, inicial: PalabraLanzam
 }
 export type PalabrasLanzamiento = ReturnType<typeof usePalabrasLanzamiento>;
 
+/** Where a keyword goes, as its buttons say it. */
+const DESTINO: Record<DestinoPalabra, { texto: string; ayuda: string; activo: string }> = {
+  principal: { texto: "Principal", ayuda: "Abre el título: la palabra más importante (1 o 2)", activo: "border-accent-500 bg-accent-500 text-ink-950" },
+  titulo: { texto: "Título", ayuda: "También va en el título", activo: "border-success bg-success text-ink-950" },
+  bullets: { texto: "Bullets", ayuda: "Se reparte en las viñetas", activo: "border-[#3987e5] bg-[#3987e5] text-white" },
+  backend: { texto: "Backend", ayuda: "Términos de búsqueda ocultos (Seller Central)", activo: "border-[#7c5cd6] bg-[#7c5cd6] text-white" },
+  ppc: { texto: "Solo PPC", ayuda: "No va en el texto: solo en campañas", activo: "border-ink-400 bg-ink-400 text-ink-950" },
+};
+
 const flecha =
   "flex size-7 items-center justify-center rounded-md text-ink-400 transition-colors hover:bg-white/[0.06] hover:text-ink-100 disabled:opacity-30 disabled:hover:bg-transparent";
 
@@ -107,7 +119,15 @@ const flecha =
  * (searches, CPR and what it means a day, title density) and a note each. The figures are today's when the keyword is
  * still in the study's data, else the ones it had when chosen.
  */
-export function PestanaLanzamiento({ l, palabras }: { l: PalabrasLanzamiento; palabras: Record<string, PalabrasMercado> }) {
+export function PestanaLanzamiento({
+  l,
+  palabras,
+  listings,
+}: {
+  l: PalabrasLanzamiento;
+  palabras: Record<string, PalabrasMercado>;
+  listings: ListingsPropios;
+}) {
   const actual = (p: PalabraLanzamiento) => palabras[p.pais]?.palabras.find((x) => x.texto === p.texto);
   const busquedasDe = (p: PalabraLanzamiento) => actual(p)?.busquedas ?? p.busquedas;
   // One country at a time: every country with keywords in the study, plus any that only has chosen ones. It opens on
@@ -152,103 +172,120 @@ export function PestanaLanzamiento({ l, palabras }: { l: PalabrasLanzamiento; pa
         </p>
       </div>
 
-      {l.lista.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/[0.12] px-4 py-12 text-center text-sm text-ink-400">
-          <p className="max-w-md">
-            Aún no hay palabras. Ve a «Palabras clave» y pulsa ＋ en las que quieras para tu lanzamiento: aparecerán aquí para ordenarlas.
-          </p>
-        </div>
-      ) : (
-        <>
-          {[pais].map((pais) => {
-            const delPais = l.lista.map((p, i) => ({ p, i })).filter((x) => x.p.pais === pais);
-            if (!delPais.length)
-              return (
-                <p key="vacio" className="rounded-xl border border-dashed border-white/[0.12] px-4 py-10 text-center text-sm text-ink-400">
-                  Aún no hay palabras de este país. Ve a «Palabras clave», elige este país y pulsa ＋ en las que quieras.
-                </p>
-              );
-            return (
-              <section key={pais} className="flex flex-col gap-2">
-                <p className="border-b border-white/[0.06] pb-2 text-xs text-ink-500">
-                  {delPais.length} {delPais.length === 1 ? "palabra" : "palabras"} · {formatNumero(delPais.reduce((s, x) => s + busquedasDe(x.p), 0))} búsquedas al mes
-                </p>
-                <ol className="flex flex-col gap-2">
-                  {delPais.map(({ p, i }, n) => {
-                    const primera = n === 0;
-                    const ultima = n === delPais.length - 1;
-                    const a = actual(p);
-                    const busquedas = a?.busquedas ?? p.busquedas;
-                    const cpr = a ? a.cpr : p.cpr;
-                    const densidad = a ? a.densidadTitulos : p.densidadTitulos;
-                    return (
-                      <li
-                        key={clavePalabra(p.pais, p.texto)}
-                        className="flex flex-col gap-2 rounded-xl border border-white/[0.08] bg-ink-900/80 p-3 md:flex-row md:items-start"
-                      >
-                        <div className="flex shrink-0 items-center gap-1 md:flex-col">
-                          <span className="flex size-7 items-center justify-center rounded-full bg-accent-500/15 text-xs font-semibold text-accent-300">
-                            {n + 1}
-                          </span>
-                          <button onClick={() => l.mover(i, -1)} disabled={primera} className={flecha} aria-label="Subir">
-                            ↑
-                          </button>
-                          <button onClick={() => l.mover(i, 1)} disabled={ultima} className={flecha} aria-label="Bajar">
-                            ↓
-                          </button>
-                        </div>
-                        <div className="flex min-w-0 flex-1 flex-col gap-2">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="text-sm font-semibold text-ink-100">{p.texto}</span>
-                            {!a && (
-                              <span
-                                className="text-[11px] text-warning"
-                                title="Ya no está en el Cerebro del estudio: se muestran los datos que tenía al elegirla"
-                              >
-                                datos de cuando la elegiste
+      {pais &&
+        [pais].map((pais) => {
+          const delPais = l.lista.map((p, i) => ({ p, i })).filter((x) => x.p.pais === pais);
+          return (
+            <div key={pais} className="flex flex-col gap-6">
+              <section className="flex flex-col gap-2">
+                <h3 className="border-b border-white/[0.06] pb-2 text-sm font-bold tracking-wide text-ink-100">1 · ESTRATEGIA DE PALABRAS CLAVE</h3>
+                {!delPais.length ? (
+                  <p className="rounded-xl border border-dashed border-white/[0.12] px-4 py-8 text-center text-sm text-ink-400">
+                    Aún no hay palabras de este país. Ve a «Palabras clave», elige este país y pulsa ＋ en las que quieras.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs text-ink-500">
+                      {delPais.length} {delPais.length === 1 ? "palabra" : "palabras"} · {formatNumero(delPais.reduce((s, x) => s + busquedasDe(x.p), 0))}{" "}
+                      búsquedas al mes
+                    </p>
+                    <ol className="flex flex-col gap-2">
+                      {delPais.map(({ p, i }, n) => {
+                        const primera = n === 0;
+                        const ultima = n === delPais.length - 1;
+                        const a = actual(p);
+                        const busquedas = a?.busquedas ?? p.busquedas;
+                        const cpr = a ? a.cpr : p.cpr;
+                        const densidad = a ? a.densidadTitulos : p.densidadTitulos;
+                        return (
+                          <li
+                            key={clavePalabra(p.pais, p.texto)}
+                            className="flex flex-col gap-2 rounded-xl border border-white/[0.08] bg-ink-900/80 p-3 md:flex-row md:items-start"
+                          >
+                            <div className="flex shrink-0 items-center gap-1 md:flex-col">
+                              <span className="flex size-7 items-center justify-center rounded-full bg-accent-500/15 text-xs font-semibold text-accent-300">
+                                {n + 1}
                               </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap gap-1.5 text-xs">
-                            <span className="rounded-md bg-success/10 px-2 py-0.5 text-success">
-                              <strong>{formatNumero(busquedas)}</strong> búsquedas
-                            </span>
-                            <span className="rounded-md bg-success/10 px-2 py-0.5 text-success" title="Ventas en 8 días para llegar a la página 1">
-                              CPR <strong>{cpr ?? "—"}</strong>
-                              {cpr !== null && <span className="text-ink-400"> ≈{alDia(cpr)}/día</span>}
-                            </span>
-                            <span
-                              className="rounded-md bg-success/10 px-2 py-0.5 text-success"
-                              title="Cuántos de los primeros productos la llevan en el título"
+                              <button onClick={() => l.mover(i, -1)} disabled={primera} className={flecha} aria-label="Subir">
+                                ↑
+                              </button>
+                              <button onClick={() => l.mover(i, 1)} disabled={ultima} className={flecha} aria-label="Bajar">
+                                ↓
+                              </button>
+                            </div>
+                            <div className="flex min-w-0 flex-1 flex-col gap-2">
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <span className="text-sm font-semibold text-ink-100">{p.texto}</span>
+                                {!a && (
+                                  <span
+                                    className="text-[11px] text-warning"
+                                    title="Ya no está en el Cerebro del estudio: se muestran los datos que tenía al elegirla"
+                                  >
+                                    datos de cuando la elegiste
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-1.5 text-xs">
+                                <span className="rounded-md bg-success/10 px-2 py-0.5 text-success">
+                                  <strong>{formatNumero(busquedas)}</strong> búsquedas
+                                </span>
+                                <span className="rounded-md bg-success/10 px-2 py-0.5 text-success" title="Ventas en 8 días para llegar a la página 1">
+                                  CPR <strong>{cpr ?? "—"}</strong>
+                                  {cpr !== null && <span className="text-ink-400"> ≈{alDia(cpr)}/día</span>}
+                                </span>
+                                <span
+                                  className="rounded-md bg-success/10 px-2 py-0.5 text-success"
+                                  title="Cuántos de los primeros productos la llevan en el título"
+                                >
+                                  <strong>{densidad ?? "—"}</strong> en títulos
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="mr-0.5 text-[11px] text-ink-500">Destino:</span>
+                                {DESTINOS_PALABRA.map((d) => (
+                                  <button
+                                    key={d}
+                                    onClick={() => l.destino(i, d)}
+                                    aria-pressed={p.destino === d}
+                                    title={DESTINO[d].ayuda}
+                                    className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${p.destino === d ? DESTINO[d].activo : "border-white/[0.1] text-ink-400 hover:text-ink-100"}`}
+                                  >
+                                    {DESTINO[d].texto}
+                                  </button>
+                                ))}
+                                {!p.destino && <span className="ml-1 text-[11px] text-warning">sin decidir</span>}
+                              </div>
+                              <textarea
+                                value={p.nota}
+                                onChange={(e) => l.nota(i, e.target.value)}
+                                maxLength={1000}
+                                rows={2}
+                                placeholder="Estrategia para esta palabra (título, PPC, semana en que atacarla…)"
+                                className="w-full resize-y rounded-lg border border-white/[0.06] bg-ink-950/50 px-3 py-2 text-sm leading-relaxed text-ink-100 placeholder:text-ink-600 focus:border-accent-500/60 focus:outline-none"
+                              />
+                            </div>
+                            <button
+                              onClick={() => l.quitar(i)}
+                              className="self-start rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-white/[0.06] hover:text-danger"
+                              title="Quitar de Lanzamiento"
                             >
-                              <strong>{densidad ?? "—"}</strong> en títulos
-                            </span>
-                          </div>
-                          <textarea
-                            value={p.nota}
-                            onChange={(e) => l.nota(i, e.target.value)}
-                            maxLength={1000}
-                            rows={2}
-                            placeholder="Estrategia para esta palabra (título, PPC, semana en que atacarla…)"
-                            className="w-full resize-y rounded-lg border border-white/[0.06] bg-ink-950/50 px-3 py-2 text-sm leading-relaxed text-ink-100 placeholder:text-ink-600 focus:border-accent-500/60 focus:outline-none"
-                          />
-                        </div>
-                        <button
-                          onClick={() => l.quitar(i)}
-                          className="self-start rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-white/[0.06] hover:text-danger"
-                          title="Quitar de Lanzamiento"
-                        >
-                          ✕ Quitar
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ol>
+                              ✕ Quitar
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </>
+                )}
               </section>
-            );
-          })}
-        </>
-      )}
+              <ConstructorListing
+                pais={pais}
+                listings={listings}
+                palabras={delPais.map(({ p }) => ({ texto: p.texto, destino: p.destino, busquedas: busquedasDe(p) }))}
+              />
+            </div>
+          );
+        })}
     </div>
   );
 }
