@@ -212,21 +212,36 @@ export const SUPUESTOS_INICIALES: SupuestosRentabilidad = { costeFabrica: 20, en
 
 // ---------- Cerebro / Magnet: keywords ----------
 
+/** A keyword of a country. Every figure but the searches can be null: the file didn't have it (no data, not 0). */
 export type PalabraClave = {
   texto: string;
   /** Monthly searches. */
   busquedas: number;
   /** Change in searches against the month before, in %. */
-  tendencia: number;
+  tendencia: number | null;
   /** Products Amazon shows for it. */
-  competidores: number;
+  competidores: number | null;
   /** Cerebro Product Rank: sales in 8 days needed to reach page one. */
-  cpr: number;
+  cpr: number | null;
   /** How many of the top products carry it in the title. */
-  densidadTitulos: number;
+  densidadTitulos: number | null;
   /** Suggested PPC bid, in the marketplace currency. */
-  pujaPpc: number;
-  /** Organic position of each tracked competitor (null = not in the top 100). Same order as `rivales`. */
+  pujaPpc: number | null;
+  /** Estimated monthly sales coming through it (Cerebro «Keyword Sales»). */
+  ventas?: number | null;
+  /** Cerebro or Magnet IQ Score: searches against competition, higher is better. */
+  iq?: number | null;
+  /** Products advertising on it («Sponsored ASINs»). */
+  anunciantes?: number | null;
+  /** Amazon Brand Analytics: % of the clicks and of the purchases taken by the top 3 products. */
+  clicsAba?: number | null;
+  conversionAba?: number | null;
+  /** The tracked competitors' average rank on it, and how many of them rank. */
+  rangoCompetidores?: number | null;
+  competidoresPosicionados?: number | null;
+  /** Cerebro's «Competitor Performance Score» (1–10). */
+  rendimientoCompetidores?: number | null;
+  /** Organic position of each tracked competitor (null = it doesn't rank where Cerebro looks). Same order as `rivales`. */
   posiciones: (number | null)[];
 };
 

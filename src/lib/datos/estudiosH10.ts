@@ -7,7 +7,7 @@ import { contarEscrituras, contarLecturas } from "./consumo";
 import { diaMadrid } from "./fechas";
 import { cambioAEur, EUR_POR_GBP, nombrePais } from "./h10Analisis";
 import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
-import { historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasDesdeCsv, resenasDesdeCsv, type FilaPalabra } from "./h10Csv";
+import { EXTRAS_PALABRA, frecuenciaDesdeCsv, historialDesdeCsv, leerCsv, mercadoDesdeCsv, palabrasConocidas, palabrasDesdeCsv, resenasDesdeCsv, type FilaPalabra } from "./h10Csv";
 import { agruparTemasResenas, quejasPorEstrellas, unirTemasEstrellas, type ResenaParaAnalizar, esImagen, leerBusquedas, leerCalculadora, leerCaptura, reconocerCsv, type CapturaLeida, type Pista, type TemaParaAgrupar } from "@/lib/ia/leerH10";
 import { resenasDesdeExcel } from "./h10Excel";
 import { mensajeError } from "@/lib/ia/errores";
@@ -93,6 +93,8 @@ type DatosArchivo = {
   resenasCompletas?: { asin: string | null; resenas: ResenaCompleta[] };
   /** Competitors' listings as their Amazon pages show them («ficha» JSON). */
   listings?: ListingAmazon[];
+  /** Helium 10's «Word Frequency»: how often each single word shows up in the competitors' keywords (no searches). */
+  frecuencia?: { palabra: string; veces: number }[];
 };
 /**
  * `amazon`: competitors read from Amazon, by «country|ASIN» (stored in `estudiosH10/{id}/amazon/{country}_{ASIN}`).
@@ -368,6 +370,34 @@ function pareceCsv(nombre: string, datos: Buffer): boolean {
 const nombreHerramienta = (h: HerramientaH10) => HERRAMIENTAS_H10.find((x) => x.id === h)?.nombre ?? h;
 
 /** Reads a file (AI) and returns what goes into the study. Never throws: a file it can't read is kept with an error. */
+/**
+ * The country a file name speaks of («cerebro_francia_arcos.csv», «FR_AMAZON_cerebro_…», «XRAY_UK»), or null. Two
+ * letters only count as a whole word, and «de»/«it» only at the start (they're also Spanish and English words).
+ */
+function paisDelNombre(nombre: string): CodigoPais | null {
+  const t = nombre
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.[a-z0-9]+$/, "")
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  const frase = ` ${t.join(" ")} `;
+  const nombres: [CodigoPais, string[]][] = [
+    ["ES", ["espana", "spain", "espagne", "spanien"]],
+    ["DE", ["alemania", "germany", "deutschland", "allemagne"]],
+    ["FR", ["francia", "france", "frankreich"]],
+    ["IT", ["italia", "italy", "italie", "italien"]],
+    ["GB", ["reino unido", "united kingdom", "inglaterra", "england", "uk"]],
+  ];
+  for (const [pais, palabras] of nombres) if (palabras.some((p) => frase.includes(` ${p} `))) return pais;
+  const codigos: Record<string, CodigoPais> = { es: "ES", fr: "FR", gb: "GB" };
+  for (const x of t) if (codigos[x]) return codigos[x];
+  if (t[0] === "de") return "DE";
+  if (t[0] === "it") return "IT";
+  return null;
+}
+
 async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: string): Promise<{ meta: Omit<ArchivoH10, "id" | "nombre" | "tipo" | "tamano" | "subidoEn">; datos: DatosArchivo | null }> {
   const sinPais = (h: HerramientaH10) => ({
     meta: { herramienta: h, codigoPais: null, estado: "error" as const, resumen: nombreHerramienta(h), error: "No sé de qué país es: bórralo y vuelve a subirlo eligiendo el país" },
@@ -428,6 +458,32 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
             resumen: `Reseñas completas (CSV) · ${pista.codigoPais}${completas.asin ? ` · ${completas.asin}` : ""} · ${completas.resenas.length} reseñas (1★ ${n(1)}, 2★ ${n(2)}, 3★ ${n(3)})`,
           },
           datos: { herramienta: "resenas", codigoPais: pista.codigoPais, resenasCompletas: completas },
+        };
+      }
+      // Helium 10's «Word Frequency»: kept as what it is, never mixed with the keywords (it has no searches).
+      const frecuencia = frecuenciaDesdeCsv(filas);
+      if (frecuencia) {
+        const pais = pista.codigoPais ?? paisDelNombre(archivo.name);
+        return {
+          meta: {
+            herramienta: "otro",
+            codigoPais: pais,
+            estado: "procesado",
+            resumen: `Frecuencia de palabras (Word Frequency)${pais ? ` · ${pais}` : ""} · ${frecuencia.length} palabras · no es un Cerebro: no trae búsquedas`,
+          },
+          datos: { herramienta: "otro", codigoPais: pais, frecuencia },
+        };
+      }
+      // Cerebro and Magnet: every column found by its exact header (English or Spanish), no AI. The AI only says the
+      // country when neither the owner nor the file name do.
+      const conocidas = palabrasConocidas(filas[0]);
+      if (conocidas) {
+        const pais = pista.codigoPais ?? paisDelNombre(archivo.name) ?? (await reconocerCsv(archivo.name, filas.slice(0, 6), pista)).codigoPais;
+        if (!pais) return sinPais(conocidas.herramienta);
+        const palabras = palabrasDesdeCsv(filas, conocidas.mapa);
+        return {
+          meta: { herramienta: conocidas.herramienta, codigoPais: pais, estado: "procesado", resumen: `${nombreHerramienta(conocidas.herramienta)} · ${pais} · ${palabras.filas.length} palabras clave` },
+          datos: { herramienta: conocidas.herramienta, codigoPais: pais, palabras },
         };
       }
       const r = await reconocerCsv(archivo.name, filas, pista);
@@ -495,11 +551,11 @@ async function procesar(archivo: File, datos: Buffer, pista: Pista, fecha: strin
         const filas: FilaPalabra[] = c.palabras.map((p) => ({
           texto: p.texto.toLowerCase(),
           busquedas: p.busquedas,
-          tendencia: p.tendencia ?? 0,
-          competidores: p.competidores ?? 0,
-          cpr: p.cpr ?? 0,
-          densidadTitulos: p.densidadTitulos ?? 0,
-          pujaPpc: p.pujaPpc ?? 0,
+          tendencia: p.tendencia ?? null,
+          competidores: p.competidores ?? null,
+          cpr: p.cpr ?? null,
+          densidadTitulos: p.densidadTitulos ?? null,
+          pujaPpc: p.pujaPpc ?? null,
           posiciones: {},
         }));
         return {
@@ -743,7 +799,14 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       d.palabras!.columnasPosicion.forEach((c) => columnas.add(c));
       for (const f of d.palabras!.filas) {
         const previa = filas.get(f.texto);
-        filas.set(f.texto, previa ? { ...previa, ...f, busquedas: Math.max(previa.busquedas, f.busquedas), posiciones: { ...previa.posiciones, ...f.posiciones } } : f);
+        if (!previa) {
+          filas.set(f.texto, f);
+          continue;
+        }
+        // The newer file wins, but only with figures it has: no data (null) keeps the older one's.
+        const unida: FilaPalabra = { ...previa, busquedas: Math.max(previa.busquedas, f.busquedas), posiciones: { ...previa.posiciones, ...f.posiciones } };
+        for (const k of ["tendencia", "competidores", "cpr", "densidadTitulos", "pujaPpc", ...EXTRAS_PALABRA] as const) if (f[k] !== null && f[k] !== undefined) unida[k] = f[k];
+        filas.set(f.texto, unida);
       }
     }
     // Competitor columns: an ASIN header is named after its brand when the Xray of that country has it.
@@ -771,6 +834,8 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
             cpr: f.cpr,
             densidadTitulos: f.densidadTitulos,
             pujaPpc: f.pujaPpc,
+            // The extra Cerebro figures, only those the file had.
+            ...Object.fromEntries(EXTRAS_PALABRA.filter((k) => f[k] !== null && f[k] !== undefined).map((k) => [k, f[k]])),
             posiciones: rivales.map((c) => f.posiciones[c] ?? null),
           }),
         ),

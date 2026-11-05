@@ -274,6 +274,8 @@ export type ClasePalabra = "imprescindible" | "oportunidad" | "secundaria" | "si
  */
 export function clasificarPalabra(p: PalabraClave, maxBusquedas: number): ClasePalabra {
   if (p.busquedas === 0) return "sinDatos";
+  // Without title density (a file without that column) it can't be told whether the leaders use it.
+  if (p.densidadTitulos === null) return p.busquedas >= maxBusquedas * 0.3 ? "imprescindible" : "secundaria";
   if (p.busquedas >= maxBusquedas * 0.3 && p.densidadTitulos >= 5) return "imprescindible";
   if (p.busquedas >= Math.max(maxBusquedas * 0.08, 250) && p.densidadTitulos <= 3) return "oportunidad";
   return "secundaria";

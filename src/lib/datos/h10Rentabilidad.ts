@@ -161,7 +161,7 @@ export function rentabilidadPais(estudio: EstudioH10, m: MercadoXray, palabras: 
       : { valor: ALMACENAMIENTO_POR_DEFECTO, fuente: "Estimado" };
   const iva: Dato = calc?.iva ? { valor: calc.iva, fuente: "Calculadora de Amazon" } : { valor: IVA[m.codigoPais], fuente: "IVA del país" };
   // Bid of the most searched keyword.
-  const principal = palabras?.palabras.filter((p) => p.pujaPpc > 0).sort((a, b) => b.busquedas - a.busquedas)[0];
+  const principal = palabras?.palabras.filter((p): p is typeof p & { pujaPpc: number } => (p.pujaPpc ?? 0) > 0).sort((a, b) => b.busquedas - a.busquedas)[0];
   const pujaPpc: Dato = principal ? { valor: aEur(principal.pujaPpc, m.moneda), fuente: `Puja de «${principal.texto}» (Cerebro)` } : { valor: PUJA_POR_DEFECTO, fuente: "Estimado" };
 
   const e = { comisionPct: comisionPct.valor, tarifaFba: tarifaFba.valor, almacenamientoMes: almacenamientoMes.valor, iva: iva.valor, pujaPpc: pujaPpc.valor };

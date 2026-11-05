@@ -21,7 +21,7 @@ function seccionPalabras(e: EstudioH10, palabras: Record<string, PalabrasMercado
   if (!pais) return null;
   const lista = [...palabras[pais].palabras].sort((a, b) => b.busquedas - a.busquedas);
   const max = lista[0]?.busquedas ?? 0;
-  const pujas = lista.map((p) => p.pujaPpc).filter((x) => x > 0).sort((a, b) => a - b);
+  const pujas = lista.map((p) => p.pujaPpc).filter((x): x is number => x !== null && x > 0).sort((a, b) => a - b);
   const pujaAlta = pujas[Math.floor(pujas.length * 0.75)] ?? Infinity;
   const pujaMedia = pujas.length ? pujas.reduce((t, x) => t + x, 0) / pujas.length : null;
   const moneda = e.mercados.find((m) => m.codigoPais === pais)?.moneda ?? "EUR";
@@ -30,21 +30,21 @@ function seccionPalabras(e: EstudioH10, palabras: Record<string, PalabrasMercado
 
   // Advantage: searches against how many titles carry it and the sales needed to rank. The best of the niche (not a
   // fixed threshold) are the ones to attack, so every niche gets its own.
-  const ventaja = (p: (typeof lista)[number]) => p.busquedas / ((p.densidadTitulos + 2) * Math.max(p.cpr, 5));
-  const caras = (p: (typeof lista)[number]) => p.busquedas >= max * 0.5 && (p.pujaPpc >= pujaAlta || p.densidadTitulos >= 15);
+  const ventaja = (p: (typeof lista)[number]) => p.busquedas / (((p.densidadTitulos ?? 5) + 2) * Math.max(p.cpr ?? 5, 5));
+  const caras = (p: (typeof lista)[number]) => p.busquedas >= max * 0.5 && ((p.pujaPpc ?? 0) >= pujaAlta || (p.densidadTitulos ?? 0) >= 15);
   const candidatas = lista.slice(0, 60).filter((p) => !caras(p) && p.busquedas >= max * 0.03);
   const mejores = new Set([...candidatas].sort((x, y) => ventaja(y) - ventaja(x)).slice(0, 6).map((p) => p.texto));
 
   const clasificar = (p: (typeof lista)[number]): ItemPalabra => {
-    const base = { texto: p.texto, busquedas: p.busquedas, puja: p.pujaPpc || null, densidad: p.densidadTitulos, cpr: p.cpr };
+    const base = { texto: p.texto, busquedas: p.busquedas, puja: p.pujaPpc || null, densidad: p.densidadTitulos ?? 0, cpr: p.cpr ?? 0 };
     if (caras(p))
-      return { ...base, veredicto: "evitar", concordancia: null, motivo: `Muy buscada, pero ${p.pujaPpc >= pujaAlta ? "la puja es de las más caras" : `${p.densidadTitulos} títulos ya la usan`}: los líderes se llevan el clic. Déjala para cuando tengas reseñas.` };
+      return { ...base, veredicto: "evitar", concordancia: null, motivo: `Muy buscada, pero ${(p.pujaPpc ?? 0) >= pujaAlta ? "la puja es de las más caras" : `${p.densidadTitulos} títulos ya la usan`}: los líderes se llevan el clic. Déjala para cuando tengas reseñas.` };
     if (mejores.has(p.texto))
       return {
         ...base,
         veredicto: "atacar",
         concordancia: "exacta",
-        motivo: `De las de mejor relación del nicho: ${p.busquedas.toLocaleString("es-ES")} búsquedas y ${p.densidadTitulos <= 5 ? `solo ${p.densidadTitulos}` : p.densidadTitulos} ${p.densidadTitulos === 1 ? "título la usa" : "títulos la usan"}${p.densidadTitulos > 5 ? " (pocos para su volumen)" : ""}; con ~${p.cpr} ventas en 8 días entras en la página 1.`,
+        motivo: `De las de mejor relación del nicho: ${p.busquedas.toLocaleString("es-ES")} búsquedas${p.densidadTitulos === null ? "" : ` y ${p.densidadTitulos <= 5 ? `solo ${p.densidadTitulos}` : p.densidadTitulos} ${p.densidadTitulos === 1 ? "título la usa" : "títulos la usan"}${p.densidadTitulos > 5 ? " (pocos para su volumen)" : ""}`}${p.cpr === null ? "" : `; con ~${p.cpr} ventas en 8 días entras en la página 1`}.`,
       };
     return { ...base, veredicto: "probar", concordancia: "frase", motivo: "Volumen y competencia normales: pruébala con presupuesto bajo y quédate con ella si convierte." };
   };

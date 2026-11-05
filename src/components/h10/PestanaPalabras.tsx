@@ -6,6 +6,9 @@ import { clasificarPalabra, nombrePais, palabrasParaTitulo, posicionesDeRivales,
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { Barras, Pais, Tarjeta } from "./comun";
 
+/** A figure the uploaded file didn't have (not a 0). */
+const SIN_DATO = <span className="text-ink-600" title="El archivo no trae este dato">—</span>;
+
 const CLASES: Record<ClasePalabra, { texto: string; clase: string; ayuda: string }> = {
   imprescindible: { texto: "Imprescindible", clase: "bg-success/15 text-success", ayuda: "Muchas búsquedas y los líderes ya la llevan en el título: tiene que estar en el tuyo." },
   oportunidad: { texto: "Oportunidad", clase: "bg-serie-ventas/20 text-ink-100", ayuda: "Bastantes búsquedas pero pocos títulos la usan: más fácil posicionarse." },
@@ -99,14 +102,20 @@ export function PestanaPalabras({ estudio, palabras, inicial, ejemplo }: { estud
                     </span>
                   </td>
                   <td className={`px-2 py-2 text-right ${p.busquedas === 0 ? "text-warning" : "text-ink-100"}`}>{formatNumero(p.busquedas)}</td>
-                  <td className={`px-2 py-2 text-right ${p.tendencia > 0 ? "text-success" : p.tendencia < 0 ? "text-danger" : "text-ink-400"}`}>
-                    {p.tendencia > 0 ? "↑ +" : p.tendencia < 0 ? "↓ " : ""}
-                    {p.tendencia} %
+                  <td className={`px-2 py-2 text-right ${(p.tendencia ?? 0) > 0 ? "text-success" : (p.tendencia ?? 0) < 0 ? "text-danger" : "text-ink-400"}`}>
+                    {p.tendencia === null ? (
+                      SIN_DATO
+                    ) : (
+                      <>
+                        {p.tendencia > 0 ? "↑ +" : p.tendencia < 0 ? "↓ " : ""}
+                        {p.tendencia} %
+                      </>
+                    )}
                   </td>
-                  <td className="px-2 py-2 text-right">{formatNumero(p.competidores)}</td>
-                  <td className="px-2 py-2 text-right">{p.cpr}</td>
-                  <td className="px-2 py-2 text-right">{p.densidadTitulos}</td>
-                  <td className="px-2 py-2 text-right">{formatMoneda(p.pujaPpc, moneda)}</td>
+                  <td className="px-2 py-2 text-right">{p.competidores === null ? SIN_DATO : formatNumero(p.competidores)}</td>
+                  <td className="px-2 py-2 text-right">{p.cpr ?? SIN_DATO}</td>
+                  <td className="px-2 py-2 text-right">{p.densidadTitulos ?? SIN_DATO}</td>
+                  <td className="px-2 py-2 text-right">{p.pujaPpc === null ? SIN_DATO : formatMoneda(p.pujaPpc, moneda)}</td>
                   {p.posiciones.map((pos, j) => (
                     <td key={j} className="px-2 py-2 text-right">
                       <Posicion valor={pos} />

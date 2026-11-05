@@ -163,7 +163,66 @@ export type MapaPalabras = {
   puja: string | null;
   /** Columns that hold a competitor's organic rank (Cerebro: one per ASIN). */
   posiciones: string[];
+} & Partial<Record<ExtraPalabra, string | null>>;
+
+/** Cerebro columns beyond the basic ones (only read when the headers are recognised by name). */
+type ExtraPalabra = "ventas" | "iq" | "anunciantes" | "clicsAba" | "conversionAba" | "rangoCompetidores" | "competidoresPosicionados" | "rendimientoCompetidores";
+
+/**
+ * Cerebro and Magnet headers as Helium 10 exports them, in English and in Spanish: each column is found by its exact
+ * name (no AI). A competitor's rank column is headed by its ASIN.
+ */
+const CABECERAS_PALABRAS: Record<Exclude<keyof MapaPalabras, "posiciones">, string[]> = {
+  palabra: ["Keyword Phrase", "Frase clave", "Frase de palabras clave", "Palabra clave"],
+  busquedas: ["Search Volume", "Volumen de búsqueda", "Volumen de busqueda"],
+  tendencia: ["Search Volume Trend", "Tendencia del volumen de búsqueda", "Tendencia del volumen de busqueda"],
+  competidores: ["Competing Products", "Productos competidores"],
+  cpr: ["CPR"],
+  densidad: ["Title Density", "Densidad del título", "Densidad del titulo"],
+  puja: ["H10 PPC Sugg. Bid", "Suggested PPC Bid", "PPC Sugg. Bid", "Puja PPC sugerida", "Puja sugerida de PPC de H10"],
+  ventas: ["Keyword Sales", "Venta de palabras clave", "Ventas de palabras clave"],
+  iq: ["Cerebro IQ Score", "Puntuación IQ Cerebro", "Magnet IQ Score", "Puntuación IQ Magnet"],
+  anunciantes: ["Sponsored ASINs", "ASIN auspiciados", "ASIN patrocinados"],
+  clicsAba: ["ABA Total Click Share", "Cuota total de clics ABA"],
+  conversionAba: ["ABA Total Conv. Share", "Cuota total de conversión ABA"],
+  rangoCompetidores: ["Competitor Rank (avg)", "Clasificación de competidores (promed.)"],
+  competidoresPosicionados: ["Ranking Competitors (count)", "Competidores de la clasificación (recuento)"],
+  rendimientoCompetidores: ["Competitor Performance Score", "Puntuación del rendimiento de los competidores"],
 };
+const plano = (t: string) => t.trim().toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+
+/**
+ * A Cerebro or Magnet export recognised by its headers alone: which tool it is and where each column is. null when it
+ * doesn't look like one (then the AI looks at it).
+ */
+export function palabrasConocidas(cabecera: string[]): { herramienta: "cerebro" | "magnet"; mapa: MapaPalabras } | null {
+  const cab = cabecera.map(plano);
+  const buscar = (nombres: string[]) => {
+    const i = cab.findIndex((c) => nombres.some((n) => plano(n) === c));
+    return i >= 0 ? cabecera[i] : null;
+  };
+  const mapa = Object.fromEntries(Object.entries(CABECERAS_PALABRAS).map(([k, v]) => [k, buscar(v)])) as Omit<MapaPalabras, "posiciones">;
+  if (!mapa.palabra || !mapa.busquedas) return null;
+  return {
+    herramienta: cab.some((c) => c.includes("magnet")) ? "magnet" : "cerebro",
+    mapa: { ...mapa, posiciones: cabecera.filter((c) => /^B0[A-Z0-9]{8}$/i.test(c.trim())) } as MapaPalabras,
+  };
+}
+
+/**
+ * Helium 10's «Word Frequency» export (Cerebro → Word Frequency, or Frankenstein): how often each single word shows up
+ * in the competitors' keywords. It's not a Cerebro: it has no searches. null when it isn't one.
+ */
+export function frecuenciaDesdeCsv(filas: string[][]): { palabra: string; veces: number }[] | null {
+  const [cab, ...datos] = filas;
+  const c = cab.map(plano);
+  if (c.length > 3 || !["word", "palabra"].includes(c[0] ?? "") || !["frequency", "frecuencia"].includes(c[1] ?? "")) return null;
+  return datos
+    .map((f) => ({ palabra: (f[0] ?? "").trim().toLowerCase(), veces: Math.round(numero(f[1]) ?? 0) }))
+    .filter((x) => x.palabra)
+    .sort((a, b) => b.veces - a.veces)
+    .slice(0, 2000);
+}
 
 const columna = (cabecera: string[], nombre: string | null) => (nombre ? cabecera.findIndex((c) => c.trim().toLowerCase() === nombre.trim().toLowerCase()) : -1);
 const redondear = (v: number) => Math.round(v * 100) / 100;
@@ -215,17 +274,34 @@ export function mercadoDesdeCsv(filas: string[][], mapa: MapaXray, info: { codig
   };
 }
 
+/** A keyword as read from a file. null = the file doesn't have that column (no data, not 0). */
 export type FilaPalabra = {
   texto: string;
   busquedas: number;
-  tendencia: number;
-  competidores: number;
-  cpr: number;
-  densidadTitulos: number;
-  pujaPpc: number;
+  tendencia: number | null;
+  competidores: number | null;
+  cpr: number | null;
+  densidadTitulos: number | null;
+  pujaPpc: number | null;
+  /** Estimated monthly sales coming through this keyword (Cerebro «Keyword Sales»). */
+  ventas?: number | null;
+  /** Cerebro (or Magnet) IQ Score: searches against competition, higher is better. */
+  iq?: number | null;
+  /** How many products advertise on it («Sponsored ASINs»). */
+  anunciantes?: number | null;
+  /** Amazon Brand Analytics: % of the clicks and of the purchases taken by the top 3 products. */
+  clicsAba?: number | null;
+  conversionAba?: number | null;
+  /** The tracked competitors' average rank on it, and how many of them rank. */
+  rangoCompetidores?: number | null;
+  competidoresPosicionados?: number | null;
+  /** Cerebro's «Competitor Performance Score» (1–10): how well the tracked competitors do on it. */
+  rendimientoCompetidores?: number | null;
   /** Rank by competitor column (header, e.g. an ASIN): null = not ranked. */
   posiciones: Record<string, number | null>;
 };
+/** The optional figures of a keyword, in the order they're read. */
+export const EXTRAS_PALABRA = ["ventas", "iq", "anunciantes", "clicsAba", "conversionAba", "rangoCompetidores", "competidoresPosicionados", "rendimientoCompetidores"] as const;
 
 /** Most keywords kept per file: exports can have thousands, the long tail adds little. */
 const MAX_PALABRAS = 2000;
@@ -233,19 +309,23 @@ const MAX_PALABRAS = 2000;
 /** A Cerebro or Magnet export → its keywords, most searched first. */
 export function palabrasDesdeCsv(filas: string[][], mapa: MapaPalabras): { columnasPosicion: string[]; filas: FilaPalabra[] } {
   const [cab, ...datos] = filas;
-  const col = (k: Exclude<keyof MapaPalabras, "posiciones">) => columna(cab, mapa[k]);
+  const col = (k: Exclude<keyof MapaPalabras, "posiciones">) => columna(cab, mapa[k] ?? null);
   const ip = { palabra: col("palabra"), busquedas: col("busquedas"), tendencia: col("tendencia"), competidores: col("competidores"), cpr: col("cpr"), densidad: col("densidad"), puja: col("puja") };
+  const extras = EXTRAS_PALABRA.map((k) => [k, col(k)] as const).filter(([, i]) => i >= 0);
   const posiciones = mapa.posiciones.map((nombre) => ({ nombre, i: columna(cab, nombre) })).filter((p) => p.i >= 0);
-  const num = (f: string[], i: number) => (i >= 0 ? (numero(f[i]) ?? 0) : 0);
+  // A missing column is no data (null), not 0; neither is a «-» or «N/A» in a cell.
+  const num = (f: string[], i: number) => (i >= 0 ? numero(f[i]) : null);
+  const entero = (v: number | null) => (v === null ? null : Math.round(v));
   const filasPalabras = datos
     .map((f) => ({
       texto: (ip.palabra >= 0 ? f[ip.palabra] : "").trim().toLowerCase(),
-      busquedas: Math.round(num(f, ip.busquedas)),
-      tendencia: Math.round(num(f, ip.tendencia)),
-      competidores: Math.round(num(f, ip.competidores)),
-      cpr: Math.round(num(f, ip.cpr)),
-      densidadTitulos: Math.round(num(f, ip.densidad)),
-      pujaPpc: redondear(num(f, ip.puja)),
+      busquedas: Math.round(num(f, ip.busquedas) ?? 0),
+      tendencia: entero(num(f, ip.tendencia)),
+      competidores: entero(num(f, ip.competidores)),
+      cpr: entero(num(f, ip.cpr)),
+      densidadTitulos: entero(num(f, ip.densidad)),
+      pujaPpc: ((v) => (v === null ? null : redondear(v)))(num(f, ip.puja)),
+      ...Object.fromEntries(extras.map(([k, i]) => [k, ((v) => (v === null ? null : redondear(v)))(num(f, i))])),
       posiciones: Object.fromEntries(
         posiciones.map((p) => {
           const n = numero(f[p.i]);

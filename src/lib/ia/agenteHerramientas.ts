@@ -32,7 +32,7 @@ export const HERRAMIENTAS: Anthropic.Tool[] = [
   {
     name: "palabras_clave",
     description:
-      "Palabras clave del Cerebro de un país con búsquedas al mes, puja PPC sugerida, títulos que la usan (densidad), ventas para entrar en la página 1 (CPR), tendencia y el puesto orgánico de cada competidor seguido en el Cerebro («posiciones»: marca → puesto; si no sale, no está en el top 100). Puedes filtrar por un texto o quedarte con las palabras en las que posiciona un competidor.",
+      "Palabras clave del Cerebro (o Magnet) de un país. Cada palabra trae SOLO los datos que tenía el archivo (si un campo no aparece, no hay dato: no es 0). Campos: «busquedas» = búsquedas al mes en Amazon; «tendencia» = % de cambio de las búsquedas frente al mes anterior; «competidores» = productos que Amazon muestra para esa búsqueda; «cpr» = ventas en 8 días necesarias para entrar en la página 1 (Cerebro Product Rank); «densidadTitulos» = cuántos productos de la primera página la llevan en el título; «puja» = puja PPC sugerida en la moneda del país; «ventasPalabra» = ventas al mes estimadas que llegan por esa búsqueda (Keyword Sales); «iq» = Cerebro IQ Score (búsquedas frente a competencia: más alto, mejor oportunidad); «anunciantes» = productos que hacen publicidad en ella (Sponsored ASINs); «clicsTop3Aba» y «conversionTop3Aba» = % de clics y de compras que se llevan los 3 primeros productos según Amazon Brand Analytics (alto = mercado concentrado); «posicionMediaCompetidores» y «competidoresQuePosicionan» = posición orgánica media de los competidores seguidos y cuántos de ellos salen; «rendimientoCompetidores» = Competitor Performance Score de Cerebro (1–10: lo bien que les va a los competidores en ella); «posiciones» = puesto orgánico de cada competidor seguido (marca → puesto; si no sale, no posiciona en lo que mide Cerebro). Puedes filtrar por un texto o quedarte con las palabras en las que posiciona un competidor.",
     input_schema: {
       type: "object",
       properties: {
@@ -223,16 +223,29 @@ function palabrasClave(d: Datos, i: Record<string, unknown>) {
     palabras: filtradas
       .sort((a, b) => b.busquedas - a.busquedas)
       .slice(Math.max(0, Number(i.desde) || 0), Math.max(0, Number(i.desde) || 0) + entero(i.limite, 40, 100))
-      .map((p) => ({
-        palabra: p.texto,
-        busquedas: p.busquedas,
-        puja: p.pujaPpc,
-        densidadTitulos: p.densidadTitulos,
-        cpr: p.cpr,
-        competidores: p.competidores,
-        tendencia: p.tendencia,
-        posiciones: Object.fromEntries(rivales.flatMap((r, n) => (p.posiciones[n] !== null && p.posiciones[n] !== undefined ? [[r, p.posiciones[n]]] : []))),
-      })),
+      // Only the figures the file had: a missing one is left out, so it can't be read as a 0.
+      .map((p) =>
+        Object.fromEntries(
+          Object.entries({
+            palabra: p.texto,
+            busquedas: p.busquedas,
+            tendencia: p.tendencia,
+            competidores: p.competidores,
+            cpr: p.cpr,
+            densidadTitulos: p.densidadTitulos,
+            puja: p.pujaPpc,
+            ventasPalabra: p.ventas,
+            iq: p.iq,
+            anunciantes: p.anunciantes,
+            clicsTop3Aba: p.clicsAba,
+            conversionTop3Aba: p.conversionAba,
+            posicionMediaCompetidores: p.rangoCompetidores,
+            competidoresQuePosicionan: p.competidoresPosicionados,
+            rendimientoCompetidores: p.rendimientoCompetidores,
+            posiciones: Object.fromEntries(rivales.flatMap((r, n) => (p.posiciones[n] !== null && p.posiciones[n] !== undefined ? [[r, p.posiciones[n]]] : []))),
+          }).filter(([, v]) => v !== null && v !== undefined),
+        ),
+      ),
   };
 }
 
