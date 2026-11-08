@@ -25,7 +25,7 @@ import { PestanaAgentes } from "./PestanaAgentes";
 import { PestanaMejoras } from "./PestanaMejoras";
 import { PestanaLanzamiento, usePalabrasLanzamiento } from "./PestanaLanzamiento";
 import { useListingPropio } from "./ListingPropio";
-import { PestanaKits } from "./PestanaKits";
+import { PestanaKits, type VentasMercado } from "./PestanaKits";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
@@ -52,6 +52,22 @@ const CON_RENTABILIDAD = false;
 const CON_DATOS_AMAZON = false;
 /** «Comparativa por país» in Mercado is hidden too (the score still counts every country); true brings it back. */
 const CON_COMPARATIVA = false;
+
+/**
+ * Each listing's sales in every marketplace of the study, from each country's full Xray (not only its best sellers),
+ * the one that sells most first: «Kits competidores» shows them with the total. A listing twice in a country's Xray
+ * (it happens) counts once.
+ */
+function ventasPorAsin(estudio: EstudioH10): Record<string, VentasMercado[]> {
+  const res: Record<string, VentasMercado[]> = {};
+  for (const m of estudio.mercados)
+    for (const c of m.competidores) {
+      if (!c.asin || res[c.asin]?.some((x) => x.pais === m.codigoPais)) continue;
+      (res[c.asin] ??= []).push({ pais: m.codigoPais, ventas: c.ventas, facturacion: c.facturacion, moneda: m.moneda, eur: c.facturacion * cambioAEur(m) });
+    }
+  for (const l of Object.values(res)) l.sort((a, b) => (b.ventas ?? -1) - (a.ventas ?? -1));
+  return res;
+}
 
 /** Empty tab of a study without that data yet. */
 function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => void }) {
@@ -242,6 +258,7 @@ export function VistaH10({
           kits={estudio.kitsCompetidores ?? null}
           paises={estudio.mercados.map((m) => m.codigoPais)}
           resenas={estudio.resenasCompletas ?? []}
+          ventasPorAsin={ventasPorAsin(estudio)}
         />
       )}
       {pestana === "listings" &&

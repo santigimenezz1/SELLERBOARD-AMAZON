@@ -157,6 +157,9 @@ function QuejasListing({ estudioId, asin, r }: { estudioId: string; asin: string
   );
 }
 
+/** A listing's sales in one marketplace (from that country's Xray): units and revenue a month, also in euros. */
+export type VentasMercado = { pais: CodigoPais; ventas: number | null; facturacion: number; moneda: "EUR" | "GBP"; eur: number };
+
 /** One competitor: its place, photo, brand, title, what its kit includes and its figures. */
 function Tarjeta({
   k,
@@ -165,6 +168,7 @@ function Tarjeta({
   conBandera,
   estudioId,
   resenas,
+  mercados,
 }: {
   k: KitCompetidor;
   pais: CodigoPais;
@@ -173,8 +177,12 @@ function Tarjeta({
   estudioId: string;
   /** Where its full reviews are, if they were uploaded. */
   resenas: ResenasListing | null;
+  /** The same listing in every marketplace of the study (each one's Xray), the one that sells most first. */
+  mercados: VentasMercado[];
 }) {
   const [verResenas, setVerResenas] = useState(false);
+  const totalUds = mercados.reduce((s, m) => s + (m.ventas ?? 0), 0);
+  const totalEur = mercados.reduce((s, m) => s + m.eur, 0);
   const cambio = k.precio !== null && k.precioXray !== null && Math.abs(k.precio - k.precioXray) >= 0.5;
   return (
     <li className={`flex gap-3 rounded-xl border bg-ink-900/80 p-3 shadow-soft ${k.otroProducto ? "border-warning/30 opacity-70" : "border-white/[0.08]"}`}>
@@ -228,10 +236,10 @@ function Tarjeta({
             )}
           </span>
           <span className="text-xs text-ink-400">
-            <strong className="tabular text-sm text-success">{k.ventasMes !== null ? formatNumero(k.ventasMes) : "—"}</strong> uds/mes
+            <strong className="tabular text-sm text-success">{k.ventasMes !== null ? formatNumero(k.ventasMes) : "—"}</strong> uds/mes en {pais}
           </span>
           <span className="text-xs text-ink-400">
-            <strong className="tabular text-ink-200">{formatMoneda(k.facturacion, k.moneda)}</strong> al mes
+            <strong className="tabular text-ink-200">{formatMoneda(k.facturacion, k.moneda)}</strong> al mes en {pais}
           </span>
           <span className="text-xs text-ink-400">
             {k.valoracion !== null && <strong className="text-accent-300">★ {k.valoracion.toLocaleString("es-ES")}</strong>} {formatNumero(k.resenas)} reseñas
@@ -251,6 +259,29 @@ function Tarjeta({
             </span>
           )}
         </div>
+        {mercados.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-white/[0.03] px-2.5 py-2 text-xs">
+            <span className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Todos los mercados</span>
+            {mercados.map((m) => (
+              <span
+                key={m.pais}
+                className={`inline-flex items-center gap-1.5 ${m.pais === pais ? "text-ink-100" : "text-ink-300"}`}
+                title={`Amazon ${m.pais}, según su Xray`}
+              >
+                <Pais codigo={m.pais} corto />
+                <strong className="tabular">{m.ventas !== null ? formatNumero(m.ventas) : "—"}</strong> uds
+                <span className="text-ink-500">· {formatMoneda(m.facturacion, m.moneda)}</span>
+              </span>
+            ))}
+            <span
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-success/10 px-2 py-0.5 text-success"
+              title="Suma de todos los países del estudio (libras pasadas a euros)"
+            >
+              Total: <strong className="tabular">{formatNumero(totalUds)}</strong> uds/mes ·{" "}
+              <strong className="tabular">{formatMoneda(totalEur, "EUR")}</strong> al mes
+            </span>
+          </div>
+        )}
         {verResenas && resenas && (
           <div className="rounded-lg border border-danger/20 bg-danger/[0.04] p-3">
             <p className="mb-2 text-[11px] font-semibold tracking-wide text-danger uppercase">De qué se quejan</p>
@@ -272,12 +303,15 @@ export function PestanaKits({
   kits,
   paises,
   resenas,
+  ventasPorAsin,
 }: {
   estudioId: string;
   kits: KitsCompetidores | null;
   paises: CodigoPais[];
   /** The full reviews uploaded: country, ASIN and how many. */
   resenas: { codigoPais: CodigoPais; asin: string | null; total: number }[];
+  /** Each listing's sales in every marketplace of the study, by ASIN. */
+  ventasPorAsin: Record<string, VentasMercado[]>;
 }) {
   /** A listing's full reviews: those of its own country, else the same ASIN's from another one (Amazon shares reviews in Europe). */
   const resenasDe = (pais: CodigoPais, asin: string): ResenasListing | null => {
@@ -370,7 +404,16 @@ export function PestanaKits({
           {!pais && <p className="text-xs text-ink-500">Todos los países juntos, ordenados por ventas al mes. Cada precio va en la moneda de su país.</p>}
           <ol className="flex flex-col gap-2">
             {lista.map(({ k, pais: p }, i) => (
-              <Tarjeta key={`${p}|${k.asin}`} k={k} pais={p} puesto={i + 1} conBandera={!pais} estudioId={estudioId} resenas={resenasDe(p, k.asin)} />
+              <Tarjeta
+                key={`${p}|${k.asin}`}
+                k={k}
+                pais={p}
+                puesto={i + 1}
+                conBandera={!pais}
+                estudioId={estudioId}
+                resenas={resenasDe(p, k.asin)}
+                mercados={ventasPorAsin[k.asin] ?? []}
+              />
             ))}
           </ol>
         </>
