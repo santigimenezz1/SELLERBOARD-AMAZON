@@ -309,6 +309,14 @@ function Tarjeta({
 }
 
 const sinCambios = () => () => {};
+
+/** «Portería» → «porterías», «Balón» → «balones»: the plural of a kit element's name, in lower case. */
+const plural = (nombre: string) => {
+  const n = nombre.toLowerCase();
+  return /[aeiouáéíóú]$/.test(n) ? `${n}s` : `${n.replace(/ón$/, "on")}es`;
+};
+/** The quantity filter's options: how many of the kits' main element each kit brings («3» means 3 or more). */
+type Cantidad = 1 | 2 | 3;
 /** How many leaders «Listings» shows in this browser (the same number is shown here). */
 function leerCuantos(clave: string): number {
   try {
@@ -342,6 +350,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
   };
   const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
+  const [cantidad, setCantidad] = useState<Cantidad | null>(null);
   const [analizando, setAnalizando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cuantos = useSyncExternalStore(
@@ -379,6 +388,32 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
       return { k, pais: m.codigoPais };
     });
   const pendientes = lista.filter((x) => !x.k.analizado);
+
+  // The kits' main element: the one most kits list first (in a study of goals, «Portería»).
+  const primeros = new Map<string, { nombre: string; n: number }>();
+  for (const k of kits ? Object.values(kits.porPais).flat() : []) {
+    const e = k?.elementos[0];
+    if (!e || k.otroProducto) continue;
+    const clave = e.nombre.toLowerCase();
+    primeros.set(clave, { nombre: e.nombre, n: (primeros.get(clave)?.n ?? 0) + 1 });
+  }
+  const principal = [...primeros.values()].sort((a, b) => b.n - a.n)[0]?.nombre ?? null;
+  /** How many of the main element a listing's kit brings (null: not read yet, another product, or not said). */
+  const cuantosDe = (k: KitVista): number | null => {
+    if (!principal || !k.analizado || k.otroProducto) return null;
+    const suyos = k.elementos.filter((e) => e.nombre.toLowerCase() === principal.toLowerCase());
+    if (!suyos.length || suyos.some((e) => e.cantidad === null)) return null;
+    return suyos.reduce((t, e) => t + (e.cantidad ?? 0), 0);
+  };
+  const encaja = (k: KitVista, c: Cantidad) => {
+    const n = cuantosDe(k);
+    return n !== null && (c === 3 ? n >= 3 : n === c);
+  };
+  const opciones = ([1, 2, 3] as const).filter((c) => lista.some((x) => encaja(x.k, c)));
+  // Each listing keeps its place in «Listings», also when filtered.
+  // A quantity this view has none of (after changing country) shows them all.
+  const activa = cantidad && (opciones as readonly number[]).includes(cantidad) ? cantidad : null;
+  const vista = lista.map((x, i) => ({ ...x, puesto: i + 1 })).filter((x) => !activa || encaja(x.k, activa));
 
   const analizar = async (todos: boolean) => {
     const pedir = todos ? lista : pendientes;
@@ -459,6 +494,25 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
         </div>
       )}
 
+      {principal && opciones.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {[null, ...opciones].map((c) => (
+            <button
+              key={c ?? "todas"}
+              onClick={() => setCantidad(c)}
+              aria-pressed={c === activa}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ${c === activa ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
+            >
+              {c === null ? "Todas" : c === 3 ? `3 o más ${plural(principal)}` : `${c} ${c === 1 ? principal.toLowerCase() : plural(principal)}`}
+              <span className="text-ink-500">{c === null ? lista.length : lista.filter((x) => encaja(x.k, c)).length}</span>
+            </button>
+          ))}
+          {activa && (pendientes.length > 0 || lista.some((x) => x.k.otroProducto)) && (
+            <span className="text-[11px] text-ink-500">· sin los pendientes de analizar ni los de otro producto</span>
+          )}
+        </div>
+      )}
+
       {lista.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/[0.12] px-4 py-12 text-center text-sm text-ink-400">
           <p className="max-w-md">{paises.length ? "No hay listings en esta vista de «Listings»." : "Sube primero el Xray de algún país en «Datos»."}</p>
@@ -467,12 +521,12 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
         <>
           {!pais && <p className="text-xs text-ink-500">Todos los países juntos, ordenados por facturación al mes (en euros), como en «Listings». Cada precio va en la moneda de su país.</p>}
           <ol className="flex flex-col gap-2">
-            {lista.map(({ k, pais: p }, i) => (
+            {vista.map(({ k, pais: p, puesto }) => (
               <Tarjeta
                 key={`${p}|${k.asin}`}
                 k={k}
                 pais={p}
-                puesto={i + 1}
+                puesto={puesto}
                 conBandera={!pais}
                 estudioId={estudioId}
                 resenas={resenasDe(p, k.asin)}
