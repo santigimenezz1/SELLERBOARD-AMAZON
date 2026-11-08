@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CodigoPais, EstudioH10, KitCompetidor, QuejasPorEstrellas } from "@/lib/datos/h10Tipos";
 import { claveCuantosListings, lideresListings, listingDe, TOP_LISTINGS } from "@/lib/datos/h10Listings";
+import { cambioAEur } from "@/lib/datos/h10Analisis";
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Pais } from "./comun";
@@ -161,6 +162,16 @@ function QuejasListing({ estudioId, asin, r }: { estudioId: string; asin: string
 /** A listing's sales in one marketplace (from that country's Xray): units and revenue a month, also in euros. */
 export type VentasMercado = { pais: CodigoPais; ventas: number | null; facturacion: number; moneda: "EUR" | "GBP"; eur: number };
 
+/** An amount in euros; one in pounds goes in euros too, with the pounds in brackets: «29,98 € (£25,99)». */
+function Importe({ valor, moneda, tasa }: { valor: number; moneda: "EUR" | "GBP"; tasa: number }) {
+  if (moneda !== "GBP") return <>{formatMoneda(valor, "EUR")}</>;
+  return (
+    <>
+      {formatMoneda(valor * tasa, "EUR")} <span className="text-[0.75em] font-normal text-ink-500">({formatMoneda(valor, "GBP")})</span>
+    </>
+  );
+}
+
 /** A card's listing: its kit as read (when it was) with today's Xray figures. */
 type KitVista = KitCompetidor & { analizado: boolean };
 
@@ -174,6 +185,7 @@ function Tarjeta({
   resenas,
   mercados,
   onQuitar,
+  tasa,
 }: {
   k: KitVista;
   pais: CodigoPais;
@@ -186,6 +198,8 @@ function Tarjeta({
   mercados: VentasMercado[];
   /** Takes the listing out of «Listings» and of here (the next one by revenue takes its place). */
   onQuitar: () => void;
+  /** Euros per pound of the card's country (the study's rate; 1 in euro countries). */
+  tasa: number;
 }) {
   const [verResenas, setVerResenas] = useState(false);
   const totalUds = mercados.reduce((s, m) => s + (m.ventas ?? 0), 0);
@@ -247,25 +261,36 @@ function Tarjeta({
         <div className="flex flex-wrap items-end gap-x-5 gap-y-1 border-t border-white/[0.05] pt-2">
           <span>
             <span className="tabular text-lg font-bold text-ink-100">
-              {k.precio !== null
-                ? formatMoneda(k.precio, k.moneda)
-                : k.analizado
-                  ? "Sin oferta"
-                  : k.precioXray !== null
-                    ? formatMoneda(k.precioXray, k.moneda)
-                    : "—"}
+              {k.precio !== null ? (
+                <Importe valor={k.precio} moneda={k.moneda} tasa={tasa} />
+              ) : k.analizado ? (
+                "Sin oferta"
+              ) : k.precioXray !== null ? (
+                <Importe valor={k.precioXray} moneda={k.moneda} tasa={tasa} />
+              ) : (
+                "—"
+              )}
             </span>
             {!k.analizado && k.precioXray !== null && <span className="ml-1.5 text-[11px] text-ink-500">(precio del Xray)</span>}
-            {cambio && <span className="ml-1.5 text-[11px] text-ink-500">({formatMoneda(k.precioXray!, k.moneda)} en el Xray)</span>}
+            {cambio && (
+              <span className="ml-1.5 text-[11px] text-ink-500">
+                (<Importe valor={k.precioXray!} moneda={k.moneda} tasa={tasa} /> en el Xray)
+              </span>
+            )}
             {k.analizado && k.precio === null && k.precioXray !== null && (
-              <span className="ml-1.5 text-[11px] text-ink-500">({formatMoneda(k.precioXray, k.moneda)} en el Xray)</span>
+              <span className="ml-1.5 text-[11px] text-ink-500">
+                (<Importe valor={k.precioXray} moneda={k.moneda} tasa={tasa} /> en el Xray)
+              </span>
             )}
           </span>
           <span className="text-xs text-ink-400">
             <strong className="tabular text-sm text-success">{k.ventasMes !== null ? formatNumero(k.ventasMes) : "—"}</strong> uds/mes en {pais}
           </span>
           <span className="text-xs text-ink-400">
-            <strong className="tabular text-ink-200">{formatMoneda(k.facturacion, k.moneda)}</strong> al mes en {pais}
+            <strong className="tabular text-ink-200">
+              <Importe valor={k.facturacion} moneda={k.moneda} tasa={tasa} />
+            </strong>{" "}
+            al mes en {pais}
           </span>
           <span className="text-xs text-ink-400">
             {k.valoracion !== null && <strong className="text-accent-300">★ {k.valoracion.toLocaleString("es-ES")}</strong>} {formatNumero(k.resenas)} reseñas
@@ -296,7 +321,10 @@ function Tarjeta({
               >
                 <Pais codigo={m.pais} corto />
                 <strong className="tabular">{m.ventas !== null ? formatNumero(m.ventas) : "—"}</strong> uds
-                <span className="text-ink-500">· {formatMoneda(m.facturacion, m.moneda)}</span>
+                <span className="text-ink-500">
+                  · {formatMoneda(m.eur, "EUR")}
+                  {m.moneda === "GBP" && <span className="text-[0.9em]"> ({formatMoneda(m.facturacion, "GBP")})</span>}
+                </span>
               </span>
             ))}
             <span
@@ -550,7 +578,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
         </div>
       ) : (
         <>
-          {!pais && <p className="text-xs text-ink-500">Todos los países juntos, ordenados por facturación al mes (en euros), como en «Listings». Cada precio va en la moneda de su país.</p>}
+          {!pais && <p className="text-xs text-ink-500">Todos los países juntos, ordenados por facturación al mes (en euros), como en «Listings». Los importes en libras van en euros, con las libras entre paréntesis.</p>}
           <ol className="flex flex-col gap-2">
             {vista.map(({ k, pais: p, puesto }) => (
               <Tarjeta
@@ -563,6 +591,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
                 resenas={resenasDe(p, k.asin)}
                 mercados={ventasPorAsin[k.asin] ?? []}
                 onQuitar={() => void quitar(p, k.asin)}
+                tasa={cambioAEur(estudio.mercados.find((m) => m.codigoPais === p) ?? { moneda: k.moneda })}
               />
             ))}
           </ol>
