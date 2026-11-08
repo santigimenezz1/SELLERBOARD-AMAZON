@@ -1,4 +1,5 @@
 import type { CodigoPais, CompetidorXray, ListingAmazon, MercadoXray, PalabrasMercado } from "./h10Tipos";
+import { cambioAEur } from "./h10Analisis";
 
 /*
  * Audit of a competitor's listing: photos, title, bullets, description, A+, video, price and reviews, each with a
@@ -47,6 +48,24 @@ export type AuditoriaListing = {
 };
 
 /** A competitor's real listing in that country: its own, or that of a variation of the same family. */
+/** How many leaders «Listings» shows at first, and where each browser remembers how many the owner shows. */
+export const TOP_LISTINGS = 25;
+export const claveCuantosListings = (estudioId: string) => `h10-listings-cuantos-${estudioId}`;
+
+/**
+ * The leaders «Listings» shows in a view (one country, or every country with `pais` null): every product by revenue
+ * in euros, without the ones taken out with ✕ («ES|B0…» in `quitados`), the first `cuantos`. «Kits competidores»
+ * shows the same ones.
+ */
+export function lideresListings(mercados: MercadoXray[], pais: CodigoPais | null, quitados: string[], cuantos: number) {
+  return mercados
+    .filter((m) => !pais || m.codigoPais === pais)
+    .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: c.facturacion * cambioAEur(m) })))
+    .sort((a, b) => b.eur - a.eur)
+    .filter((x) => !x.c.asin || !quitados.includes(`${x.m.codigoPais}|${x.c.asin}`))
+    .slice(0, cuantos);
+}
+
 export function listingDe(listings: ListingAmazon[] | undefined, pais: CodigoPais, asin: string | null | undefined): ListingAmazon | null {
   if (!asin || !listings?.length) return null;
   const delPais = listings.filter((l) => l.codigoPais === pais);

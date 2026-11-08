@@ -252,14 +252,7 @@ export function VistaH10({
       )}
       {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
       {pestana === "kits" && !estudio.ejemplo && (
-        <PestanaKits
-          key={`kits-${estudio.id}`}
-          estudioId={estudio.id}
-          kits={estudio.kitsCompetidores ?? null}
-          paises={estudio.mercados.map((m) => m.codigoPais)}
-          resenas={estudio.resenasCompletas ?? []}
-          ventasPorAsin={ventasPorAsin(estudio)}
-        />
+        <PestanaKits key={`kits-${estudio.id}`} estudio={estudio} ventasPorAsin={ventasPorAsin(estudio)} />
       )}
       {pestana === "listings" &&
         (resumen ? (

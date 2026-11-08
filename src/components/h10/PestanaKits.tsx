@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { CodigoPais, KitCompetidor, KitsCompetidores, QuejasPorEstrellas } from "@/lib/datos/h10Tipos";
+import type { CodigoPais, EstudioH10, KitCompetidor, QuejasPorEstrellas } from "@/lib/datos/h10Tipos";
+import { claveCuantosListings, lideresListings, listingDe, TOP_LISTINGS } from "@/lib/datos/h10Listings";
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Pais } from "./comun";
@@ -160,6 +161,9 @@ function QuejasListing({ estudioId, asin, r }: { estudioId: string; asin: string
 /** A listing's sales in one marketplace (from that country's Xray): units and revenue a month, also in euros. */
 export type VentasMercado = { pais: CodigoPais; ventas: number | null; facturacion: number; moneda: "EUR" | "GBP"; eur: number };
 
+/** A card's listing: its kit as read (when it was) with today's Xray figures. */
+type KitVista = KitCompetidor & { analizado: boolean };
+
 /** One competitor: its place, photo, brand, title, what its kit includes and its figures. */
 function Tarjeta({
   k,
@@ -170,7 +174,7 @@ function Tarjeta({
   resenas,
   mercados,
 }: {
-  k: KitCompetidor;
+  k: KitVista;
   pais: CodigoPais;
   puesto: number;
   conBandera: boolean;
@@ -216,7 +220,9 @@ function Tarjeta({
 
         <div className="flex flex-col gap-1">
           <span className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Qué incluye</span>
-          {k.elementos.length ? (
+          {!k.analizado ? (
+            <span className="text-xs text-warning">Pendiente de analizar: pulsa «Analizar pendientes» arriba.</span>
+          ) : k.elementos.length ? (
             <div className="flex flex-wrap gap-1.5">
               {k.elementos.map((e, i) => (
                 <Elemento key={i} e={e} />
@@ -229,9 +235,18 @@ function Tarjeta({
 
         <div className="flex flex-wrap items-end gap-x-5 gap-y-1 border-t border-white/[0.05] pt-2">
           <span>
-            <span className="tabular text-lg font-bold text-ink-100">{k.precio !== null ? formatMoneda(k.precio, k.moneda) : "Sin oferta"}</span>
+            <span className="tabular text-lg font-bold text-ink-100">
+              {k.precio !== null
+                ? formatMoneda(k.precio, k.moneda)
+                : k.analizado
+                  ? "Sin oferta"
+                  : k.precioXray !== null
+                    ? formatMoneda(k.precioXray, k.moneda)
+                    : "—"}
+            </span>
+            {!k.analizado && k.precioXray !== null && <span className="ml-1.5 text-[11px] text-ink-500">(precio del Xray)</span>}
             {cambio && <span className="ml-1.5 text-[11px] text-ink-500">({formatMoneda(k.precioXray!, k.moneda)} en el Xray)</span>}
-            {k.precio === null && k.precioXray !== null && (
+            {k.analizado && k.precio === null && k.precioXray !== null && (
               <span className="ml-1.5 text-[11px] text-ink-500">({formatMoneda(k.precioXray, k.moneda)} en el Xray)</span>
             )}
           </span>
@@ -293,26 +308,28 @@ function Tarjeta({
   );
 }
 
+const sinCambios = () => () => {};
+/** How many leaders «Listings» shows in this browser (the same number is shown here). */
+function leerCuantos(clave: string): number {
+  try {
+    const n = Number(localStorage.getItem(clave));
+    return n > TOP_LISTINGS ? n : TOP_LISTINGS;
+  } catch {
+    return TOP_LISTINGS;
+  }
+}
+
 /**
- * «Kits competidores»: the best sellers of each country, from the one that sells most to the one that sells least,
- * with their photo, price, sales and what their kit includes. «Todos» puts every country together (each in its
- * currency); a country shows only its own.
+ * «Kits competidores»: the same listings «Listings» shows (its view: every country or one, without the ones taken out
+ * with ✕, as many as it shows), in the same order (by revenue in euros, the one that earns most first), with their photo, price,
+ * sales and what their kit includes. A listing not read yet waits as «pendiente»: «Analizar pendientes» reads only
+ * those (what was read is kept), «Volver a analizar» every one of the view.
  */
-export function PestanaKits({
-  estudioId,
-  kits,
-  paises,
-  resenas,
-  ventasPorAsin,
-}: {
-  estudioId: string;
-  kits: KitsCompetidores | null;
-  paises: CodigoPais[];
-  /** The full reviews uploaded: country, ASIN and how many. */
-  resenas: { codigoPais: CodigoPais; asin: string | null; total: number }[];
-  /** Each listing's sales in every marketplace of the study, by ASIN. */
-  ventasPorAsin: Record<string, VentasMercado[]>;
-}) {
+export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; ventasPorAsin: Record<string, VentasMercado[]> }) {
+  const estudioId = estudio.id;
+  const kits = estudio.kitsCompetidores ?? null;
+  const resenas = estudio.resenasCompletas ?? [];
+  const paises = estudio.mercados.map((m) => m.codigoPais);
   /** A listing's full reviews: those of its own country, else the same ASIN's from another one (Amazon shares reviews in Europe). */
   const resenasDe = (pais: CodigoPais, asin: string): ResenasListing | null => {
     const deAsin = resenas.filter((x) => x.asin === asin);
@@ -324,26 +341,62 @@ export function PestanaKits({
     return { pais: mejor.codigoPais, total: mejor.total };
   };
   const router = useRouter();
-  const [filtro, setFiltro] = useState<CodigoPais | null>(null);
+  const [pais, setPais] = useState<CodigoPais | null>(null);
   const [analizando, setAnalizando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const conKits = paises.filter((p) => kits?.porPais[p]?.length);
-  const pais = filtro && conKits.includes(filtro) ? filtro : null;
-  const lista = (pais ? [pais] : conKits)
-    .flatMap((p) => (kits?.porPais[p] ?? []).map((k) => ({ k, pais: p })))
-    .sort((a, b) => (b.k.ventasMes ?? -1) - (a.k.ventasMes ?? -1));
+  const cuantos = useSyncExternalStore(
+    sinCambios,
+    () => leerCuantos(claveCuantosListings(estudioId)),
+    () => TOP_LISTINGS,
+  );
 
-  const analizar = async () => {
+  // «Listings»' leaders of this view, each with its kit when it was read, in its order (by revenue).
+  const lista = lideresListings(estudio.mercados, pais, estudio.listingsQuitados ?? [], cuantos)
+    .filter((x) => x.c.asin)
+    .map(({ m, c }) => {
+      const kit = kits?.porPais[m.codigoPais]?.find((k) => k.asin === c.asin);
+      const base = {
+        ventasMes: c.ventas,
+        facturacion: c.facturacion,
+        resenas: c.resenas,
+        valoracion: c.valoracion ?? null,
+        precioXray: c.precio || null,
+        moneda: m.moneda,
+      };
+      const k: KitVista = kit
+        ? { ...kit, ...base, analizado: true }
+        : {
+            asin: c.asin!,
+            marca: c.marca,
+            titulo: c.titulo,
+            imagen: listingDe(estudio.listings, m.codigoPais, c.asin)?.fotos[0] ?? null,
+            precio: null,
+            elementos: [],
+            otroProducto: null,
+            ...base,
+            analizado: false,
+          };
+      return { k, pais: m.codigoPais };
+    });
+  const pendientes = lista.filter((x) => !x.k.analizado);
+
+  const analizar = async (todos: boolean) => {
+    const pedir = todos ? lista : pendientes;
+    if (!pedir.length) return;
     if (
       !confirm(
-        `Se leerán de Amazon los 20 productos que más venden de cada país (${paises.length}) y la IA dirá qué incluye cada kit. Tarda uno o dos minutos y cuesta unos céntimos. ¿Seguir?`,
+        `Se leerán de Amazon ${pedir.length} ${pedir.length === 1 ? "listing" : "listings"} y la IA dirá qué incluye cada kit. Tarda uno o dos minutos y cuesta unos céntimos. ¿Seguir?`,
       )
     )
       return;
     setError(null);
     setAnalizando(true);
     try {
-      const r = await fetch(`/api/h10/estudios/${estudioId}/kits`, { method: "POST" });
+      const r = await fetch(`/api/h10/estudios/${estudioId}/kits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pares: pedir.map((x) => ({ pais: x.pais, asin: x.k.asin })) }),
+      });
       const b = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(b.error ?? `Error ${r.status}`);
       router.refresh();
@@ -360,17 +413,30 @@ export function PestanaKits({
         <div>
           <h2 className="text-base font-semibold text-ink-100">Kits competidores</h2>
           <p className="mt-0.5 text-xs text-ink-400">
-            Los 20 que más venden de cada país, de más a menos ventas, con lo que incluye su kit según su ficha de Amazon.
-            {kits && ` · Analizado el ${new Date(kits.generadoEn).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" })}`}
+            Los mismos listings de la pestaña «Listings» (los {cuantos} primeros, sin los que quitaste) y en el mismo orden, por facturación, con lo que incluye su kit según
+            su ficha de Amazon. Si quitas uno en «Listings», desaparece también aquí.
           </p>
         </div>
-        <button
-          onClick={() => void analizar()}
-          disabled={analizando || !paises.length}
-          className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-60"
-        >
-          {analizando ? "Analizando… (uno o dos minutos)" : kits ? "Volver a analizar" : "Analizar kits"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {pendientes.length > 0 && (
+            <button
+              onClick={() => void analizar(false)}
+              disabled={analizando}
+              className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-60"
+            >
+              {analizando ? "Analizando… (uno o dos minutos)" : `Analizar pendientes (${pendientes.length})`}
+            </button>
+          )}
+          {lista.length > pendientes.length && (
+            <button
+              onClick={() => void analizar(true)}
+              disabled={analizando}
+              className="rounded-lg border border-white/[0.12] px-3.5 py-2 text-sm text-ink-200 hover:bg-white/[0.06] disabled:opacity-60"
+            >
+              {analizando && !pendientes.length ? "Analizando…" : "Volver a analizar todos"}
+            </button>
+          )}
+        </div>
       </div>
       {error && (
         <p role="alert" className="rounded-lg bg-danger/15 px-3 py-2 text-sm text-danger">
@@ -378,30 +444,28 @@ export function PestanaKits({
         </p>
       )}
 
-      {!kits || !conKits.length ? (
+      {paises.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {[null, ...paises].map((p) => (
+            <button
+              key={p ?? "todos"}
+              onClick={() => setPais(p)}
+              aria-pressed={p === pais}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ${p === pais ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
+            >
+              {p ? <Pais codigo={p} /> : "Todos"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {lista.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/[0.12] px-4 py-12 text-center text-sm text-ink-400">
-          <p className="max-w-md">
-            {paises.length
-              ? "Pulsa «Analizar kits»: se leerá la ficha de los que más venden en cada país y verás aquí qué incluye cada kit y a qué precio."
-              : "Sube primero el Xray de algún país en «Datos»."}
-          </p>
+          <p className="max-w-md">{paises.length ? "No hay listings en esta vista de «Listings»." : "Sube primero el Xray de algún país en «Datos»."}</p>
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap gap-1.5">
-            {[null, ...conKits].map((p) => (
-              <button
-                key={p ?? "todos"}
-                onClick={() => setFiltro(p)}
-                aria-pressed={p === pais}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ${p === pais ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
-              >
-                {p ? <Pais codigo={p} /> : "Todos"}
-                <span className="text-ink-500">{p ? kits.porPais[p]!.length : conKits.reduce((s, x) => s + kits.porPais[x]!.length, 0)}</span>
-              </button>
-            ))}
-          </div>
-          {!pais && <p className="text-xs text-ink-500">Todos los países juntos, ordenados por ventas al mes. Cada precio va en la moneda de su país.</p>}
+          {!pais && <p className="text-xs text-ink-500">Todos los países juntos, ordenados por facturación al mes (en euros), como en «Listings». Cada precio va en la moneda de su país.</p>}
           <ol className="flex flex-col gap-2">
             {lista.map(({ k, pais: p }, i) => (
               <Tarjeta

@@ -5,7 +5,7 @@ import { limpiarEnv } from "@/lib/env";
 import { estudioParaAgente, guardarKitsCompetidores } from "@/lib/datos/estudiosH10";
 import { fichasCatalogo, preciosCompetidores, type ItemCatalogoCompleto } from "@/lib/amazon/apis";
 import { nombrePais } from "@/lib/datos/h10Analisis";
-import type { CodigoPais, ElementoKit, KitCompetidor, KitsCompetidores } from "@/lib/datos/h10Tipos";
+import type { CodigoPais, CompetidorXray, ElementoKit, KitCompetidor, KitsCompetidores, MercadoXray } from "@/lib/datos/h10Tipos";
 
 /*
  * «Kits competidores»: the 20 best sellers of each country of a study (by the Xray's monthly sales), with their
@@ -33,7 +33,11 @@ const ESQUEMA = {
               type: "object",
               properties: {
                 cantidad: { type: ["integer", "null"], description: "Cuántas unidades; null si el vendedor no lo dice" },
-                nombre: { type: "string", description: "En español, corto: «Portería», «Balón», «Bomba de aire», «Conos», «Escalera de agilidad», «Diana / panel de tiro», «Bolsa de transporte», «Estacas»…" },
+                nombre: {
+                  type: "string",
+                  description:
+                    "En español, corto: «Portería», «Balón», «Bomba de aire», «Conos», «Escalera de agilidad», «Diana / panel de tiro», «Bolsa de transporte», «Estacas»…",
+                },
                 detalle: { type: ["string", "null"], description: "Medida, talla o material si lo da (p. ej. «120×90×90 cm», «talla 3», «acero»); null si no" },
               },
               required: ["cantidad", "nombre", "detalle"],
@@ -84,7 +88,9 @@ Reglas:
       messages: [
         {
           role: "user",
-          content: items.map((p) => `ASIN ${p.asin}\nTítulo: ${p.titulo}\nBullets:\n${p.bullets.map((b) => `- ${b}`).join("\n") || "(sin bullets)"}`).join("\n\n---\n\n"),
+          content: items
+            .map((p) => `ASIN ${p.asin}\nTítulo: ${p.titulo}\nBullets:\n${p.bullets.map((b) => `- ${b}`).join("\n") || "(sin bullets)"}`)
+            .join("\n\n---\n\n"),
         },
       ],
     })
@@ -97,47 +103,59 @@ Reglas:
   return new Map(j.productos.map((p) => [p.asin, p]));
 }
 
-/** Reads the best sellers of every country of the study and saves their kits. */
-export async function analizarKitsCompetidores(id: string): Promise<KitsCompetidores> {
+/**
+ * Reads the listings asked for («Kits competidores» sends the ones «Listings» shows) and saves their kits, keeping
+ * what was read before of the others. Each country's go in batches of POR_PAIS.
+ */
+export async function analizarKitsCompetidores(id: string, pares: { pais: CodigoPais; asin: string }[]): Promise<KitsCompetidores> {
   const { estudio } = await estudioParaAgente(id);
   if (!estudio.mercados.length) throw new Error("El estudio no tiene ningún Xray");
-  const porPais: KitsCompetidores["porPais"] = {};
+  const porPais: KitsCompetidores["porPais"] = { ...estudio.kitsCompetidores?.porPais };
   for (const m of estudio.mercados) {
-    const top = m.competidores
-      .filter((c) => c.asin)
-      .sort((a, b) => (b.ventas ?? -1) - (a.ventas ?? -1))
-      .slice(0, POR_PAIS);
-    if (!top.length) continue;
-    const asins = top.map((c) => c.asin!);
-    const fichas = new Map((await fichasCatalogo(asins, MARKETPLACE[m.codigoPais])).map((f) => [f.asin, f]));
-    await pausa(1200);
-    const precios = await preciosCompetidores(asins, MARKETPLACE[m.codigoPais]).catch(() => new Map<string, { precio: number | null }>());
-    await pausa(1200);
-    const kits = await leerKits(
-      `${estudio.nombre} (${nombrePais(m.codigoPais)})`,
-      top.map((c) => ({ asin: c.asin!, titulo: fichas.get(c.asin!)?.summaries?.[0]?.itemName ?? c.titulo, bullets: bulletsDe(fichas.get(c.asin!)) })),
-    );
-    porPais[m.codigoPais] = top.map((c): KitCompetidor => {
-      const f = fichas.get(c.asin!);
-      const k = kits.get(c.asin!);
-      return {
-        asin: c.asin!,
-        marca: f?.summaries?.[0]?.brand ?? c.marca,
-        titulo: f?.summaries?.[0]?.itemName ?? c.titulo,
-        imagen: fotoPrincipal(f),
-        precio: precios.get(c.asin!)?.precio ?? null,
-        precioXray: c.precio || null,
-        moneda: m.moneda,
-        ventasMes: c.ventas,
-        facturacion: c.facturacion,
-        resenas: c.resenas,
-        valoracion: c.valoracion ?? null,
-        elementos: (k?.elementos ?? []).map((e) => ({ cantidad: e.cantidad ?? null, nombre: String(e.nombre).trim(), detalle: e.detalle?.trim() || null })).filter((e) => e.nombre),
-        otroProducto: k?.otroProducto?.trim() || null,
-      };
-    });
+    const pedidos = new Set(pares.filter((p) => p.pais === m.codigoPais).map((p) => p.asin));
+    // Only listings of the study's Xray, each once.
+    const lista = m.competidores.filter((c, i, l) => c.asin && pedidos.has(c.asin) && l.findIndex((x) => x.asin === c.asin) === i);
+    for (let i = 0; i < lista.length; i += POR_PAIS) {
+      const leidos = await leerTanda(estudio.nombre, m, lista.slice(i, i + POR_PAIS));
+      const nuevos = new Set(leidos.map((k) => k.asin));
+      porPais[m.codigoPais] = [...(porPais[m.codigoPais] ?? []).filter((k) => !nuevos.has(k.asin)), ...leidos];
+    }
   }
   const kits: KitsCompetidores = { generadoEn: new Date().toISOString(), porPais };
   await guardarKitsCompetidores(id, kits);
   return kits;
+}
+
+/** One batch of a country's listings: their catalog listing, today's price and what their kit includes. */
+async function leerTanda(nombre: string, m: MercadoXray, top: CompetidorXray[]): Promise<KitCompetidor[]> {
+  const asins = top.map((c) => c.asin!);
+  const fichas = new Map((await fichasCatalogo(asins, MARKETPLACE[m.codigoPais])).map((f) => [f.asin, f]));
+  await pausa(1200);
+  const precios = await preciosCompetidores(asins, MARKETPLACE[m.codigoPais]).catch(() => new Map<string, { precio: number | null }>());
+  await pausa(1200);
+  const kits = await leerKits(
+    `${nombre} (${nombrePais(m.codigoPais)})`,
+    top.map((c) => ({ asin: c.asin!, titulo: fichas.get(c.asin!)?.summaries?.[0]?.itemName ?? c.titulo, bullets: bulletsDe(fichas.get(c.asin!)) })),
+  );
+  return top.map((c): KitCompetidor => {
+    const f = fichas.get(c.asin!);
+    const k = kits.get(c.asin!);
+    return {
+      asin: c.asin!,
+      marca: f?.summaries?.[0]?.brand ?? c.marca,
+      titulo: f?.summaries?.[0]?.itemName ?? c.titulo,
+      imagen: fotoPrincipal(f),
+      precio: precios.get(c.asin!)?.precio ?? null,
+      precioXray: c.precio || null,
+      moneda: m.moneda,
+      ventasMes: c.ventas,
+      facturacion: c.facturacion,
+      resenas: c.resenas,
+      valoracion: c.valoracion ?? null,
+      elementos: (k?.elementos ?? [])
+        .map((e) => ({ cantidad: e.cantidad ?? null, nombre: String(e.nombre).trim(), detalle: e.detalle?.trim() || null }))
+        .filter((e) => e.nombre),
+      otroProducto: k?.otroProducto?.trim() || null,
+    };
+  });
 }
