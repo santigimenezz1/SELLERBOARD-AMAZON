@@ -173,6 +173,7 @@ function Tarjeta({
   estudioId,
   resenas,
   mercados,
+  onQuitar,
 }: {
   k: KitVista;
   pais: CodigoPais;
@@ -183,6 +184,8 @@ function Tarjeta({
   resenas: ResenasListing | null;
   /** The same listing in every marketplace of the study (each one's Xray), the one that sells most first. */
   mercados: VentasMercado[];
+  /** Takes the listing out of «Listings» and of here (the next one by revenue takes its place). */
+  onQuitar: () => void;
 }) {
   const [verResenas, setVerResenas] = useState(false);
   const totalUds = mercados.reduce((s, m) => s + (m.ventas ?? 0), 0);
@@ -215,6 +218,14 @@ function Tarjeta({
             {k.asin} ↗
           </a>
           {k.otroProducto && <span className="rounded bg-warning/15 px-1.5 py-px text-[11px] font-medium text-warning">Otro producto: {k.otroProducto}</span>}
+          <button
+            onClick={onQuitar}
+            title="Quitar este listing (también de «Listings»): el siguiente por facturación ocupa su lugar"
+            aria-label="Quitar este listing"
+            className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-ink-500 transition-colors hover:bg-white/[0.06] hover:text-danger"
+          >
+            ✕
+          </button>
         </div>
         <p className="line-clamp-2 text-[13px] leading-snug text-ink-200">{k.titulo}</p>
 
@@ -351,6 +362,26 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
   const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
   const [cantidad, setCantidad] = useState<Cantidad | null>(null);
+  // The listings taken out («ES|B0…»), shared with «Listings»: shown at once, saved in the study in the background.
+  const [quitados, setQuitados] = useState<string[]>(estudio.listingsQuitados ?? []);
+  const [baseQuitados, setBaseQuitados] = useState(estudio.listingsQuitados);
+  if (baseQuitados !== estudio.listingsQuitados) {
+    setBaseQuitados(estudio.listingsQuitados);
+    setQuitados(estudio.listingsQuitados ?? []);
+  }
+  const quitar = async (pais: CodigoPais, asin: string) => {
+    const clave = `${pais}|${asin}`;
+    const antes = quitados;
+    setQuitados([...quitados, clave]);
+    setError(null);
+    const r = await fetch(`/api/h10/estudios/${estudioId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quitarListing: clave }) }).catch(() => null);
+    if (!r?.ok) {
+      setQuitados(antes);
+      setError("No se pudo quitar el listing: inténtalo otra vez");
+      return;
+    }
+    router.refresh();
+  };
   const [analizando, setAnalizando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cuantos = useSyncExternalStore(
@@ -360,7 +391,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
   );
 
   // «Listings»' leaders of this view, each with its kit when it was read, in its order (by revenue).
-  const lista = lideresListings(estudio.mercados, pais, estudio.listingsQuitados ?? [], cuantos)
+  const lista = lideresListings(estudio.mercados, pais, quitados, cuantos)
     .filter((x) => x.c.asin)
     .map(({ m, c }) => {
       const kit = kits?.porPais[m.codigoPais]?.find((k) => k.asin === c.asin);
@@ -531,6 +562,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
                 estudioId={estudioId}
                 resenas={resenasDe(p, k.asin)}
                 mercados={ventasPorAsin[k.asin] ?? []}
+                onQuitar={() => void quitar(p, k.asin)}
               />
             ))}
           </ol>
