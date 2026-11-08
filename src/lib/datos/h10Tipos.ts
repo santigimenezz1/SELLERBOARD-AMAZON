@@ -72,6 +72,8 @@ export type EstudioH10 = {
   palabrasLanzamiento?: PalabraLanzamiento[];
   /** Your own listing for each country, written in «Lanzamiento». */
   listingPropio?: Partial<Record<CodigoPais, ListingPropio>>;
+  /** The best sellers of each country with what their kits include («Kits competidores»). */
+  kitsCompetidores?: KitsCompetidores;
   /** Listings taken out of the «Listings» top 10 by hand, as «ES|B0…»: the next one by revenue takes their place. */
   listingsQuitados?: string[];
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
@@ -490,6 +492,29 @@ export type PalabraLanzamiento = {
 /** Where a launch keyword goes: opening the title, in the title, in the bullets, in the hidden search terms, or only in PPC. */
 export type DestinoPalabra = "principal" | "titulo" | "bullets" | "backend" | "ppc";
 export const DESTINOS_PALABRA: DestinoPalabra[] = ["principal", "titulo", "bullets", "backend", "ppc"];
+/** One thing a competitor's kit includes, as its listing says it: «2 × Portería · 120×90 cm». */
+export type ElementoKit = { cantidad: number | null; nombre: string; detalle: string | null };
+/** A best-selling competitor and what its kit includes (read from its Amazon listing by the AI). */
+export type KitCompetidor = {
+  asin: string;
+  marca: string;
+  titulo: string;
+  imagen: string | null;
+  /** Today's featured-offer price (null: no offer now) and the one in the Xray. */
+  precio: number | null;
+  precioXray: number | null;
+  moneda: "EUR" | "GBP";
+  ventasMes: number | null;
+  facturacion: number;
+  resenas: number;
+  valoracion: number | null;
+  elementos: ElementoKit[];
+  /** When it isn't the study's kind of product (a rebounder among goals): what it is. */
+  otroProducto: string | null;
+};
+/** «Kits competidores»: the best sellers of each country with what their kits include. */
+export type KitsCompetidores = { generadoEn: string; porPais: Partial<Record<CodigoPais, KitCompetidor[]>> };
+
 /** Your own listing for a country, written in «Lanzamiento»: title and the 5 bullets (the search terms are worked out). */
 export type ListingPropio = { titulo: string; bullets: string[] };
 

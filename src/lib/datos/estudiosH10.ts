@@ -44,6 +44,7 @@ import {
   type MejoraProducto,
   type PalabraLanzamiento,
   type ListingPropio,
+  type KitsCompetidores,
   DESTINOS_PALABRA,
 } from "./h10Tipos";
 import { listingsDesdeJson } from "./h10Fichas";
@@ -75,6 +76,7 @@ type EstudioGuardado = {
   mejoras?: MejoraProducto[];
   palabrasLanzamiento?: PalabraLanzamiento[];
   listingPropio?: Partial<Record<CodigoPais, ListingPropio>>;
+  kitsCompetidores?: KitsCompetidores;
   /** «ES|B0…» taken out of the «Listings» top 10. */
   listingsQuitados?: string[];
   /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
@@ -929,6 +931,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       mejoras: estudio.mejoras ?? [],
       palabrasLanzamiento: estudio.palabrasLanzamiento ?? [],
       listingPropio: estudio.listingPropio ?? {},
+      ...(estudio.kitsCompetidores && { kitsCompetidores: estudio.kitsCompetidores }),
       listingsQuitados: estudio.listingsQuitados ?? [],
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],
@@ -1186,6 +1189,13 @@ export async function traducirResenasEstudio(id: string): Promise<{ traducidas: 
     e.datos.set(archivoId, nuevo);
   }
   return { traducidas, fallos, archivos };
+}
+
+/** Saves the «Kits competidores» analysis in the study. */
+export async function guardarKitsCompetidores(id: string, kits: KitsCompetidores): Promise<void> {
+  const e = await entrada(id);
+  e.estudio = { ...e.estudio, kitsCompetidores: JSON.parse(JSON.stringify(kits)), actualizadoEn: new Date().toISOString() };
+  await guardarEstudio(e.estudio);
 }
 
 /** Saves the research agent's report in the study (its own document), and drops the specialists' draft it came from. */

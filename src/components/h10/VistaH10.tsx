@@ -25,12 +25,14 @@ import { PestanaAgentes } from "./PestanaAgentes";
 import { PestanaMejoras } from "./PestanaMejoras";
 import { PestanaLanzamiento, usePalabrasLanzamiento } from "./PestanaLanzamiento";
 import { useListingPropio } from "./ListingPropio";
+import { PestanaKits } from "./PestanaKits";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
   { id: "datos", texto: "Datos" },
   { id: "mercado", texto: "Mercado" },
   { id: "competidores", texto: "Competidores" },
+  { id: "kits", texto: "Kits competidores" },
   { id: "palabras", texto: "Palabras clave" },
   { id: "resenas", texto: "Reseñas" },
   { id: "listings", texto: "Listings" },
@@ -144,7 +146,7 @@ export function VistaH10({
 
       {/* Tabs */}
       <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.06]">
-        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
+        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento" && p.id !== "kits") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
           <button
             key={p.id}
             onClick={() => irA(p.id)}
@@ -233,6 +235,9 @@ export function VistaH10({
         </div>
       )}
       {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
+      {pestana === "kits" && !estudio.ejemplo && (
+        <PestanaKits key={`kits-${estudio.id}`} estudioId={estudio.id} kits={estudio.kitsCompetidores ?? null} paises={estudio.mercados.map((m) => m.codigoPais)} />
+      )}
       {pestana === "listings" &&
         (resumen ? (
           <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} conExtension={!invitado} />
