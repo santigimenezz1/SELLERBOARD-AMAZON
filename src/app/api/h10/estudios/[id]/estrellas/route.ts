@@ -2,11 +2,21 @@ import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { permitirIA } from "@/lib/auth/limiteInvitado";
-import { analizarEstrellas, analizarEstrellasAmbito, esModoEstrellas, estimarEstrellas } from "@/lib/datos/estudiosH10";
+import { analizarEstrellas, analizarEstrellasAmbito, esModoEstrellas, estimarEstrellas, quejasEstrellasDe } from "@/lib/datos/estudiosH10";
 import { esCodigoPais } from "@/lib/datos/h10Tipos";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+/** One competitor's reviews already read by the AI (?pais=ES&asin=B0…), or null when they haven't been. No AI. */
+export async function GET(req: NextRequest, { params }: Ctx) {
+  const id = (await params).id;
+  if (!(await usuarioDelEstudio(id))) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
+  const pais = req.nextUrl.searchParams.get("pais");
+  const asin = req.nextUrl.searchParams.get("asin") ?? "";
+  if (!esCodigoPais(pais) || !/^B\d[A-Z0-9]{8}$/.test(asin)) return NextResponse.json({ error: "País o ASIN no válido" }, { status: 400 });
+  return NextResponse.json({ datos: await quejasEstrellasDe(id, pais, asin) });
+}
 
 /**
  * Has the AI say what the reviews of each star say. Body: { pais, asin } for one competitor, or { ambito } for every
