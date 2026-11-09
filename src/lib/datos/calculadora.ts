@@ -35,22 +35,31 @@ export type OfertaCalc = { precio: number | null; moneda: string; ofertas: numbe
 
 /**
  * What Amazon's fees API doesn't give. Storage: money per m³ a month, Jan–Sep («baja») and Oct–Dec («alta»), in the
- * country's currency. Digital services: % charged on the referral fee.
+ * country's currency, for a standard-size product (`almacenamiento`: up to 45 × 34 × 26 cm and 12 kg) and a bigger
+ * one (`almacenamientoGrande`). Digital services: % charged on the referral fee.
  */
-export type AjustesCalc = { almacenamiento: Record<CodigoPais, { baja: number; alta: number }>; serviciosDigitales: Record<CodigoPais, number> };
+type PorTemporada = Record<CodigoPais, { baja: number; alta: number }>;
+export type AjustesCalc = { almacenamiento: PorTemporada; almacenamientoGrande: PorTemporada; serviciosDigitales: Record<CodigoPais, number> };
 
 /**
- * Storage calibrated with Amazon's own calculator in Spain: Jan–Sep 0,19 € for a 0,0088 m³ package (≈21,60 €/m³),
- * Oct–Dec 0,56 € for a 0,0075 m³ one (≈74,67 €/m³). Germany, France and Italy take Spain's until checked. The UK,
- * Amazon's published £ per ft³ in £ per m³: to calibrate. Digital services: Spain, France and Italy 3 %, the UK 2 %, Germany none.
+ * Storage calibrated with Amazon's own calculator in Spain, Jan–Sep, six products: ≈74,20 €/m³ a standard-size one,
+ * ≈21,80 €/m³ a bigger one; Oct–Dec ≈99,20 €/m³ a standard one (a bigger one ×1,337 too, to check). Germany, France, Italy, UK:
+ * to calibrate. Digital services: Spain, France and Italy 3 %, the UK 2 %, Germany none.
  */
 export const AJUSTES_INICIALES: AjustesCalc = {
   almacenamiento: {
-    ES: { baja: 21.6, alta: 74.67 },
-    DE: { baja: 21.6, alta: 74.67 },
-    FR: { baja: 21.6, alta: 74.67 },
-    IT: { baja: 21.6, alta: 74.67 },
+    ES: { baja: 74.2, alta: 99.2 },
+    DE: { baja: 74.2, alta: 99.2 },
+    FR: { baja: 74.2, alta: 99.2 },
+    IT: { baja: 74.2, alta: 99.2 },
     GB: { baja: 26.84, alta: 53.33 },
+  },
+  almacenamientoGrande: {
+    ES: { baja: 21.8, alta: 29.15 },
+    DE: { baja: 21.8, alta: 29.15 },
+    FR: { baja: 21.8, alta: 29.15 },
+    IT: { baja: 21.8, alta: 29.15 },
+    GB: { baja: 7.89, alta: 15.67 },
   },
   serviciosDigitales: { ES: 3, DE: 0, FR: 3, IT: 3, GB: 2 },
 };
@@ -65,6 +74,7 @@ export async function leerAjustesCalc(): Promise<AjustesCalc> {
   const d = snap.data() as Partial<AjustesCalc> | undefined;
   g.__ajustesCalc = {
     almacenamiento: { ...AJUSTES_INICIALES.almacenamiento, ...d?.almacenamiento },
+    almacenamientoGrande: { ...AJUSTES_INICIALES.almacenamientoGrande, ...d?.almacenamientoGrande },
     serviciosDigitales: { ...AJUSTES_INICIALES.serviciosDigitales, ...d?.serviciosDigitales },
   };
   return g.__ajustesCalc;
@@ -76,13 +86,16 @@ export async function guardarAjustesCalc(v: unknown): Promise<AjustesCalc> {
   const cifra = (x: unknown, max: number, porDefecto: number) => (typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= max ? Math.round(x * 100) / 100 : porDefecto);
   const actual = await leerAjustesCalc();
   const paises = Object.keys(AJUSTES_INICIALES.almacenamiento) as CodigoPais[];
-  const nuevo: AjustesCalc = {
-    almacenamiento: Object.fromEntries(
+  const temporadas = (clave: "almacenamiento" | "almacenamientoGrande") =>
+    Object.fromEntries(
       paises.map((p) => {
-        const a = (o.almacenamiento?.[p] ?? {}) as { baja?: unknown; alta?: unknown };
-        return [p, { baja: cifra(a.baja, 1000, actual.almacenamiento[p].baja), alta: cifra(a.alta, 1000, actual.almacenamiento[p].alta) }];
+        const a = (o[clave]?.[p] ?? {}) as { baja?: unknown; alta?: unknown };
+        return [p, { baja: cifra(a.baja, 1000, actual[clave][p].baja), alta: cifra(a.alta, 1000, actual[clave][p].alta) }];
       }),
-    ) as AjustesCalc["almacenamiento"],
+    ) as PorTemporada;
+  const nuevo: AjustesCalc = {
+    almacenamiento: temporadas("almacenamiento"),
+    almacenamientoGrande: temporadas("almacenamientoGrande"),
     serviciosDigitales: Object.fromEntries(paises.map((p) => [p, cifra(o.serviciosDigitales?.[p], 20, actual.serviciosDigitales[p])])) as AjustesCalc["serviciosDigitales"],
   };
   await ref().set(nuevo);

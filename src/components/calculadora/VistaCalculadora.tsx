@@ -22,6 +22,20 @@ const num = (s: string) => {
 };
 const pequena = (url: string) => url.replace(/^(https:\/\/m\.media-amazon\.com\/images\/I\/[^.]+)(\.[a-z]+)$/i, "$1._SL300_$2");
 const cifra = (v: number) => v.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+/** To the cent, as Amazon adds each line up (in binary, so 0,225 → 0,22). */
+const centimos = (v: number) => Math.round(v * 100) / 100;
+/** Bigger than Amazon's standard size (45 × 34 × 26 cm, 12 kg): stored at another rate. */
+const esGrande = (cm: [number, number, number], kg: number | null) => {
+  const [a, b, c] = [...cm].sort((x, y) => y - x);
+  return a > 45 || b > 34 || c > 26 || (kg ?? 0) > 12;
+};
+type ClaveAlmacen = "almacenamiento" | "almacenamientoGrande";
+const COLUMNAS_ALMACEN: { clave: ClaveAlmacen; t: "baja" | "alta"; texto: string }[] = [
+  { clave: "almacenamiento", t: "baja", texto: "Estándar ene–sep" },
+  { clave: "almacenamiento", t: "alta", texto: "Estándar oct–dic" },
+  { clave: "almacenamientoGrande", t: "baja", texto: "Grande ene–sep" },
+  { clave: "almacenamientoGrande", t: "alta", texto: "Grande oct–dic" },
+];
 
 function Campo({ etiqueta, valor, onChange, sufijo, ayuda }: { etiqueta: string; valor: string; onChange: (v: string) => void; sufijo?: string; ayuda?: string }) {
   return (
@@ -53,8 +67,11 @@ function Linea({ etiqueta, valor, moneda, fuerte, sub }: { etiqueta: string; val
 
 /** The settings Amazon's fees API doesn't give: storage per m³ (each country and season) and the digital services %. */
 function Ajustes({ ajustes, onGuardado, onCerrar }: { ajustes: AjustesCalc; onGuardado: (a: AjustesCalc) => void; onCerrar: () => void }) {
+  const textos = (clave: ClaveAlmacen) =>
+    Object.fromEntries(PAISES_H10.map((p) => [p, { baja: String(ajustes[clave][p].baja), alta: String(ajustes[clave][p].alta) }])) as Record<CodigoPais, { baja: string; alta: string }>;
   const [borrador, setBorrador] = useState(() => ({
-    almacenamiento: Object.fromEntries(PAISES_H10.map((p) => [p, { baja: String(ajustes.almacenamiento[p].baja), alta: String(ajustes.almacenamiento[p].alta) }])) as Record<CodigoPais, { baja: string; alta: string }>,
+    almacenamiento: textos("almacenamiento"),
+    almacenamientoGrande: textos("almacenamientoGrande"),
     serviciosDigitales: Object.fromEntries(PAISES_H10.map((p) => [p, String(ajustes.serviciosDigitales[p])])) as Record<CodigoPais, string>,
   }));
   const [guardando, setGuardando] = useState(false);
@@ -64,6 +81,7 @@ function Ajustes({ ajustes, onGuardado, onCerrar }: { ajustes: AjustesCalc; onGu
     setError(null);
     const cuerpo = {
       almacenamiento: Object.fromEntries(PAISES_H10.map((p) => [p, { baja: num(borrador.almacenamiento[p].baja), alta: num(borrador.almacenamiento[p].alta) }])),
+      almacenamientoGrande: Object.fromEntries(PAISES_H10.map((p) => [p, { baja: num(borrador.almacenamientoGrande[p].baja), alta: num(borrador.almacenamientoGrande[p].alta) }])),
       serviciosDigitales: Object.fromEntries(PAISES_H10.map((p) => [p, num(borrador.serviciosDigitales[p])])),
     };
     const r = await fetch("/api/calculadora/ajustes", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) }).catch(() => null);
@@ -82,16 +100,19 @@ function Ajustes({ ajustes, onGuardado, onCerrar }: { ajustes: AjustesCalc; onGu
         </button>
       </div>
       <p className="text-xs text-ink-400">
-        Lo que la API de tarifas de Amazon no da. Almacenamiento: precio por m³ al mes (en la moneda del país). Servicios digitales: % que Amazon cobra sobre la comisión
-        por referencia.
+        Lo que la API de tarifas de Amazon no da. Almacenamiento: precio por m³ al mes (en la moneda del país), según el tamaño: estándar hasta 45 × 34 × 26 cm y 12 kg,
+        grande si lo supera. Servicios digitales: % que Amazon cobra sobre la comisión por referencia.
       </p>
       <div className="overflow-x-auto">
         <table className="text-sm">
           <thead>
             <tr className="text-left text-[11px] tracking-wide text-ink-500 uppercase">
               <th className="py-1 pr-4 font-semibold">Tienda</th>
-              <th className="py-1 pr-3 font-semibold">Ene–sep / m³</th>
-              <th className="py-1 pr-3 font-semibold">Oct–dic / m³</th>
+              {COLUMNAS_ALMACEN.map((c) => (
+                <th key={c.clave + c.t} className="py-1 pr-3 font-semibold">
+                  {c.texto} / m³
+                </th>
+              ))}
               <th className="py-1 font-semibold">Serv. digitales %</th>
             </tr>
           </thead>
@@ -103,11 +124,11 @@ function Ajustes({ ajustes, onGuardado, onCerrar }: { ajustes: AjustesCalc; onGu
                     <Bandera codigo={p} /> {TIENDAS[p].nombre}
                   </span>
                 </td>
-                {(["baja", "alta"] as const).map((t) => (
-                  <td key={t} className="py-1 pr-3">
+                {COLUMNAS_ALMACEN.map(({ clave, t }) => (
+                  <td key={clave + t} className="py-1 pr-3">
                     <input
-                      value={borrador.almacenamiento[p][t]}
-                      onChange={(e) => setBorrador({ ...borrador, almacenamiento: { ...borrador.almacenamiento, [p]: { ...borrador.almacenamiento[p], [t]: e.target.value } } })}
+                      value={borrador[clave][p][t]}
+                      onChange={(e) => setBorrador({ ...borrador, [clave]: { ...borrador[clave], [p]: { ...borrador[clave][p], [t]: e.target.value } } })}
                       inputMode="decimal"
                       className={entrada}
                     />
@@ -221,20 +242,27 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
     };
   }, [producto, precioNum, pais]);
 
-  // The figures, unrounded until shown (as Amazon does).
-  // + a hair so a half cent rounds up as Amazon does (7,50 × 3 % = 0,225 → 0,23; in binary it's 0,22499…).
-  const dst = tarifas ? (tarifas.comision * ajustes.serviciosDigitales[pais]) / 100 + 1e-9 : null;
+  // Each line as Amazon shows it. Its digital services fee shows a half cent rounded up (7,50 × 3 % = 0,225 → 0,23: + a
+  // hair, as in binary it's 0,22499…) but adds it rounded down; the cost per unit is the lines added up to the cent.
+  const dstExacto = tarifas ? (tarifas.comision * ajustes.serviciosDigitales[pais]) / 100 : null;
+  const dst = dstExacto !== null ? dstExacto + 1e-9 : null;
   const tarifasAmazon = tarifas && dst !== null ? tarifas.comision + tarifas.porArticulo + tarifas.variable + dst : null;
   const m3 = producto?.medidasCm ? (producto.medidasCm[0] * producto.medidasCm[1] * producto.medidasCm[2]) / 1_000_000 : null;
   const inv = num(inventario) ?? 0;
   const ventasNum = num(ventas) ?? 0;
-  const almacenMes = m3 !== null ? m3 * ajustes.almacenamiento[pais][temporada] * inv : null;
+  const grande = producto?.medidasCm ? esGrande(producto.medidasCm, producto.pesoKg) : false;
+  const tasaAlmacen = ajustes[grande ? "almacenamientoGrande" : "almacenamiento"][pais][temporada];
+  const almacenMes = m3 !== null ? m3 * tasaAlmacen * inv : null;
   const almacenUnidad = almacenMes !== null && ventasNum > 0 ? almacenMes / ventasNum : null;
   const ivaImporte = precioNum ? precioNum - precioNum / (1 + (num(iva) ?? 0) / 100) : null;
   const otrosNum = num(otros) ?? 0;
   const costeNum = num(coste) ?? 0;
   const costeUnidad =
-    tarifasAmazon !== null && tarifas && ivaImporte !== null ? tarifasAmazon + tarifas.logistica + (almacenUnidad ?? 0) + ivaImporte + otrosNum + costeNum : null;
+    tarifas && dstExacto !== null && ivaImporte !== null
+      ? centimos(
+          [tarifas.comision, dstExacto, tarifas.porArticulo, tarifas.variable, tarifas.logistica, almacenUnidad ?? 0, ivaImporte, otrosNum, costeNum].reduce((s, v) => s + centimos(v), 0),
+        )
+      : null;
   const beneficioUnidad = costeUnidad !== null && precioNum ? precioNum - costeUnidad : null;
   const margen = beneficioUnidad !== null && precioNum ? (beneficioUnidad / precioNum) * 100 : null;
 
@@ -404,7 +432,7 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
               <Campo etiqueta="Promedio de unidades en inventario" valor={inventario} onChange={setInventario} />
               <Campo etiqueta="Estimación de ventas mensuales" valor={ventas} onChange={setVentas} />
               <p className="text-[11px] text-ink-500">
-                {cifra(ajustes.almacenamiento[pais][temporada])} {moneda === "GBP" ? "£" : "€"}/m³ al mes (cámbialo en ⚙ Ajustes)
+                Tamaño {grande ? "grande" : "estándar"}: {cifra(tasaAlmacen)} {moneda === "GBP" ? "£" : "€"}/m³ al mes (cámbialo en ⚙ Ajustes)
                 {m3 === null && " · Amazon no da las medidas del paquete"}
               </p>
             </div>
