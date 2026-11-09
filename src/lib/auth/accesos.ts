@@ -35,7 +35,7 @@ export async function rolDe(uid: string): Promise<Rol> {
  * The owners' sections a guest may open as an empty demo: only these exact pages, each of which loads nothing for a
  * guest (modoDemo). Their subpages (a product's card…) and every data route stay closed.
  */
-const PAGINAS_DEMO = new Set(["/", "/productos", "/stock", "/gastos", "/tendencias", "/vine", "/mensajes", "/documentos", "/variantes", "/calculadora", "/cuenta"]);
+const PAGINAS_DEMO = new Set(["/", "/productos", "/stock", "/gastos", "/tendencias", "/vine", "/mensajes", "/documentos", "/variantes", "/cuenta"]);
 
 /**
  * What a guest may open: the «Análisis H10» pages and the study routes (not the test bench, which spends AI

@@ -135,10 +135,10 @@ function Ajustes({ ajustes, onGuardado, onCerrar }: { ajustes: AjustesCalc; onGu
 }
 
 /** Amazon's revenue calculator, rebuilt: a product of the catalog, its fees at a price, and what's left of each sale. */
-export function VistaCalculadora({ ajustesIniciales, demo }: { ajustesIniciales: AjustesCalc; demo: boolean }) {
+export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }: { ajustesIniciales: AjustesCalc; demo: boolean; paisInicial?: CodigoPais }) {
   const [ajustes, setAjustes] = useState(ajustesIniciales);
   const [verAjustes, setVerAjustes] = useState(false);
-  const [pais, setPais] = useState<CodigoPais>("ES");
+  const [pais, setPais] = useState<CodigoPais>(PAISES_H10.includes(paisInicial) ? paisInicial : "ES");
   const [q, setQ] = useState("");
   const [buscando, setBuscando] = useState(false);
   const [resultados, setResultados] = useState<ProductoCalc[] | null>(null);
@@ -154,7 +154,7 @@ export function VistaCalculadora({ ajustesIniciales, demo }: { ajustesIniciales:
   const [temporada, setTemporada] = useState<"baja" | "alta">(() => (new Date().getMonth() >= 9 ? "alta" : "baja"));
   const [inventario, setInventario] = useState("1");
   const [ventas, setVentas] = useState("1");
-  const [iva, setIva] = useState(String(TIENDAS.ES.iva));
+  const [iva, setIva] = useState(() => String(TIENDAS[PAISES_H10.includes(paisInicial) ? paisInicial : "ES"].iva));
   const [otros, setOtros] = useState("0");
   const [coste, setCoste] = useState("0");
 

@@ -26,6 +26,8 @@ import { PestanaMejoras } from "./PestanaMejoras";
 import { PestanaLanzamiento, usePalabrasLanzamiento } from "./PestanaLanzamiento";
 import { useListingPropio } from "./ListingPropio";
 import { PestanaKits, type VentasMercado } from "./PestanaKits";
+import { VistaCalculadora } from "@/components/calculadora/VistaCalculadora";
+import type { AjustesCalc } from "@/lib/datos/calculadora";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
 const PESTANAS = [
@@ -41,6 +43,7 @@ const PESTANAS = [
   { id: "agentes", texto: "Agentes" },
   { id: "mejoras", texto: "Mejoras de producto" },
   { id: "lanzamiento", texto: "Lanzamiento" },
+  { id: "calculadora", texto: "Calculadora" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
 /**
@@ -129,6 +132,7 @@ export function VistaH10({
   paresAmazon,
   inicial,
   invitado = false,
+  ajustesCalc = null,
 }: {
   estudio: EstudioH10;
   palabras: Record<string, PalabrasMercado>;
@@ -142,6 +146,8 @@ export function VistaH10({
   inicial?: { pestana?: string };
   /** A guest (accesos.ts): without what runs on the owner's keys (the reviews extension, the agents' test bench). */
   invitado?: boolean;
+  /** The calculator's settings (storage per m³, digital services); null for a guest, who doesn't get the calculator. */
+  ajustesCalc?: AjustesCalc | null;
 }) {
   const router = useRouter();
   // «Datos» until it has an Xray, then «Mercado».
@@ -162,7 +168,7 @@ export function VistaH10({
 
       {/* Tabs */}
       <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.06]">
-        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento" && p.id !== "kits") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
+        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento" && p.id !== "kits") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD) && (p.id !== "calculadora" || (!!ajustesCalc && !estudio.ejemplo))).map((p) => (
           <button
             key={p.id}
             onClick={() => irA(p.id)}
@@ -251,6 +257,12 @@ export function VistaH10({
         </div>
       )}
       {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
+      {/* Always mounted (hidden when not chosen): coming back to it keeps the product and figures typed. */}
+      {ajustesCalc && !estudio.ejemplo && (
+        <div className={pestana === "calculadora" ? "" : "hidden"}>
+          <VistaCalculadora key={`calc-${estudio.id}`} ajustesIniciales={ajustesCalc} demo={false} paisInicial={paisInicial as CodigoPais} />
+        </div>
+      )}
       {pestana === "kits" && !estudio.ejemplo && (
         <PestanaKits key={`kits-${estudio.id}`} estudio={estudio} ventasPorAsin={ventasPorAsin(estudio)} />
       )}
