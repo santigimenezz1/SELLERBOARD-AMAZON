@@ -175,6 +175,9 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
   const [temporada, setTemporada] = useState<"baja" | "alta">(() => (new Date().getMonth() >= 9 ? "alta" : "baja"));
   const [inventario, setInventario] = useState("1");
   const [ventas, setVentas] = useState("1");
+  // Units sold in 30 days: the net profit is each unit's times these (as in Amazon's calculator).
+  const [unidades, setUnidades] = useState("1");
+  const unidadesNum = Math.max(0, num(unidades) ?? 0);
   const [iva, setIva] = useState(() => String(TIENDAS[PAISES_H10.includes(paisInicial) ? paisInicial : "ES"].iva));
   const [otros, setOtros] = useState("0");
   const [coste, setCoste] = useState("0");
@@ -456,14 +459,24 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
           </div>
           <div>
             <div className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Ventas en 30 días</div>
-            <div className="tabular text-lg font-bold text-ink-100">{formatNumero(ventasNum)}</div>
+            <input
+              value={unidades}
+              onChange={(e) => setUnidades(e.target.value)}
+              inputMode="numeric"
+              aria-label="Unidades vendidas en 30 días"
+              className="tabular mt-0.5 w-24 rounded-md border border-white/[0.12] bg-ink-950/60 px-2 py-1 text-lg font-bold text-ink-100 outline-none focus:border-accent-400"
+            />
           </div>
           <div>
             <div className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Beneficio neto</div>
             <div className={`tabular text-lg font-bold ${beneficioUnidad !== null && beneficioUnidad < 0 ? "text-danger" : "text-success"}`}>
-              {beneficioUnidad !== null ? formatMoneda(beneficioUnidad, moneda) : "—"}
+              {beneficioUnidad !== null ? formatMoneda(beneficioUnidad * unidadesNum, moneda) : "—"}
             </div>
-            {beneficioUnidad !== null && ventasNum > 1 && <div className="tabular text-xs text-ink-400">{formatMoneda(beneficioUnidad * ventasNum, moneda)} al mes</div>}
+            {beneficioUnidad !== null && unidadesNum !== 1 && (
+              <div className="tabular text-xs text-ink-400">
+                {formatMoneda(beneficioUnidad, moneda)} por unidad × {formatNumero(unidadesNum)}
+              </div>
+            )}
           </div>
           <div>
             <div className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Margen neto</div>
