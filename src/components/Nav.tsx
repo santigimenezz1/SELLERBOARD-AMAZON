@@ -20,6 +20,7 @@ const ENLACES = [
   // Hidden for now, see CON_SUSCRIPCIONES: uncomment to show it again.
   // { href: "/suscripciones", texto: "Suscripciones" },
   { href: "/variantes", texto: "Variantes" },
+  { href: "/calculadora", texto: "Calculadora" },
   { href: "/cuenta", texto: "Estado de la cuenta" },
 ] as const;
 

@@ -554,6 +554,56 @@ export async function tarifasCompetidor(asin: string, marketplaceId: string, pre
   throw new ErrorAmazon(`Tarifas de ${asin}: ${ultimo}`, 500);
 }
 
+/** Each of Amazon's fees for one ASIN at one price (FBA), as its revenue calculator shows them. */
+export type TarifasDetalle = { comision: number; porArticulo: number; variable: number; logistica: number; total: number; moneda: string };
+
+/** «Calculadora»: every fee Amazon charges for an ASIN at a price, one by one (no AI, free). */
+export async function tarifasDetalle(asin: string, marketplaceId: string, precio: number, moneda: string): Promise<TarifasDetalle> {
+  type Resultado = {
+    Status?: string;
+    Error?: { Code?: string; Message?: string };
+    FeesEstimate?: { TotalFeesEstimate?: { Amount?: number }; FeeDetailList?: { FeeType?: string; FinalFee?: { Amount?: number } }[] };
+  };
+  let ultimo = "";
+  for (let intento = 0; intento < 4; intento++) {
+    const r = await spPost<{ payload?: { FeesEstimateResult?: Resultado } }>(`/products/fees/v0/items/${encodeURIComponent(asin)}/feesEstimate`, {
+      FeesEstimateRequest: {
+        MarketplaceId: marketplaceId,
+        IsAmazonFulfilled: true,
+        PriceToEstimateFees: { ListingPrice: { CurrencyCode: moneda, Amount: precio }, Shipping: { CurrencyCode: moneda, Amount: 0 } },
+        Identifier: `calc-${asin}-${Date.now()}`,
+      },
+    });
+    const res = r.payload?.FeesEstimateResult;
+    if (res?.Status === "Success" && res.FeesEstimate) {
+      const t = (tipo: string) => res.FeesEstimate!.FeeDetailList?.find((x) => x.FeeType === tipo)?.FinalFee?.Amount ?? 0;
+      return { comision: t("ReferralFee"), porArticulo: t("PerItemFee"), variable: t("VariableClosingFee"), logistica: t("FBAFees"), total: res.FeesEstimate.TotalFeesEstimate?.Amount ?? 0, moneda };
+    }
+    ultimo = res?.Error ? `${res.Error.Code}: ${res.Error.Message}` : "sin respuesta";
+    if (res?.Error?.Code !== "InternalError") break;
+    await new Promise((ok) => setTimeout(ok, 1500 * (intento + 1)));
+  }
+  throw new ErrorAmazon(`Amazon no da las tarifas de ${asin}: ${ultimo}`, 400);
+}
+
+/**
+ * «Calculadora»: products of Amazon's catalog by ASIN, EAN/UPC or words (up to 10), with what its revenue calculator
+ * shows of each: photo, title, weight and package size, sales rank.
+ */
+export async function buscarCatalogo(texto: string, marketplaceId: string): Promise<ItemCatalogoCompleto[]> {
+  const q = texto.trim();
+  const base = { marketplaceIds: marketplaceId, includedData: ["attributes", "images", "summaries", "salesRanks", "dimensions"], pageSize: 10 };
+  const porId = /^(B0[A-Z0-9]{8}|\d{9}[\dX])$/i.test(q)
+    ? { identifiers: [q.toUpperCase()], identifiersType: "ASIN" }
+    : /^\d{12}$/.test(q)
+      ? { identifiers: [q], identifiersType: "UPC" }
+      : /^\d{13}$/.test(q)
+        ? { identifiers: [q], identifiersType: "EAN" }
+        : null;
+  const r = await spGet<{ items?: ItemCatalogoCompleto[] }>("/catalog/2022-04-01/items", porId ? { ...base, ...porId } : { ...base, keywords: q.slice(0, 120) });
+  return r.items ?? [];
+}
+
 // ---------- Reports 2021-06-30 ----------
 
 async function descargarInforme(reportType: string, reportDocumentId: string): Promise<string> {
