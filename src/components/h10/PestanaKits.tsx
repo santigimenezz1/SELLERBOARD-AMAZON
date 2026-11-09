@@ -162,6 +162,26 @@ function QuejasListing({ estudioId, asin, r }: { estudioId: string; asin: string
 /** A listing's sales in one marketplace (from that country's Xray): units and revenue a month, also in euros. */
 export type VentasMercado = { pais: CodigoPais; ventas: number | null; facturacion: number; moneda: "EUR" | "GBP"; eur: number };
 
+/** A small button that copies the ASIN; «✓» for a moment once copied. */
+function CopiarAsin({ asin }: { asin: string }) {
+  const [copiado, setCopiado] = useState(false);
+  return (
+    <button
+      onClick={() =>
+        void navigator.clipboard.writeText(asin).then(() => {
+          setCopiado(true);
+          setTimeout(() => setCopiado(false), 1500);
+        })
+      }
+      title="Copiar el ASIN"
+      aria-label="Copiar el ASIN"
+      className={`rounded border border-white/[0.1] px-1.5 py-px text-[11px] transition-colors hover:bg-white/[0.06] ${copiado ? "text-success" : "text-ink-400 hover:text-ink-100"}`}
+    >
+      {copiado ? "✓ Copiado" : "Copiar"}
+    </button>
+  );
+}
+
 /** An amount in euros; one in pounds goes in euros too, with the pounds in brackets: «29,98 € (£25,99)». */
 function Importe({ valor, moneda, tasa }: { valor: number; moneda: "EUR" | "GBP"; tasa: number }) {
   if (moneda !== "GBP") return <>{formatMoneda(valor, "EUR")}</>;
@@ -231,6 +251,7 @@ function Tarjeta({
           <a href={enlaceAmazon(pais, k.asin)} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-accent-300 hover:underline">
             {k.asin} ↗
           </a>
+          <CopiarAsin asin={k.asin} />
           {k.otroProducto && <span className="rounded bg-warning/15 px-1.5 py-px text-[11px] font-medium text-warning">Otro producto: {k.otroProducto}</span>}
           <button
             onClick={onQuitar}
