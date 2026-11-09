@@ -167,13 +167,13 @@ export function VistaH10({
       <CabeceraEstudio key={`cabecera-${estudio.id}`} estudio={estudio} onBorrado={() => router.push("/analisis-h10")} />
 
       {/* Tabs */}
-      <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.06]">
+      <nav className="flex flex-wrap gap-x-0.5 border-b border-white/[0.06]">
         {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento" && p.id !== "kits") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD) && (p.id !== "calculadora" || (!!ajustesCalc && !estudio.ejemplo))).map((p) => (
           <button
             key={p.id}
             onClick={() => irA(p.id)}
             aria-current={pestana === p.id ? "page" : undefined}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm whitespace-nowrap transition-colors ${pestana === p.id ? "border-accent-500 text-ink-100" : "border-transparent text-ink-400 hover:text-ink-100"}`}
+            className={`-mb-px border-b-2 px-2 py-2 text-sm whitespace-nowrap transition-colors ${pestana === p.id ? "border-accent-500 text-ink-100" : "border-transparent text-ink-400 hover:text-ink-100"}`}
           >
             {p.texto}
             {p.id === "datos" && <span className="ml-1.5 text-xs text-ink-500">{archivosEstudio.length}</span>}
