@@ -40,16 +40,16 @@ export type OfertaCalc = { precio: number | null; moneda: string; ofertas: numbe
 export type AjustesCalc = { almacenamiento: Record<CodigoPais, { baja: number; alta: number }>; serviciosDigitales: Record<CodigoPais, number> };
 
 /**
- * Storage calibrated with Amazon's own calculator (ES, Jan–Sep: 0,56 € for a 0,0075 m³ package = 74,67 €/m³); the
- * Oct–Dec rate keeps the ratio of Amazon's published table (52,20 / 27,54). The UK, Amazon's published £ per ft³ in
- * £ per m³: to calibrate. Digital services: Spain, France and Italy 3 %, the UK 2 %, Germany none.
+ * Storage calibrated with Amazon's own calculator in Spain: Jan–Sep 0,19 € for a 0,0088 m³ package (≈21,60 €/m³),
+ * Oct–Dec 0,56 € for a 0,0075 m³ one (≈74,67 €/m³). Germany, France and Italy take Spain's until checked. The UK,
+ * Amazon's published £ per ft³ in £ per m³: to calibrate. Digital services: Spain, France and Italy 3 %, the UK 2 %, Germany none.
  */
 export const AJUSTES_INICIALES: AjustesCalc = {
   almacenamiento: {
-    ES: { baja: 74.67, alta: 141.53 },
-    DE: { baja: 74.67, alta: 141.53 },
-    FR: { baja: 74.67, alta: 141.53 },
-    IT: { baja: 74.67, alta: 141.53 },
+    ES: { baja: 21.6, alta: 74.67 },
+    DE: { baja: 21.6, alta: 74.67 },
+    FR: { baja: 21.6, alta: 74.67 },
+    IT: { baja: 21.6, alta: 74.67 },
     GB: { baja: 26.84, alta: 53.33 },
   },
   serviciosDigitales: { ES: 3, DE: 0, FR: 3, IT: 3, GB: 2 },
