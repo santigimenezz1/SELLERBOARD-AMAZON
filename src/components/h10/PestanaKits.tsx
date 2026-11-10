@@ -373,10 +373,21 @@ const sinCambios = () => () => {};
 /** «Portería» → «porterías», «Balón» → «balones»: the plural of a kit element's name, in lower case. */
 const plural = (nombre: string) => {
   const n = nombre.toLowerCase();
+  if (/s$/.test(n)) return n;
   return /[aeiouáéíóú]$/.test(n) ? `${n}s` : `${n.replace(/ón$/, "on")}es`;
 };
-/** The quantity filter's options: how many of the kits' main element each kit brings («3» means 3 or more). */
-type Cantidad = 1 | 2 | 3;
+/**
+ * An extra's group: the first word of its name, so «Bolsa de malla» and «Bolsa de transporte» count as one extra
+ * («Bolsa») and «Soporte» as «Soporte para conos».
+ */
+const grupoExtra = (nombre: string) =>
+  nombre
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/[\s/]+/)[0];
+/** The extras filter's «nothing else» option. */
+const SIN_EXTRAS = "·ninguno";
 /** How many leaders «Listings» shows in this browser (the same number is shown here). */
 function leerCuantos(clave: string): number {
   try {
@@ -410,7 +421,9 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
   };
   const router = useRouter();
   const [pais, setPais] = useState<CodigoPais | null>(null);
-  const [cantidad, setCantidad] = useState<Cantidad | null>(null);
+  const [cantidad, setCantidad] = useState<number | null>(null);
+  /** The extras chosen (their groups): the kits that bring all of them; SIN_EXTRAS, the ones that bring nothing else. */
+  const [extras, setExtras] = useState<string[]>([]);
   // The listings taken out («ES|B0…»), shared with «Listings»: shown at once, saved in the study in the background.
   const [quitados, setQuitados] = useState<string[]>(estudio.listingsQuitados ?? []);
   const [baseQuitados, setBaseQuitados] = useState(estudio.listingsQuitados);
@@ -485,15 +498,50 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
     if (!suyos.length || suyos.some((e) => e.cantidad === null)) return null;
     return suyos.reduce((t, e) => t + (e.cantidad ?? 0), 0);
   };
-  const encaja = (k: KitVista, c: Cantidad) => {
+  // Few of the main element (goals: 1, 2, 3 or more) or many (cones: 20, 25, 50…): then each count is an option.
+  const cuentas = [...new Set(lista.map((x) => cuantosDe(x.k)).filter((n): n is number => n !== null))].sort((a, b) => a - b);
+  const exacto = cuentas.some((n) => n > 3);
+  const encaja = (k: KitVista, c: number) => {
     const n = cuantosDe(k);
-    return n !== null && (c === 3 ? n >= 3 : n === c);
+    return n !== null && (!exacto && c === 3 ? n >= 3 : n === c);
   };
-  const opciones = ([1, 2, 3] as const).filter((c) => lista.some((x) => encaja(x.k, c)));
+  const opciones = exacto ? cuentas : [1, 2, 3].filter((c) => lista.some((x) => encaja(x.k, c)));
   // Each listing keeps its place in «Listings», also when filtered.
   // A quantity this view has none of (after changing country) shows them all.
-  const activa = cantidad && (opciones as readonly number[]).includes(cantidad) ? cantidad : null;
-  const vista = lista.map((x, i) => ({ ...x, puesto: i + 1 })).filter((x) => !activa || encaja(x.k, activa));
+  const activa = cantidad && opciones.includes(cantidad) ? cantidad : null;
+
+  /** What a kit brings besides the main element, by group (null: not read yet or another product). */
+  const extrasDe = (k: KitVista): Set<string> | null =>
+    !k.analizado || k.otroProducto ? null : new Set(k.elementos.filter((e) => !principal || e.nombre.toLowerCase() !== principal.toLowerCase()).map((e) => grupoExtra(e.nombre)));
+  // Every extra of this view, its most used name as label, the most frequent first.
+  const nombresExtra = new Map<string, Map<string, number>>();
+  for (const { k } of lista)
+    for (const e of k.analizado && !k.otroProducto ? k.elementos : []) {
+      if (principal && e.nombre.toLowerCase() === principal.toLowerCase()) continue;
+      const g = nombresExtra.get(grupoExtra(e.nombre)) ?? new Map<string, number>();
+      g.set(e.nombre, (g.get(e.nombre) ?? 0) + 1);
+      nombresExtra.set(grupoExtra(e.nombre), g);
+    }
+  const encajaExtras = (k: KitVista, elegidos: string[]) => {
+    const suyos = extrasDe(k);
+    if (!suyos) return false;
+    return elegidos.includes(SIN_EXTRAS) ? suyos.size === 0 : elegidos.every((g) => suyos.has(g));
+  };
+  const opcionesExtra = [
+    ...[...nombresExtra].map(([g, nombres]) => ({ g, nombre: [...nombres].sort((a, b) => b[1] - a[1])[0][0] })),
+    { g: SIN_EXTRAS, nombre: "Sin extras" },
+  ]
+    .map((o) => ({ ...o, n: lista.filter((x) => encajaExtras(x.k, [o.g])).length }))
+    .filter((o) => o.n > 0)
+    .sort((a, b) => (a.g === SIN_EXTRAS ? 1 : b.g === SIN_EXTRAS ? -1 : b.n - a.n));
+  // Extras this view doesn't have (after changing country) don't count.
+  const extrasActivos = extras.filter((g) => opcionesExtra.some((o) => o.g === g));
+  const elegirExtra = (g: string) =>
+    setExtras(g === SIN_EXTRAS ? (extrasActivos.includes(g) ? [] : [g]) : extrasActivos.includes(g) ? extrasActivos.filter((x) => x !== g) : [...extrasActivos.filter((x) => x !== SIN_EXTRAS), g]);
+
+  const vista = lista
+    .map((x, i) => ({ ...x, puesto: i + 1 }))
+    .filter((x) => (!activa || encaja(x.k, activa)) && (!extrasActivos.length || encajaExtras(x.k, extrasActivos)));
 
   const analizar = async (todos: boolean) => {
     const pedir = todos ? lista : pendientes;
@@ -528,7 +576,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
         <div>
           <h2 className="text-base font-semibold text-ink-100">Kits competidores</h2>
           <p className="mt-0.5 text-xs text-ink-400">
-            Los mismos listings de la pestaña «Listings» (los {cuantos} primeros, sin los que quitaste) y en el mismo orden, por facturación, con lo que incluye su kit según
+            Los mismos listings de la pestaña «Listings» (los {cuantos} primeros de cada país, sin los que quitaste) y en el mismo orden, por facturación, con lo que incluye su kit según
             su ficha de Amazon. Si quitas uno en «Listings», desaparece también aquí.
           </p>
         </div>
@@ -576,6 +624,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
 
       {principal && opciones.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] font-semibold tracking-wide text-ink-500 uppercase">{principal}</span>
           {[null, ...opciones].map((c) => (
             <button
               key={c ?? "todas"}
@@ -583,14 +632,39 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
               aria-pressed={c === activa}
               className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ${c === activa ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
             >
-              {c === null ? "Todas" : c === 3 ? `3 o más ${plural(principal)}` : `${c} ${c === 1 ? principal.toLowerCase() : plural(principal)}`}
+              {c === null ? "Todas" : !exacto && c === 3 ? `3 o más ${plural(principal)}` : `${c} ${c === 1 ? principal.toLowerCase() : plural(principal)}`}
               <span className="text-ink-500">{c === null ? lista.length : lista.filter((x) => encaja(x.k, c)).length}</span>
             </button>
           ))}
-          {activa && (pendientes.length > 0 || lista.some((x) => x.k.otroProducto)) && (
-            <span className="text-[11px] text-ink-500">· sin los pendientes de analizar ni los de otro producto</span>
-          )}
         </div>
+      )}
+
+      {opcionesExtra.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Extras</span>
+          <button
+            onClick={() => setExtras([])}
+            aria-pressed={!extrasActivos.length}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ${!extrasActivos.length ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
+          >
+            Todos <span className="text-ink-500">{lista.length}</span>
+          </button>
+          {opcionesExtra.map((o) => (
+            <button
+              key={o.g}
+              onClick={() => elegirExtra(o.g)}
+              aria-pressed={extrasActivos.includes(o.g)}
+              title={o.g === SIN_EXTRAS ? "Kits que solo traen el producto" : `Kits que traen ${o.nombre.toLowerCase()} (puedes elegir varios: los que traen todos)`}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ${extrasActivos.includes(o.g) ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
+            >
+              {o.g === SIN_EXTRAS ? o.nombre : `Con ${o.nombre.toLowerCase()}`}
+              <span className="text-ink-500">{o.n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {(activa || extrasActivos.length > 0) && (pendientes.length > 0 || lista.some((x) => x.k.otroProducto)) && (
+        <p className="-mt-2 text-[11px] text-ink-500">Filtrando, no salen los pendientes de analizar ni los de otro producto ({vista.length} de {lista.length}).</p>
       )}
 
       {lista.length === 0 ? (

@@ -251,9 +251,9 @@ export function PestanaListings({ estudio, palabras, conExtension = true }: { es
             <button
               onClick={agregarMas}
               className="h-9 rounded-lg border border-accent-500/50 bg-accent-500/10 px-4 text-sm font-semibold text-ink-100 transition-colors hover:bg-accent-500/20"
-              title="Suma los 10 siguientes por facturación (se recuerda en este estudio)"
+              title={`Suma los ${MAS} siguientes por facturación${pais ? "" : " de cada país"} (se recuerda en este estudio)`}
             >
-              + Agregar {Math.min(MAS, visibles.length - lideres.length)} competidores más
+              {pais ? `+ Agregar ${Math.min(MAS, visibles.length - lideres.length)} competidores más` : `+ Agregar ${MAS} más por país`}
             </button>
           ) : null}
           <span>

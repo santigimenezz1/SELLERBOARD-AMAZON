@@ -53,17 +53,21 @@ export const TOP_LISTINGS = 25;
 export const claveCuantosListings = (estudioId: string) => `h10-listings-cuantos-${estudioId}`;
 
 /**
- * The leaders «Listings» shows in a view (one country, or every country with `pais` null): every product by revenue
- * in euros, without the ones taken out with ✕ («ES|B0…» in `quitados`), the first `cuantos`. «Kits competidores»
- * shows the same ones.
+ * The leaders «Listings» shows in a view: the first `cuantos` of each country by revenue, without the ones taken out
+ * with ✕ («ES|B0…» in `quitados`); with `pais` null, every country's together, by revenue in euros. «Kits
+ * competidores» shows the same ones.
  */
 export function lideresListings(mercados: MercadoXray[], pais: CodigoPais | null, quitados: string[], cuantos: number) {
   return mercados
     .filter((m) => !pais || m.codigoPais === pais)
-    .flatMap((m) => m.competidores.map((c) => ({ m, c, eur: c.facturacion * cambioAEur(m) })))
-    .sort((a, b) => b.eur - a.eur)
-    .filter((x) => !x.c.asin || !quitados.includes(`${x.m.codigoPais}|${x.c.asin}`))
-    .slice(0, cuantos);
+    .flatMap((m) =>
+      m.competidores
+        .map((c) => ({ m, c, eur: c.facturacion * cambioAEur(m) }))
+        .filter((x) => !x.c.asin || !quitados.includes(`${m.codigoPais}|${x.c.asin}`))
+        .sort((a, b) => b.eur - a.eur)
+        .slice(0, cuantos),
+    )
+    .sort((a, b) => b.eur - a.eur);
 }
 
 export function listingDe(listings: ListingAmazon[] | undefined, pais: CodigoPais, asin: string | null | undefined): ListingAmazon | null {
