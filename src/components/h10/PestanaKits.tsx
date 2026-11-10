@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { CodigoPais, EstudioH10, KitCompetidor, QuejasPorEstrellas } from "@/lib/datos/h10Tipos";
 import { claveCuantosListings, lideresListings, listingDe, TOP_LISTINGS } from "@/lib/datos/h10Listings";
 import { cambioAEur } from "@/lib/datos/h10Analisis";
+import { cantidadPrincipal, elementoPrincipal, grupoExtra, plural } from "@/lib/datos/h10Kits";
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Pais } from "./comun";
@@ -370,22 +371,6 @@ function Tarjeta({
 
 const sinCambios = () => () => {};
 
-/** «Portería» → «porterías», «Balón» → «balones»: the plural of a kit element's name, in lower case. */
-const plural = (nombre: string) => {
-  const n = nombre.toLowerCase();
-  if (/s$/.test(n)) return n;
-  return /[aeiouáéíóú]$/.test(n) ? `${n}s` : `${n.replace(/ón$/, "on")}es`;
-};
-/**
- * An extra's group: the first word of its name, so «Bolsa de malla» and «Bolsa de transporte» count as one extra
- * («Bolsa») and «Soporte» as «Soporte para conos».
- */
-const grupoExtra = (nombre: string) =>
-  nombre
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .split(/[\s/]+/)[0];
 /** The extras filter's «nothing else» option. */
 const SIN_EXTRAS = "·ninguno";
 /** How many leaders «Listings» shows in this browser (the same number is shown here). */
@@ -397,6 +382,8 @@ function leerCuantos(clave: string): number {
     return TOP_LISTINGS;
   }
 }
+/** How many leaders of each country «Listings» shows in this browser (also «Kits competidores» and «Lanzamiento»). */
+export const useCuantosListings = (estudioId: string) => useSyncExternalStore(sinCambios, () => leerCuantos(claveCuantosListings(estudioId)), () => TOP_LISTINGS);
 
 /**
  * «Kits competidores»: the same listings «Listings» shows (its view: every country or one, without the ones taken out
@@ -446,11 +433,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
   };
   const [analizando, setAnalizando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cuantos = useSyncExternalStore(
-    sinCambios,
-    () => leerCuantos(claveCuantosListings(estudioId)),
-    () => TOP_LISTINGS,
-  );
+  const cuantos = useCuantosListings(estudioId);
 
   // «Listings»' leaders of this view, each with its kit when it was read, in its order (by revenue).
   const lista = lideresListings(estudio.mercados, pais, quitados, cuantos)
@@ -483,21 +466,9 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
   const pendientes = lista.filter((x) => !x.k.analizado);
 
   // The kits' main element: the one most kits list first (in a study of goals, «Portería»).
-  const primeros = new Map<string, { nombre: string; n: number }>();
-  for (const k of kits ? Object.values(kits.porPais).flat() : []) {
-    const e = k?.elementos[0];
-    if (!e || k.otroProducto) continue;
-    const clave = e.nombre.toLowerCase();
-    primeros.set(clave, { nombre: e.nombre, n: (primeros.get(clave)?.n ?? 0) + 1 });
-  }
-  const principal = [...primeros.values()].sort((a, b) => b.n - a.n)[0]?.nombre ?? null;
+  const principal = elementoPrincipal(kits);
   /** How many of the main element a listing's kit brings (null: not read yet, another product, or not said). */
-  const cuantosDe = (k: KitVista): number | null => {
-    if (!principal || !k.analizado || k.otroProducto) return null;
-    const suyos = k.elementos.filter((e) => e.nombre.toLowerCase() === principal.toLowerCase());
-    if (!suyos.length || suyos.some((e) => e.cantidad === null)) return null;
-    return suyos.reduce((t, e) => t + (e.cantidad ?? 0), 0);
-  };
+  const cuantosDe = (k: KitVista): number | null => (k.analizado ? cantidadPrincipal(k, principal) : null);
   // Few of the main element (goals: 1, 2, 3 or more) or many (cones: 20, 25, 50…): then each count is an option.
   const cuentas = [...new Set(lista.map((x) => cuantosDe(x.k)).filter((n): n is number => n !== null))].sort((a, b) => a - b);
   const exacto = cuentas.some((n) => n > 3);

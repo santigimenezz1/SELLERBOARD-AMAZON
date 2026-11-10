@@ -24,6 +24,7 @@ import { PestanaListings } from "./PestanaListings";
 import { PestanaAgentes } from "./PestanaAgentes";
 import { PestanaMejoras } from "./PestanaMejoras";
 import { PestanaLanzamiento, usePalabrasLanzamiento } from "./PestanaLanzamiento";
+import { QueKitLanzar } from "./QueKitLanzar";
 import { useListingPropio } from "./ListingPropio";
 import { PestanaKits, type VentasMercado } from "./PestanaKits";
 import { VistaCalculadora } from "@/components/calculadora/VistaCalculadora";
@@ -153,6 +154,8 @@ export function VistaH10({
   const [elegida, setElegida] = useState<Pestana | undefined>(() => (inicial?.pestana === "calculadora" ? "kits" : PESTANAS.find((x) => x.id === inicial?.pestana)?.id));
   // «Kits competidores» has two sub-tabs: the kits and Amazon's revenue calculator (at hand while looking at the kits).
   const [subKits, setSubKits] = useState<"kits" | "calculadora">(() => (inicial?.pestana === "calculadora" ? "calculadora" : "kits"));
+  // «Lanzamiento» has two sub-tabs: the keywords and listing, and which kit to launch (from the competitors' kits).
+  const [subLanzamiento, setSubLanzamiento] = useState<"estrategia" | "kit">("estrategia");
   const pestana = elegida ?? (estudio.ejemplo || estudio.mercados.length ? "mercado" : "datos");
   const irA = (p: Pestana) => setElegida(p);
   const resumen = estudio.mercados.length ? resumirEstudio(estudio) : null;
@@ -257,7 +260,29 @@ export function VistaH10({
           <PestanaMejoras key={`mejoras-${estudio.id}`} estudioId={estudio.id} inicial={estudio.mejoras ?? []} />
         </div>
       )}
-      {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
+      {pestana === "lanzamiento" && !estudio.ejemplo && (
+        <div className="flex gap-1.5">
+          {(
+            [
+              ["estrategia", "Estrategia"],
+              ["kit", "Qué kit lanzar"],
+            ] as const
+          ).map(([id, texto]) => (
+            <button
+              key={id}
+              onClick={() => setSubLanzamiento(id)}
+              aria-current={subLanzamiento === id ? "page" : undefined}
+              className={`rounded-md border px-3 py-1 text-sm ${subLanzamiento === id ? "border-accent-400 bg-accent-500/15 text-accent-200" : "border-white/[0.08] text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
+            >
+              {texto}
+            </button>
+          ))}
+        </div>
+      )}
+      {pestana === "lanzamiento" && !estudio.ejemplo && subLanzamiento === "estrategia" && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
+      {pestana === "lanzamiento" && !estudio.ejemplo && subLanzamiento === "kit" && (
+        <QueKitLanzar key={`kit-${estudio.id}`} estudio={estudio} onIrAKits={() => irA("kits")} />
+      )}
       {pestana === "kits" && !estudio.ejemplo && ajustesCalc && (
         <div className="flex gap-1.5">
           {(
