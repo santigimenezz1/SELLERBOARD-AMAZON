@@ -308,7 +308,8 @@ export function TamanoMercado({ estudio, onIrADatos }: { estudio: EstudioH10; on
   const [vista, setVista] = useState<"todos" | CodigoPais>("todos");
   /** The month chosen in the month strip (the latest one until one is picked). */
   const [mesElegido, setMesElegido] = useState<string | null>(null);
-  const s = vista === "todos" ? todos : porPais.get(vista);
+  // «All countries» only when every country has its search chart: otherwise it would pass a few countries off as the whole market.
+  const s = vista === "todos" ? (sinGrafico.length ? undefined : todos) : porPais.get(vista);
 
   const pestana = (id: "todos" | CodigoPais, etiqueta: React.ReactNode) => (
     <button
@@ -332,7 +333,12 @@ export function TamanoMercado({ estudio, onIrADatos }: { estudio: EstudioH10; on
       {!s || s.size === 0 ? (
         <div className="rounded-lg border border-dashed border-white/[0.12] px-4 py-8 text-center text-sm text-ink-400">
           <p>
-            {vista === "todos" ? "Ningún país tiene todavía su gráfico de búsquedas." : `Falta el gráfico de búsquedas de ${nombrePais(vista)}.`} Sube la captura del gráfico{" "}
+            {vista !== "todos"
+              ? `Falta el gráfico de búsquedas de ${nombrePais(vista)}.`
+              : porPais.size === 0
+                ? "Ningún país tiene todavía su gráfico de búsquedas."
+                : `Para sumar todos los países falta el gráfico de búsquedas de ${sinGrafico.map(nombrePais).join(", ")} (mientras, mira cada país por separado arriba).`}{" "}
+            Sube la captura del gráfico{" "}
             <strong className="text-ink-200">«Search Volume» de 3 años</strong> de Helium 10 (en el Xray, la minigráfica junto a Search Volume → «3 Years») como «Historial de búsquedas».
           </p>
           {onIrADatos && (
