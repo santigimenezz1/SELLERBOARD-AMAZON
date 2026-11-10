@@ -43,7 +43,6 @@ const PESTANAS = [
   { id: "agentes", texto: "Agentes" },
   { id: "mejoras", texto: "Mejoras de producto" },
   { id: "lanzamiento", texto: "Lanzamiento" },
-  { id: "calculadora", texto: "Calculadora" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
 /**
@@ -151,7 +150,9 @@ export function VistaH10({
 }) {
   const router = useRouter();
   // «Datos» until it has an Xray, then «Mercado».
-  const [elegida, setElegida] = useState<Pestana | undefined>(() => PESTANAS.find((x) => x.id === inicial?.pestana)?.id);
+  const [elegida, setElegida] = useState<Pestana | undefined>(() => (inicial?.pestana === "calculadora" ? "kits" : PESTANAS.find((x) => x.id === inicial?.pestana)?.id));
+  // «Kits competidores» has two sub-tabs: the kits and Amazon's revenue calculator (at hand while looking at the kits).
+  const [subKits, setSubKits] = useState<"kits" | "calculadora">(() => (inicial?.pestana === "calculadora" ? "calculadora" : "kits"));
   const pestana = elegida ?? (estudio.ejemplo || estudio.mercados.length ? "mercado" : "datos");
   const irA = (p: Pestana) => setElegida(p);
   const resumen = estudio.mercados.length ? resumirEstudio(estudio) : null;
@@ -168,7 +169,7 @@ export function VistaH10({
 
       {/* Tabs */}
       <nav className="flex flex-wrap gap-x-0.5 border-b border-white/[0.06]">
-        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento" && p.id !== "kits") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD) && (p.id !== "calculadora" || (!!ajustesCalc && !estudio.ejemplo))).map((p) => (
+        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento" && p.id !== "kits") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
           <button
             key={p.id}
             onClick={() => irA(p.id)}
@@ -257,14 +258,35 @@ export function VistaH10({
         </div>
       )}
       {pestana === "lanzamiento" && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
-      {/* Always mounted (hidden when not chosen): coming back to it keeps the product and figures typed. */}
-      {ajustesCalc && !estudio.ejemplo && (
-        <div className={pestana === "calculadora" ? "" : "hidden"}>
-          <VistaCalculadora key={`calc-${estudio.id}`} ajustesIniciales={ajustesCalc} demo={false} paisInicial={paisInicial as CodigoPais} />
+      {pestana === "kits" && !estudio.ejemplo && ajustesCalc && (
+        <div className="flex gap-1.5">
+          {(
+            [
+              ["kits", "Kits"],
+              ["calculadora", "Calculadora"],
+            ] as const
+          ).map(([id, texto]) => (
+            <button
+              key={id}
+              onClick={() => setSubKits(id)}
+              aria-current={subKits === id ? "page" : undefined}
+              className={`rounded-md border px-3 py-1 text-sm ${subKits === id ? "border-accent-400 bg-accent-500/15 text-accent-200" : "border-white/[0.08] text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
+            >
+              {texto}
+            </button>
+          ))}
         </div>
       )}
       {pestana === "kits" && !estudio.ejemplo && (
-        <PestanaKits key={`kits-${estudio.id}`} estudio={estudio} ventasPorAsin={ventasPorAsin(estudio)} />
+        <div className={subKits === "kits" || !ajustesCalc ? "" : "hidden"}>
+          <PestanaKits key={`kits-${estudio.id}`} estudio={estudio} ventasPorAsin={ventasPorAsin(estudio)} />
+        </div>
+      )}
+      {/* Always mounted (hidden when not chosen): coming back to it keeps the product and figures typed. */}
+      {ajustesCalc && !estudio.ejemplo && (
+        <div className={pestana === "kits" && subKits === "calculadora" ? "" : "hidden"}>
+          <VistaCalculadora key={`calc-${estudio.id}`} ajustesIniciales={ajustesCalc} demo={false} paisInicial={paisInicial as CodigoPais} />
+        </div>
       )}
       {pestana === "listings" &&
         (resumen ? (
