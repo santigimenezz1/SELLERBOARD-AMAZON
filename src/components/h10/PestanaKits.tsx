@@ -543,30 +543,42 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
     .map((x, i) => ({ ...x, puesto: i + 1 }))
     .filter((x) => (!activa || encaja(x.k, activa)) && (!extrasActivos.length || encajaExtras(x.k, extrasActivos)));
 
+  /** What is waiting for the owner's «yes» (asked in the page: a browser that blocks dialogs would cancel it unseen). */
+  const [preguntar, setPreguntar] = useState<"pendientes" | "todos" | null>(null);
+  /** How many listings are read so far, while analysing. */
+  const [hechos, setHechos] = useState<{ n: number; de: number } | null>(null);
   const analizar = async (todos: boolean) => {
     const pedir = todos ? lista : pendientes;
+    setPreguntar(null);
     if (!pedir.length) return;
-    if (
-      !confirm(
-        `Se leerán de Amazon ${pedir.length} ${pedir.length === 1 ? "listing" : "listings"} y la IA dirá qué incluye cada kit. Tarda uno o dos minutos y cuesta unos céntimos. ¿Seguir?`,
-      )
-    )
-      return;
     setError(null);
     setAnalizando(true);
+    // In batches of 20 of one country (one request each): short requests, saved as they go, with progress.
+    const tandas: (typeof pedir)[] = [];
+    for (const p of paises) {
+      const suyos = pedir.filter((x) => x.pais === p);
+      for (let i = 0; i < suyos.length; i += 20) tandas.push(suyos.slice(i, i + 20));
+    }
+    let n = 0;
+    setHechos({ n, de: pedir.length });
     try {
-      const r = await fetch(`/api/h10/estudios/${estudioId}/kits`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pares: pedir.map((x) => ({ pais: x.pais, asin: x.k.asin })) }),
-      });
-      const b = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(b.error ?? `Error ${r.status}`);
-      router.refresh();
+      for (const t of tandas) {
+        const r = await fetch(`/api/h10/estudios/${estudioId}/kits`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pares: t.map((x) => ({ pais: x.pais, asin: x.k.asin })) }),
+        });
+        const b = (await r.json().catch(() => ({}))) as { error?: string };
+        if (!r.ok) throw new Error(b.error ?? `Error ${r.status}`);
+        n += t.length;
+        setHechos({ n, de: pedir.length });
+        router.refresh();
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo analizar");
+      setError(`${e instanceof Error ? e.message : "No se pudo analizar"}${n ? ` (se guardaron ${n} de ${pedir.length}: pulsa otra vez para seguir)` : ""}`);
     } finally {
       setAnalizando(false);
+      setHechos(null);
     }
   };
 
@@ -581,26 +593,39 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {pendientes.length > 0 && (
-            <button
-              onClick={() => void analizar(false)}
-              disabled={analizando}
-              className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400 disabled:opacity-60"
-            >
-              {analizando ? "Analizando… (uno o dos minutos)" : `Analizar pendientes (${pendientes.length})`}
-            </button>
-          )}
-          {lista.length > pendientes.length && (
-            <button
-              onClick={() => void analizar(true)}
-              disabled={analizando}
-              className="rounded-lg border border-white/[0.12] px-3.5 py-2 text-sm text-ink-200 hover:bg-white/[0.06] disabled:opacity-60"
-            >
-              {analizando && !pendientes.length ? "Analizando…" : "Volver a analizar todos"}
-            </button>
+          {analizando ? (
+            <span className="rounded-lg bg-accent-500/15 px-3.5 py-2 text-sm font-medium text-accent-200" role="status">
+              Analizando… {hechos ? `${hechos.n} de ${hechos.de}` : ""}
+            </span>
+          ) : (
+            <>
+              {pendientes.length > 0 && (
+                <button onClick={() => setPreguntar("pendientes")} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400">
+                  Analizar pendientes ({pendientes.length})
+                </button>
+              )}
+              {lista.length > pendientes.length && (
+                <button onClick={() => setPreguntar("todos")} className="rounded-lg border border-white/[0.12] px-3.5 py-2 text-sm text-ink-200 hover:bg-white/[0.06]">
+                  Volver a analizar todos
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
+      {preguntar && !analizando && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-accent-500/40 bg-accent-500/[0.06] px-3 py-2.5 text-sm text-ink-200">
+          <span className="flex-1">
+            Se leerán de Amazon {preguntar === "todos" ? lista.length : pendientes.length} listings y la IA dirá qué incluye cada kit. Va de 20 en 20 (unos minutos en total) y cuesta unos céntimos.
+          </span>
+          <button onClick={() => void analizar(preguntar === "todos")} className="rounded-md bg-accent-500 px-3 py-1.5 text-xs font-medium text-ink-950 hover:bg-accent-400">
+            Sí, analizar
+          </button>
+          <button onClick={() => setPreguntar(null)} className="rounded-md border border-white/[0.12] px-3 py-1.5 text-xs text-ink-300 hover:bg-white/[0.06]">
+            Cancelar
+          </button>
+        </div>
+      )}
       {error && (
         <p role="alert" className="rounded-lg bg-danger/15 px-3 py-2 text-sm text-danger">
           {error}
