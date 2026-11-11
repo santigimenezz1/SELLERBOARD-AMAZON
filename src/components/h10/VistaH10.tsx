@@ -27,6 +27,7 @@ import { PestanaLanzamiento, usePalabrasLanzamiento } from "./PestanaLanzamiento
 import { QueKitLanzar } from "./QueKitLanzar";
 import { useListingPropio } from "./ListingPropio";
 import { PestanaKits, type VentasMercado } from "./PestanaKits";
+import { PestanaTarifasFba } from "./PestanaTarifasFba";
 import { VistaCalculadora } from "@/components/calculadora/VistaCalculadora";
 import type { AjustesCalc } from "@/lib/datos/calculadora";
 import { formatMoneda, formatNumero } from "@/lib/format";
@@ -44,6 +45,7 @@ const PESTANAS = [
   { id: "agentes", texto: "Agentes" },
   { id: "mejoras", texto: "Mejoras de producto" },
   { id: "lanzamiento", texto: "Lanzamiento" },
+  { id: "tarifas", texto: "Tarifas FBA" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"];
 /**
@@ -283,6 +285,7 @@ export function VistaH10({
       {pestana === "lanzamiento" && !estudio.ejemplo && subLanzamiento === "kit" && (
         <QueKitLanzar key={`kit-${estudio.id}`} estudio={estudio} onIrAKits={() => irA("kits")} />
       )}
+      {pestana === "tarifas" && <PestanaTarifasFba key={`tarifas-${estudio.id}`} estudioId={estudio.id} />}
       {pestana === "kits" && !estudio.ejemplo && ajustesCalc && (
         <div className="flex gap-1.5">
           {(
