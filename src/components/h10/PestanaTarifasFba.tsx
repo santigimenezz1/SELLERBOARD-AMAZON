@@ -22,8 +22,9 @@ const PDF = "/tarifas/tarifas-fba-europa-2026.pdf";
 const num = (v: number, dec = 2) => v.toLocaleString("es-ES", { maximumFractionDigits: dec });
 const kg = (v: number) => `${num(v)} kg`;
 
-type Campos = { largo: string; ancho: string; alto: string; peso: string; cep: boolean };
-const VACIO: Campos = { largo: "", ancho: "", alto: "", peso: "", cep: false };
+/** The weight is typed in kg (`pesoKg`; older saves had `peso` in grams, which is dropped). */
+type Campos = { largo: string; ancho: string; alto: string; pesoKg: string; cep: boolean };
+const VACIO: Campos = { largo: "", ancho: "", alto: "", pesoKg: "", cep: false };
 /** A decimal typed with a comma or a dot; 0 when empty or not a number. */
 const leer = (s: string) => {
   const v = Number(s.replace(",", "."));
@@ -55,7 +56,7 @@ function csv(c: Caja, r: CalculoTarifa, cep: boolean) {
     ["Tarifas FBA (Amazon, en vigor desde el 1 de febrero de 2026)"],
     [],
     ["Medidas de la caja (cm)", `${n(c.largo)} x ${n(c.ancho)} x ${n(c.alto)}`],
-    ["Peso con embalaje (g)", n(c.pesoG)],
+    ["Peso con embalaje (kg)", n(c.pesoG / 1000)],
     ["Volumen (cm³)", n(Math.round(r.volumen))],
     ["Peso dimensional (kg)", n(r.pesoDim)],
     ["Peso de envío (kg)", `${n(r.pesoEnvio)} (${r.ganaDimensional ? "dimensional" : "real"})`],
@@ -70,7 +71,7 @@ function csv(c: Caja, r: CalculoTarifa, cep: boolean) {
   const texto = "﻿" + filas.map((f) => f.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(";")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([texto], { type: "text/csv;charset=utf-8" }));
-  a.download = `tarifa-fba-${n(c.largo)}x${n(c.ancho)}x${n(c.alto)}-${n(c.pesoG)}g.csv`;
+  a.download = `tarifa-fba-${n(c.largo)}x${n(c.ancho)}x${n(c.alto)}-${n(c.pesoG / 1000)}kg.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -83,8 +84,11 @@ export function PestanaTarifasFba({ estudioId }: { estudioId: string }) {
   useEffect(() => {
     try {
       const g = localStorage.getItem(clave);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- read once from the browser after mounting
-      if (g) setCampos({ ...VACIO, ...JSON.parse(g) });
+      if (g) {
+        const { largo, ancho, alto, pesoKg, cep } = { ...VACIO, ...JSON.parse(g) };
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- read once from the browser after mounting
+        setCampos({ largo, ancho, alto, pesoKg, cep });
+      }
     } catch {}
   }, [clave]);
   const cambiar = (c: Partial<Campos>) => {
@@ -95,7 +99,7 @@ export function PestanaTarifasFba({ estudioId }: { estudioId: string }) {
     } catch {}
   };
 
-  const caja: Caja = { largo: leer(campos.largo), ancho: leer(campos.ancho), alto: leer(campos.alto), pesoG: leer(campos.peso) };
+  const caja: Caja = { largo: leer(campos.largo), ancho: leer(campos.ancho), alto: leer(campos.alto), pesoG: Math.round(leer(campos.pesoKg) * 1000) };
   const completa = caja.largo > 0 && caja.ancho > 0 && caja.alto > 0 && caja.pesoG > 0;
   const r = completa ? calcularTarifa(caja, campos.cep) : null;
   const margen = completa ? margenTramo(caja, campos.cep) : null;
@@ -131,7 +135,7 @@ export function PestanaTarifasFba({ estudioId }: { estudioId: string }) {
           <Campo etiqueta="Largo" unidad="cm" valor={campos.largo} onCambio={(v) => cambiar({ largo: v })} />
           <Campo etiqueta="Ancho" unidad="cm" valor={campos.ancho} onCambio={(v) => cambiar({ ancho: v })} />
           <Campo etiqueta="Alto" unidad="cm" valor={campos.alto} onCambio={(v) => cambiar({ alto: v })} />
-          <Campo etiqueta="Peso con embalaje" unidad="g" valor={campos.peso} onCambio={(v) => cambiar({ peso: v })} />
+          <Campo etiqueta="Peso con embalaje" unidad="kg" valor={campos.pesoKg} onCambio={(v) => cambiar({ pesoKg: v })} />
         </div>
         <label className="mt-3 flex items-center gap-2 text-xs text-ink-300">
           <input type="checkbox" checked={campos.cep} onChange={(e) => cambiar({ cep: e.target.checked })} className="accent-accent-500" />
@@ -270,7 +274,7 @@ export function PestanaTarifasFba({ estudioId }: { estudioId: string }) {
                   </li>
                 )}
                 <li>
-                  • Peso máximo con embalaje: <b className="text-ink-100">{formatNumero(margen.pesoMaxG)} g</b> (ahora {formatNumero(caja.pesoG)} g).
+                  • Peso máximo con embalaje: <b className="text-ink-100">{kg(margen.pesoMaxG / 1000)}</b> (ahora {kg(caja.pesoG / 1000)}).
                 </li>
                 <li>
                   • Ningún lado puede pasar de {cat.lados?.map((l) => num(l, 1)).join(" × ")} cm{" "}
