@@ -16,6 +16,7 @@ import {
 } from "@/lib/datos/tarifasFba";
 import { formatNumero } from "@/lib/format";
 import { Tarjeta } from "./comun";
+import { InformeRentabilidadFba } from "./InformeRentabilidadFba";
 
 /** The rate card in public/, to download. */
 const PDF = "/tarifas/tarifas-fba-europa-2026.pdf";
@@ -77,7 +78,9 @@ function csv(c: Caja, r: CalculoTarifa, cep: boolean) {
 }
 
 /** «Tarifas FBA»: a box's size tier and band in Amazon's rate card, and its fee in Spain, Germany, France and the UK. */
-export function PestanaTarifasFba({ estudioId }: { estudioId: string }) {
+/** `eurPorGbp`: the ECB rate, for the UK in «Rentabilidad por país». */
+export function PestanaTarifasFba({ estudioId, eurPorGbp = 1.16 }: { estudioId: string; eurPorGbp?: number }) {
+  const [sub, setSub] = useState<"tarifa" | "rentabilidad">("tarifa");
   const clave = `tarifas-fba-caja-${estudioId}`;
   const [campos, setCampos] = useState<Campos>(VACIO);
   // The box typed in each study is remembered in this browser.
@@ -145,7 +148,28 @@ export function PestanaTarifasFba({ estudioId }: { estudioId: string }) {
 
       {!completa && <p className="rounded-xl border border-dashed border-white/[0.12] px-4 py-8 text-center text-sm text-ink-400">Rellena largo, ancho, alto y peso para ver la tarifa.</p>}
 
-      {r && (
+      {r?.categoria && (
+        <div className="flex gap-1.5">
+          {(
+            [
+              ["tarifa", "Categoría y tarifa"],
+              ["rentabilidad", "Rentabilidad por país"],
+            ] as const
+          ).map(([id, texto]) => (
+            <button
+              key={id}
+              onClick={() => setSub(id)}
+              aria-current={sub === id ? "page" : undefined}
+              className={`rounded-md border px-3 py-1 text-sm ${sub === id ? "border-accent-400 bg-accent-500/15 text-accent-200" : "border-white/[0.08] text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
+            >
+              {texto}
+            </button>
+          ))}
+        </div>
+      )}
+      {r?.categoria && sub === "rentabilidad" && <InformeRentabilidadFba estudioId={estudioId} caja={caja} r={r} cep={campos.cep} eurPorGbp={eurPorGbp} />}
+
+      {r && (sub === "tarifa" || !r.categoria) && (
         <>
           <Tarjeta titulo="2. En qué categoría está">
             <ol className="flex flex-col gap-2 text-sm text-ink-200">

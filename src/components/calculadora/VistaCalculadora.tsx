@@ -6,6 +6,7 @@ import { formatMoneda, formatNumero } from "@/lib/format";
 import { PAISES_H10, type CodigoPais } from "@/lib/datos/h10Tipos";
 import type { AjustesCalc, OfertaCalc, ProductoCalc } from "@/lib/datos/calculadora";
 import type { TarifasDetalle } from "@/lib/amazon/apis";
+import { ConversorDivisas, type Cambios } from "./ConversorDivisas";
 
 const TIENDAS: Record<CodigoPais, { nombre: string; dominio: string; moneda: "EUR" | "GBP"; iva: number }> = {
   ES: { nombre: "España", dominio: "amazon.es", moneda: "EUR", iva: 21 },
@@ -22,6 +23,12 @@ const num = (s: string) => {
 };
 const pequena = (url: string) => url.replace(/^(https:\/\/m\.media-amazon\.com\/images\/I\/[^.]+)(\.[a-z]+)$/i, "$1._SL300_$2");
 const cifra = (v: number) => v.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+
+/** In the UK store, a pound figure in euros beside it («≈ 12,34 €»); `cambio`: euros per pound, only there. */
+function EnEuros({ v, cambio }: { v: number | null; cambio?: number }) {
+  if (!cambio || v === null) return null;
+  return <span className="ml-1.5 text-xs font-normal text-ink-500">≈ {formatMoneda(v * cambio, "EUR")}</span>;
+}
 /** To the cent, as Amazon adds each line up (in binary, so 0,225 → 0,22). */
 const centimos = (v: number) => Math.round(v * 100) / 100;
 /** Bigger than Amazon's standard size (45 × 34 × 26 cm, 12 kg): stored at another rate. */
@@ -37,7 +44,7 @@ const COLUMNAS_ALMACEN: { clave: ClaveAlmacen; t: "baja" | "alta"; texto: string
   { clave: "almacenamientoGrande", t: "alta", texto: "Grande oct–dic" },
 ];
 
-function Campo({ etiqueta, valor, onChange, sufijo, ayuda }: { etiqueta: string; valor: string; onChange: (v: string) => void; sufijo?: string; ayuda?: string }) {
+function Campo({ etiqueta, valor, onChange, sufijo, ayuda, cambio }: { etiqueta: string; valor: string; onChange: (v: string) => void; sufijo?: string; ayuda?: string; cambio?: number }) {
   return (
     <label className="flex items-center justify-between gap-3 text-sm">
       <span className="text-ink-300" title={ayuda}>
@@ -51,16 +58,20 @@ function Campo({ etiqueta, valor, onChange, sufijo, ayuda }: { etiqueta: string;
           className="tabular w-24 rounded-md border border-white/[0.12] bg-ink-950/60 px-2 py-1 text-right text-ink-100 outline-none focus:border-accent-400"
         />
         {sufijo && <span className="w-5 text-xs text-ink-500">{sufijo}</span>}
+        {cambio && <span className="tabular w-20 text-right text-xs text-ink-500">≈ {formatMoneda((num(valor) ?? 0) * cambio, "EUR")}</span>}
       </span>
     </label>
   );
 }
 
-function Linea({ etiqueta, valor, moneda, fuerte, sub }: { etiqueta: string; valor: number | null; moneda: string; fuerte?: boolean; sub?: boolean }) {
+function Linea({ etiqueta, valor, moneda, fuerte, sub, cambio }: { etiqueta: string; valor: number | null; moneda: string; fuerte?: boolean; sub?: boolean; cambio?: number }) {
   return (
     <div className={`flex items-center justify-between gap-3 text-sm ${sub ? "pl-3 text-ink-400" : fuerte ? "font-semibold text-ink-100" : "text-ink-200"}`}>
       <span>{etiqueta}</span>
-      <span className="tabular">{valor === null ? "—" : formatMoneda(valor, moneda)}</span>
+      <span className="tabular">
+        {valor === null ? "—" : formatMoneda(valor, moneda)}
+        <EnEuros v={valor} cambio={cambio} />
+      </span>
     </div>
   );
 }
@@ -156,7 +167,9 @@ function Ajustes({ ajustes, onGuardado, onCerrar }: { ajustes: AjustesCalc; onGu
 }
 
 /** Amazon's revenue calculator, rebuilt: a product of the catalog, its fees at a price, and what's left of each sale. */
-export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }: { ajustesIniciales: AjustesCalc; demo: boolean; paisInicial?: CodigoPais }) {
+/** `cambios`: the ECB rates of the day, to show the UK store figures in euros too and for the currency converter. */
+export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES", cambios }: { ajustesIniciales: AjustesCalc; demo: boolean; paisInicial?: CodigoPais; cambios: Cambios }) {
+  const eurPorGbp = cambios.GBP;
   const [ajustes, setAjustes] = useState(ajustesIniciales);
   const [verAjustes, setVerAjustes] = useState(false);
   const [pais, setPais] = useState<CodigoPais>(PAISES_H10.includes(paisInicial) ? paisInicial : "ES");
@@ -184,6 +197,7 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
 
   const tienda = TIENDAS[pais];
   const moneda = tienda.moneda;
+  const cambio = moneda === "GBP" ? eurPorGbp : undefined;
 
   const buscar = async () => {
     if (q.trim().length < 2) return;
@@ -388,7 +402,10 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
               <dt className="text-ink-400">Ofertas</dt>
               <dd className="tabular text-ink-200">{oferta?.ofertas ?? "—"}</dd>
               <dt className="text-ink-400">Precio + envío</dt>
-              <dd className="tabular text-ink-200">{oferta ? formatMoneda(oferta.precio, oferta.moneda) : "…"}</dd>
+              <dd className="tabular text-ink-200">
+                {oferta ? formatMoneda(oferta.precio, oferta.moneda) : "…"}
+                {oferta?.moneda === "GBP" && <EnEuros v={oferta.precio} cambio={eurPorGbp} />}
+              </dd>
               <dt className="text-ink-400">Expedido por</dt>
               <dd className="text-ink-200">{oferta?.envioAmazon === null || !oferta ? "—" : oferta.envioAmazon ? "Amazon" : "El vendedor"}</dd>
             </dl>
@@ -400,22 +417,23 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
               <h2 className="text-base font-semibold text-ink-100">Logística de Amazon</h2>
               {calculando && <span className="text-xs text-ink-500">Calculando…</span>}
             </div>
-            <Campo etiqueta="Precio del artículo" valor={precio} onChange={setPrecio} sufijo={moneda === "GBP" ? "£" : "€"} />
+            <Campo etiqueta="Precio del artículo" valor={precio} onChange={setPrecio} sufijo={moneda === "GBP" ? "£" : "€"} cambio={cambio} />
+            {cambio && <p className="-mt-1 text-[11px] text-ink-500">Euros al cambio del BCE: 1 £ = {cifra(cambio)} €</p>}
             {errorTarifas && <p className="text-xs text-danger">{errorTarifas}</p>}
 
             <div className="flex flex-col gap-1 border-t border-white/[0.06] pt-3">
-              <Linea etiqueta="Tarifas de Amazon" valor={tarifasAmazon} moneda={moneda} fuerte />
-              <Linea etiqueta="Tarifa por referencia" valor={tarifas?.comision ?? null} moneda={moneda} sub />
-              <Linea etiqueta="Tarifa por venta de artículo" valor={tarifas?.porArticulo ?? null} moneda={moneda} sub />
-              <Linea etiqueta="Tarifa variable de cierre" valor={tarifas?.variable ?? null} moneda={moneda} sub />
-              <Linea etiqueta={`Servicios digitales (${cifra(ajustes.serviciosDigitales[pais])} %)`} valor={dst} moneda={moneda} sub />
+              <Linea etiqueta="Tarifas de Amazon" valor={tarifasAmazon} moneda={moneda} cambio={cambio} fuerte />
+              <Linea etiqueta="Tarifa por referencia" valor={tarifas?.comision ?? null} moneda={moneda} cambio={cambio} sub />
+              <Linea etiqueta="Tarifa por venta de artículo" valor={tarifas?.porArticulo ?? null} moneda={moneda} cambio={cambio} sub />
+              <Linea etiqueta="Tarifa variable de cierre" valor={tarifas?.variable ?? null} moneda={moneda} cambio={cambio} sub />
+              <Linea etiqueta={`Servicios digitales (${cifra(ajustes.serviciosDigitales[pais])} %)`} valor={dst} moneda={moneda} cambio={cambio} sub />
             </div>
             <div className="border-t border-white/[0.06] pt-3">
-              <Linea etiqueta="Gestión logística" valor={tarifas?.logistica ?? null} moneda={moneda} fuerte />
+              <Linea etiqueta="Gestión logística" valor={tarifas?.logistica ?? null} moneda={moneda} cambio={cambio} fuerte />
             </div>
 
             <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-3">
-              <Linea etiqueta="Almacenamiento (por unidad vendida)" valor={almacenUnidad} moneda={moneda} fuerte />
+              <Linea etiqueta="Almacenamiento (por unidad vendida)" valor={almacenUnidad} moneda={moneda} cambio={cambio} fuerte />
               <div className="flex gap-1.5">
                 {(
                   [
@@ -435,7 +453,7 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
               <Campo etiqueta="Promedio de unidades en inventario" valor={inventario} onChange={setInventario} />
               <Campo etiqueta="Estimación de ventas mensuales" valor={ventas} onChange={setVentas} />
               <p className="text-[11px] text-ink-500">
-                Tamaño {grande ? "grande" : "estándar"}: {cifra(tasaAlmacen)} {moneda === "GBP" ? "£" : "€"}/m³ al mes (cámbialo en ⚙ Ajustes)
+                Tamaño {grande ? "grande" : "estándar"}: {cifra(tasaAlmacen)} {moneda === "GBP" ? `£/m³ (≈ ${cifra(tasaAlmacen * eurPorGbp)} €/m³)` : "€/m³"} al mes (cámbialo en ⚙ Ajustes)
                 {m3 === null && " · Amazon no da las medidas del paquete"}
               </p>
             </div>
@@ -443,9 +461,11 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
             <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-3">
               <div className="text-sm font-semibold text-ink-100">Otros costes</div>
               <Campo etiqueta="IVA" valor={iva} onChange={setIva} sufijo="%" />
-              <div className="-mt-1 text-right text-xs text-ink-500">{ivaImporte !== null ? formatMoneda(ivaImporte, moneda) : "—"}</div>
-              <Campo etiqueta="Otros costes (por unidad)" valor={otros} onChange={setOtros} sufijo={moneda === "GBP" ? "£" : "€"} ayuda="Envío a Amazon, publicidad…" />
-              <Campo etiqueta="Coste del producto" valor={coste} onChange={setCoste} sufijo={moneda === "GBP" ? "£" : "€"} />
+              <div className="-mt-1 text-right text-xs text-ink-500">{ivaImporte !== null ? formatMoneda(ivaImporte, moneda) : "—"}
+                <EnEuros v={ivaImporte} cambio={cambio} />
+              </div>
+              <Campo etiqueta="Otros costes (por unidad)" valor={otros} onChange={setOtros} sufijo={moneda === "GBP" ? "£" : "€"} ayuda="Envío a Amazon, publicidad…" cambio={cambio} />
+              <Campo etiqueta="Coste del producto" valor={coste} onChange={setCoste} sufijo={moneda === "GBP" ? "£" : "€"} cambio={cambio} />
             </div>
           </div>
         </div>
@@ -456,6 +476,7 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
           <div>
             <div className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Coste por unidad</div>
             <div className="tabular text-lg font-bold text-ink-100">{costeUnidad !== null ? formatMoneda(costeUnidad, moneda) : "—"}</div>
+            {cambio && costeUnidad !== null && <div className="tabular text-xs text-ink-400">≈ {formatMoneda(costeUnidad * cambio, "EUR")}</div>}
           </div>
           <div>
             <div className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Ventas en 30 días</div>
@@ -472,9 +493,11 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
             <div className={`tabular text-lg font-bold ${beneficioUnidad !== null && beneficioUnidad < 0 ? "text-danger" : "text-success"}`}>
               {beneficioUnidad !== null ? formatMoneda(beneficioUnidad * unidadesNum, moneda) : "—"}
             </div>
+            {cambio && beneficioUnidad !== null && <div className="tabular text-xs text-ink-400">≈ {formatMoneda(beneficioUnidad * unidadesNum * cambio, "EUR")}</div>}
             {beneficioUnidad !== null && unidadesNum !== 1 && (
               <div className="tabular text-xs text-ink-400">
-                {formatMoneda(beneficioUnidad, moneda)} por unidad × {formatNumero(unidadesNum)}
+                {formatMoneda(beneficioUnidad, moneda)}
+                {cambio && ` (≈ ${formatMoneda(beneficioUnidad * cambio, "EUR")})`} por unidad × {formatNumero(unidadesNum)}
               </div>
             )}
           </div>
@@ -486,6 +509,11 @@ export function VistaCalculadora({ ajustesIniciales, demo, paisInicial = "ES" }:
           </div>
         </div>
       )}
+
+      <div className={`${caja} flex flex-col gap-2`}>
+        <h2 className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Conversor de divisas</h2>
+        <ConversorDivisas cambios={cambios} compacto />
+      </div>
     </div>
   );
 }

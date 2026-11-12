@@ -4,6 +4,11 @@ import { estudioParaVista } from "@/lib/datos/estudiosH10";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { VistaH10 } from "@/components/h10/VistaH10";
 import { leerAjustesCalc } from "@/lib/datos/calculadora";
+import { eurPorUnidad } from "@/lib/amazon/tiposCambio";
+import { EUR_POR_GBP } from "@/lib/datos/h10Analisis";
+
+/** Euros per dollar if the ECB doesn't answer. */
+const EUR_POR_USD = 0.86;
 
 /** One Helium 10 study with all its tabs. «?pestana=…» opens on that tab (coming back from a competitor's page). */
 export default async function EstudioH10Page({ params, searchParams }: PageProps<"/analisis-h10/[id]">) {
@@ -30,6 +35,16 @@ export default async function EstudioH10Page({ params, searchParams }: PageProps
         invitado={user.rol === "invitado"}
         // The calculator asks Amazon with the owner's keys: only for the owner (1 read, then in memory).
         ajustesCalc={user.rol === "dueno" ? await leerAjustesCalc() : null}
+        // The ECB rates of the day for the calculator and «Divisas» (fixed ones if the ECB doesn't answer).
+        cambios={
+          user.rol === "dueno"
+            ? {
+                EUR: 1,
+                USD: await eurPorUnidad("USD", new Date()).catch(() => EUR_POR_USD),
+                GBP: await eurPorUnidad("GBP", new Date()).catch(() => EUR_POR_GBP),
+              }
+            : undefined
+        }
       />
     </div>
   );

@@ -29,6 +29,7 @@ import { useListingPropio } from "./ListingPropio";
 import { PestanaKits, type VentasMercado } from "./PestanaKits";
 import { PestanaTarifasFba } from "./PestanaTarifasFba";
 import { VistaCalculadora } from "@/components/calculadora/VistaCalculadora";
+import { ConversorDivisas, type Cambios } from "@/components/calculadora/ConversorDivisas";
 import type { AjustesCalc } from "@/lib/datos/calculadora";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
@@ -135,6 +136,7 @@ export function VistaH10({
   inicial,
   invitado = false,
   ajustesCalc = null,
+  cambios,
 }: {
   estudio: EstudioH10;
   palabras: Record<string, PalabrasMercado>;
@@ -150,12 +152,14 @@ export function VistaH10({
   invitado?: boolean;
   /** The calculator's settings (storage per m³, digital services); null for a guest, who doesn't get the calculator. */
   ajustesCalc?: AjustesCalc | null;
+  /** The ECB euros per dollar and pound of the day: the calculator in the UK store and «Divisas». */
+  cambios?: Cambios;
 }) {
   const router = useRouter();
   // «Datos» until it has an Xray, then «Mercado».
   const [elegida, setElegida] = useState<Pestana | undefined>(() => (inicial?.pestana === "calculadora" ? "kits" : PESTANAS.find((x) => x.id === inicial?.pestana)?.id));
   // «Kits competidores» has two sub-tabs: the kits and Amazon's revenue calculator (at hand while looking at the kits).
-  const [subKits, setSubKits] = useState<"kits" | "calculadora">(() => (inicial?.pestana === "calculadora" ? "calculadora" : "kits"));
+  const [subKits, setSubKits] = useState<"kits" | "calculadora" | "divisas">(() => (inicial?.pestana === "calculadora" ? "calculadora" : "kits"));
   // «Lanzamiento» has two sub-tabs: the keywords and listing, and which kit to launch (from the competitors' kits).
   const [subLanzamiento, setSubLanzamiento] = useState<"estrategia" | "kit">("estrategia");
   const pestana = elegida ?? (estudio.ejemplo || estudio.mercados.length ? "mercado" : "datos");
@@ -285,13 +289,14 @@ export function VistaH10({
       {pestana === "lanzamiento" && !estudio.ejemplo && subLanzamiento === "kit" && (
         <QueKitLanzar key={`kit-${estudio.id}`} estudio={estudio} onIrAKits={() => irA("kits")} />
       )}
-      {pestana === "tarifas" && <PestanaTarifasFba key={`tarifas-${estudio.id}`} estudioId={estudio.id} />}
+      {pestana === "tarifas" && <PestanaTarifasFba key={`tarifas-${estudio.id}`} estudioId={estudio.id} eurPorGbp={cambios?.GBP} />}
       {pestana === "kits" && !estudio.ejemplo && ajustesCalc && (
         <div className="flex gap-1.5">
           {(
             [
               ["kits", "Kits"],
               ["calculadora", "Calculadora"],
+              ...(cambios ? [["divisas", "Divisas"] as const] : []),
             ] as const
           ).map(([id, texto]) => (
             <button
@@ -313,8 +318,14 @@ export function VistaH10({
       {/* Always mounted (hidden when not chosen): coming back to it keeps the product and figures typed. */}
       {ajustesCalc && !estudio.ejemplo && (
         <div className={pestana === "kits" && subKits === "calculadora" ? "" : "hidden"}>
-          <VistaCalculadora key={`calc-${estudio.id}`} ajustesIniciales={ajustesCalc} demo={false} paisInicial={paisInicial as CodigoPais} />
+          <VistaCalculadora key={`calc-${estudio.id}`} ajustesIniciales={ajustesCalc} demo={false} paisInicial={paisInicial as CodigoPais} cambios={cambios ?? { EUR: 1, USD: 0.86, GBP: 1.16 }} />
         </div>
+      )}
+      {pestana === "kits" && !estudio.ejemplo && ajustesCalc && cambios && subKits === "divisas" && (
+        <section className="rounded-xl border border-white/[0.08] bg-ink-900/60 p-4">
+          <h2 className="mb-3 text-base font-semibold text-ink-100">Divisas</h2>
+          <ConversorDivisas cambios={cambios} />
+        </section>
       )}
       {pestana === "listings" &&
         (resumen ? (
