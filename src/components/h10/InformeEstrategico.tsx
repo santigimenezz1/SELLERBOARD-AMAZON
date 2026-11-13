@@ -39,7 +39,15 @@ function SinVerificar({ cifras }: { cifras: string[] }) {
 }
 
 /** Where a claim comes from: a figure of the study, a web source or the team's deduction (with how sure it is). */
-function Prueba({ p }: { p: PruebaInforme }) {
+function Prueba({ p }: { p: PruebaInforme | string }) {
+  // The AI sometimes writes the proof as plain text («Hoja de números») or with a type of its own: shown as it is.
+  if (typeof p !== "object" || !p || !["dato", "web", "supuesto"].includes(p.tipo))
+    return (
+      <span className="mt-1.5 inline-flex flex-wrap items-center gap-1.5 rounded-md border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[11px] text-ink-300">
+        <span className="font-semibold">Origen</span>
+        <span>· {typeof p === "string" ? p : (p?.texto ?? "")}</span>
+      </span>
+    );
   const estilo = {
     dato: { clase: "border-serie-ventas/30 bg-serie-ventas/10 text-serie-ventas", icono: "▤", etiqueta: "Dato del estudio" },
     web: { clase: "border-success/30 bg-success/10 text-success", icono: "↗", etiqueta: `Fuente ${p.fuente ? `[${p.fuente}]` : "web"}` },
