@@ -301,7 +301,9 @@ const FALLOS_AVISO = 20;
  * real steps show as they happen.
  */
 /** `calidad`: what in the study's data looks wrong or is missing (h10Calidad.ts), shown before generating. */
-export function InformeEstrategico({ estudioId, informe: actual, calidad = [] }: { estudioId: string; informe: Informe | null; calidad?: ProblemaDatos[] }) {
+/** `paises`: the study's countries, for a cheap test on one of them (null: no test, e.g. a guest). */
+export function InformeEstrategico({ estudioId, informe: actual, calidad = [], paises = null }: { estudioId: string; informe: Informe | null; calidad?: ProblemaDatos[]; paises?: string[] | null }) {
+  const [paisPrueba, setPaisPrueba] = useState(paises?.includes("GB") ? "GB" : (paises?.[0] ?? ""));
   const router = useRouter();
   const [confirmar, setConfirmar] = useState(false);
   const [estado, setEstado] = useState<EstadoInforme | null>(null);
@@ -363,11 +365,12 @@ export function InformeEstrategico({ estudioId, informe: actual, calidad = [] }:
     };
   }, [url, seguir]);
 
-  const generar = async () => {
+  /** `prueba`: a real, cheap test on one country (Sonnet, stopped at 5 $). */
+  const generar = async (prueba?: string) => {
     setConfirmar(false);
     setError(null);
     try {
-      const r = await fetch(url, { method: "POST" });
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prueba ? { prueba: { pais: prueba } } : {}) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error ?? "No se pudo empezar el informe");
       setEstado(j.estado);
@@ -412,11 +415,32 @@ export function InformeEstrategico({ estudioId, informe: actual, calidad = [] }:
             <p className="mt-1.5 text-ink-400">{graves ? "Arréglalo en «Archivos» antes: el informe se apoyaría en datos rotos." : "El equipo los tendrá en cuenta, pero el informe será más preciso si los arreglas antes en «Archivos»."}</p>
           </div>
         )}
+        {!!paises?.length && (
+          <div className="mt-3 rounded-lg border border-accent-500/30 bg-accent-500/[0.06] px-3 py-2.5 text-xs text-ink-300">
+            <p className="font-semibold text-accent-300">Prueba real y barata</p>
+            <p className="mt-1">
+              El equipo completo, como está planeado, pero <strong className="text-ink-100">todos con Sonnet</strong>, mirando <strong className="text-ink-100">un solo país</strong> y con un{" "}
+              <strong className="text-ink-100">tope de 5 $</strong>: si llega, se para solo. Calcula unos 1–4 $.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <select value={paisPrueba} onChange={(e) => setPaisPrueba(e.target.value)} aria-label="País de la prueba" className="h-8 rounded-md border border-white/[0.12] bg-ink-950/60 px-2 text-xs text-ink-100">
+                {paises.map((p) => (
+                  <option key={p} value={p}>
+                    {p === "GB" ? "Reino Unido" : p === "ES" ? "España" : p === "DE" ? "Alemania" : p === "FR" ? "Francia" : p === "IT" ? "Italia" : p}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => generar(paisPrueba)} disabled={!paisPrueba} className="rounded-md bg-accent-500 px-3 py-1.5 font-semibold text-ink-950 hover:bg-accent-400 disabled:opacity-50">
+                Hacer la prueba
+              </button>
+            </div>
+          </div>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={() => setConfirmar(false)} className="rounded-lg px-3.5 py-2 text-sm text-ink-300 hover:bg-white/[0.06]">
             Cancelar
           </button>
-          <button onClick={generar} className={`rounded-lg px-3.5 py-2 text-sm font-semibold ${graves ? "border border-danger/50 text-danger hover:bg-danger/10" : "bg-accent-500 text-ink-950 hover:bg-accent-400"}`}>
+          <button onClick={() => generar()} className={`rounded-lg px-3.5 py-2 text-sm font-semibold ${graves ? "border border-danger/50 text-danger hover:bg-danger/10" : "bg-accent-500 text-ink-950 hover:bg-accent-400"}`}>
             {graves ? "Generar igualmente" : "Generar informe"}
           </button>
         </div>

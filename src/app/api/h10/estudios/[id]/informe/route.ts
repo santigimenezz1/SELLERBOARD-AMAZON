@@ -3,6 +3,7 @@ import { mismoOrigen } from "@/lib/origen";
 import { usuarioDelEstudio } from "@/lib/auth/estudios";
 import { estadoInforme, lanzarInforme, modoAgente } from "@/lib/ia/agenteInforme";
 import { historialInformes, informeVersion } from "@/lib/datos/estudiosH10";
+import { esCodigoPais } from "@/lib/datos/h10Tipos";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -11,9 +12,17 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (!mismoOrigen(req)) return NextResponse.json({ error: "Origen no permitido" }, { status: 403 });
   const user = await usuarioDelEstudio((await params).id, true);
   if (!user) return NextResponse.json({ error: "Sesión caducada: vuelve a iniciar sesión" }, { status: 401 });
-  // A real report costs several dollars of the owners' credits: not for guests.
-  if (user.rol === "invitado" && modoAgente() === "real") return NextResponse.json({ error: "El informe con IA no está disponible en las cuentas de invitado" }, { status: 403 });
-  return NextResponse.json({ estado: lanzarInforme((await params).id) });
+  // `{ prueba: { pais } }`: a real, cheap test on one country (Sonnet, with a spending cap).
+  const cuerpo = (await req.json().catch(() => ({}))) as { prueba?: { pais?: unknown } };
+  const pais = cuerpo.prueba?.pais;
+  if (cuerpo.prueba && !esCodigoPais(pais)) return NextResponse.json({ error: "País no válido" }, { status: 400 });
+  // A real report costs dollars of the owners' credits: not for guests.
+  if (user.rol === "invitado" && (modoAgente() === "real" || cuerpo.prueba)) return NextResponse.json({ error: "El informe con IA no está disponible en las cuentas de invitado" }, { status: 403 });
+  try {
+    return NextResponse.json({ estado: lanzarInforme((await params).id, esCodigoPais(pais) ? { paises: [pais] } : undefined) });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "No se pudo empezar" }, { status: 409 });
+  }
 }
 
 /**

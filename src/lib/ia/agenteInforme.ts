@@ -3,9 +3,10 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { limpiarEnv } from "@/lib/env";
-import { borradorInforme, estudioParaAgente, guardarBorradorInforme, guardarInforme, guardarProgresoInforme, progresoInforme } from "@/lib/datos/estudiosH10";
+import { borradorInforme, estudioParaAgente, fijarAlcanceAgente, guardarBorradorInforme, guardarInforme, guardarProgresoInforme, progresoInforme } from "@/lib/datos/estudiosH10";
 import { informeSimulado } from "@/lib/datos/h10InformeSimulado";
 import { resumirEstudio } from "@/lib/datos/h10Analisis";
+import type { CodigoPais } from "@/lib/datos/h10Tipos";
 import type { BloqueInforme, ControlInforme, DecisionesEspecialista, InformeEstrategico, NotaAnalisis, PasoEquipo, RevisionInforme, SeccionInforme } from "@/lib/datos/h10Tipos";
 import { describirPaso, ejecutarHerramienta, HERRAMIENTAS } from "./agenteHerramientas";
 import { EQUIPO } from "@/lib/datos/h10Equipo";
@@ -38,7 +39,7 @@ import { cifrasDeTexto, controlarInforme, crearConceptos, crearReferencia, norma
 export type ModoAgente = "ensayo" | "real";
 export type PasoAgente = PasoEquipo;
 /** What the team has spent so far: tokens, web searches and their price in dollars. */
-export type GastoAgente = { modelo: string; entrada: number; salida: number; cacheEscrita: number; cacheLeida: number; busquedasWeb: number; dolares: number };
+export type GastoAgente = { modelo: string; entrada: number; salida: number; cacheEscrita: number; cacheLeida: number; busquedasWeb: number; dolares: number; tope?: number };
 export type EstadoInforme = {
   estudioId: string;
   modo: ModoAgente;
@@ -51,7 +52,13 @@ export type EstadoInforme = {
   error: string | null;
   /** The server restarted (e.g. a deploy) while it was running: it stopped there. */
   interrumpido?: boolean;
+  /** A test: only these countries, every agent on one model, and a spending cap (in `gasto.tope`). */
+  prueba?: { paises: CodigoPais[]; modelo: string };
 };
+
+/** A test report: every agent on Sonnet, one country and at most this many dollars. */
+export const MODELO_PRUEBA = "claude-sonnet-5-5";
+export const TOPE_PRUEBA = 5;
 
 const DIRECTOR_POR_DEFECTO = "claude-opus-5-5";
 const ESPECIALISTAS_POR_DEFECTO = "claude-sonnet-5-5";
@@ -71,8 +78,10 @@ const PRECIOS: Record<string, { entrada: number; salida: number; cacheEscrita: n
 const DOLARES_POR_BUSQUEDA = 0.01;
 
 export const modoAgente = (): ModoAgente => (limpiarEnv(process.env.INFORME_MODO) === "real" ? "real" : "ensayo");
-export const modeloDirector = () => limpiarEnv(process.env.INFORME_MODELO) || DIRECTOR_POR_DEFECTO;
-const modeloEspecialistas = () => limpiarEnv(process.env.INFORME_MODELO_ESPECIALISTAS) || ESPECIALISTAS_POR_DEFECTO;
+/** While a test report runs, every agent uses its model (one test at a time in this process). */
+const gm = globalThis as unknown as { __modeloPrueba?: string };
+export const modeloDirector = () => gm.__modeloPrueba || limpiarEnv(process.env.INFORME_MODELO) || DIRECTOR_POR_DEFECTO;
+const modeloEspecialistas = () => gm.__modeloPrueba || limpiarEnv(process.env.INFORME_MODELO_ESPECIALISTAS) || ESPECIALISTAS_POR_DEFECTO;
 
 const g = globalThis as unknown as { __informes?: Map<string, EstadoInforme>; __procesoInforme?: string };
 const trabajos = () => (g.__informes ??= new Map());
@@ -130,6 +139,9 @@ function sumarGasto(g: GastoAgente, u: Uso | undefined, modelo: string) {
   g.cacheLeida += leida;
   g.busquedasWeb += busquedas;
   g.dolares = Math.round((g.dolares + (entrada * p.entrada + salida * p.salida + escrita * p.cacheEscrita + leida * p.cacheLeida) / 1_000_000 + busquedas * DOLARES_POR_BUSQUEDA) * 1000) / 1000;
+  // Over the cap: the team stops here (what the specialists already handed in is kept for a next try).
+  if (g.tope && g.dolares >= g.tope)
+    throw new Error(`Se paró al llegar al tope de gasto: ${g.dolares.toLocaleString("es-ES", { maximumFractionDigits: 2 })} $ de ${g.tope} $. Lo que ya habían entregado los especialistas queda guardado.`);
 }
 
 // ---------- The team ----------
@@ -869,9 +881,11 @@ async function trabajar(estado: EstadoInforme) {
   });
 
   // An earlier try that didn't finish (same data): its specialists' work is reused, not paid again.
-  type Borrador = { modo: ModoAgente; analisis: AnalisisEspecialista[]; notas: NotaAnalisis[]; lecturas: string[]; urls: string[] };
+  // Only the same kind of run: a one-country test is never reused for a whole report (nor the other way round).
+  type Borrador = { modo: ModoAgente; alcance?: string; analisis: AnalisisEspecialista[]; notas: NotaAnalisis[]; lecturas: string[]; urls: string[] };
+  const alcance = estado.prueba ? estado.prueba.paises.join(",") : "todos";
   const previo = await borradorInforme<Borrador>(estado.estudioId).catch(() => null);
-  const reusar = previo?.modo === estado.modo ? previo : null;
+  const reusar = previo?.modo === estado.modo && (previo.alcance ?? "todos") === alcance ? previo : null;
   if (reusar) {
     leido.lecturas.push(...reusar.lecturas);
     reusar.urls.forEach((u) => leido.urls.add(u));
@@ -977,7 +991,7 @@ async function trabajar(estado: EstadoInforme) {
 
   // The specialists' work is kept until the report is saved: a restart from here on doesn't pay it again.
   if (!reusar)
-    await guardarBorradorInforme(estado.estudioId, { modo: estado.modo, analisis, notas, lecturas: leido.lecturas, urls: [...leido.urls] } satisfies Borrador).catch((e) => console.error("[agenteInforme] borrador", e));
+    await guardarBorradorInforme(estado.estudioId, { modo: estado.modo, alcance, analisis, notas, lecturas: leido.lecturas, urls: [...leido.urls] } satisfies Borrador).catch((e) => console.error("[agenteInforme] borrador", e));
 
   // 3. The director checks, decides and writes (it can ask the specialists); the reviewer reads it before it's accepted.
   let revision: RevisionInforme | null = null;
@@ -1131,12 +1145,40 @@ export async function probarEspecialista(estudioId: string, especialistaId: stri
 }
 
 /** Starts a study's report in the background (once at a time per study). */
-export function lanzarInforme(estudioId: string): EstadoInforme {
+/**
+ * Starts a study's report in the background (once at a time per study). `prueba`: a real, cheap test on some
+ * countries only, every agent on Sonnet and stopped at TOPE_PRUEBA dollars (whatever INFORME_MODO says).
+ */
+export function lanzarInforme(estudioId: string, prueba?: { paises: CodigoPais[] }): EstadoInforme {
   const actual = trabajos().get(estudioId);
   if (actual && !actual.terminado) return actual;
-  const modo = modoAgente();
-  const gasto: GastoAgente = { modelo: modo === "real" ? `${modeloEspecialistas()} + ${modeloDirector()}` : "ensayo", entrada: 0, salida: 0, cacheEscrita: 0, cacheLeida: 0, busquedasWeb: 0, dolares: 0 };
-  const estado: EstadoInforme = { estudioId, modo, gasto, fase: "especialistas", empezado: new Date().toISOString(), terminado: null, pasos: [], error: null };
+  if (prueba && gm.__modeloPrueba) throw new Error("Ya hay una prueba en marcha: espera a que termine");
+  const modo: ModoAgente = prueba ? "real" : modoAgente();
+  if (prueba) {
+    gm.__modeloPrueba = MODELO_PRUEBA;
+    fijarAlcanceAgente(estudioId, prueba.paises);
+  }
+  const gasto: GastoAgente = {
+    modelo: prueba ? `${MODELO_PRUEBA} (todo el equipo) · solo ${prueba.paises.join(", ")}` : modo === "real" ? `${modeloEspecialistas()} + ${modeloDirector()}` : "ensayo",
+    entrada: 0,
+    salida: 0,
+    cacheEscrita: 0,
+    cacheLeida: 0,
+    busquedasWeb: 0,
+    dolares: 0,
+    ...(prueba && { tope: TOPE_PRUEBA }),
+  };
+  const estado: EstadoInforme = {
+    estudioId,
+    modo,
+    gasto,
+    fase: "especialistas",
+    empezado: new Date().toISOString(),
+    terminado: null,
+    pasos: [],
+    error: null,
+    ...(prueba && { prueba: { paises: prueba.paises, modelo: MODELO_PRUEBA } }),
+  };
   trabajos().set(estudioId, estado);
   // Saved now and then (and at the end), so a restart mid-way is told and not just lost.
   const guardarProgreso = () => guardarProgresoInforme(estudioId, { ...estado, proceso: proceso(), actualizado: new Date().toISOString() }).catch((e) => console.error("[agenteInforme] progreso", e));
@@ -1149,6 +1191,10 @@ export function lanzarInforme(estudioId: string): EstadoInforme {
     })
     .finally(() => {
       clearInterval(cada);
+      if (prueba) {
+        gm.__modeloPrueba = undefined;
+        fijarAlcanceAgente(estudioId, null);
+      }
       estado.terminado = new Date().toISOString();
       void guardarProgreso();
     });

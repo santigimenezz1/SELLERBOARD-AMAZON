@@ -1174,7 +1174,7 @@ export async function xraysSecundariasDe(id: string) {
   for (const [, d] of [...e.datos.entries()].sort((a, b) => (subido.get(b[0]) ?? "").localeCompare(subido.get(a[0]) ?? ""))) {
     const m = d.mercado;
     const principal = m && d.codigoPais ? principales.get(d.codigoPais) : undefined;
-    if (!m || !principal || sinAcentos(m.palabraClave) === sinAcentos(principal.palabraClave)) continue;
+    if (!m || !principal || !dentroDelAlcance(id, d.codigoPais) || sinAcentos(m.palabraClave) === sinAcentos(principal.palabraClave)) continue;
     // The same search uploaded twice: its newest is enough.
     const clave = `${d.codigoPais}|${sinAcentos(m.palabraClave)}`;
     if (vistas.has(clave)) continue;
@@ -1197,17 +1197,49 @@ export async function xraysSecundariasDe(id: string) {
 }
 
 /** A study as the page sees it, with its keywords: what the research agent works from. */
+/** The countries a running report is limited to, by study (a test on one country): the agents see only those. */
+const ga = globalThis as unknown as { __alcanceAgente?: Map<string, CodigoPais[]> };
+const alcances = () => (ga.__alcanceAgente ??= new Map());
+/** Limits what the agents read of a study to some countries (null: all of them again). */
+export function fijarAlcanceAgente(id: string, paises: CodigoPais[] | null) {
+  if (paises?.length) alcances().set(id, paises);
+  else alcances().delete(id);
+}
+const dentroDelAlcance = (id: string, pais: string | null | undefined) => {
+  const a = alcances().get(id);
+  return !a || (!!pais && a.includes(pais as CodigoPais));
+};
+
 export async function estudioParaAgente(id: string) {
   await prepararCambios([await entrada(id)]);
   const { estudio, palabras, costesPropios } = ensamblar(await entrada(id));
-  return { estudio, palabras, costesPropios };
+  const a = alcances().get(id);
+  if (!a) return { estudio, palabras, costesPropios };
+  const dentro = (p: string | null | undefined) => !!p && a.includes(p as CodigoPais);
+  const porPais = <T,>(o: Partial<Record<CodigoPais, T>> | undefined) => (o ? (Object.fromEntries(Object.entries(o).filter(([p]) => dentro(p))) as Partial<Record<CodigoPais, T>>) : o);
+  return {
+    estudio: {
+      ...estudio,
+      mercados: estudio.mercados.filter((m) => dentro(m.codigoPais)),
+      busquedas: porPais(estudio.busquedas),
+      xraysAnteriores: porPais(estudio.xraysAnteriores),
+      resenasH10: estudio.resenasH10?.filter((x) => dentro(x.codigoPais)),
+      resenasCompletas: estudio.resenasCompletas?.filter((x) => dentro(x.codigoPais)),
+      listings: estudio.listings?.filter((x) => dentro(x.codigoPais)),
+      amazon: estudio.amazon?.filter((x) => dentro(x.ficha.codigoPais)),
+      listingPropio: porPais(estudio.listingPropio),
+      ...(estudio.kitsCompetidores && { kitsCompetidores: { ...estudio.kitsCompetidores, porPais: porPais(estudio.kitsCompetidores.porPais) ?? {} } }),
+    },
+    palabras: Object.fromEntries(Object.entries(palabras).filter(([p]) => dentro(p))),
+    costesPropios,
+  };
 }
 
 /** Every full review uploaded in the study, with its country and ASIN (for the agent's review search). */
 export async function todasLasResenas(id: string): Promise<(ResenaCompleta & { pais: CodigoPais; asin: string })[]> {
   const e = await entrada(id);
   const productos = new Map<string, { pais: CodigoPais; asin: string }>();
-  for (const d of e.datos.values()) if (d.resenasCompletas?.asin && d.codigoPais) productos.set(`${d.codigoPais}_${d.resenasCompletas.asin}`, { pais: d.codigoPais, asin: d.resenasCompletas.asin });
+  for (const d of e.datos.values()) if (d.resenasCompletas?.asin && d.codigoPais && dentroDelAlcance(id, d.codigoPais)) productos.set(`${d.codigoPais}_${d.resenasCompletas.asin}`, { pais: d.codigoPais, asin: d.resenasCompletas.asin });
   const listas = await Promise.all([...productos.values()].map(async (p) => (await resenasCompletasDe(id, p.pais, p.asin)).map((r) => ({ ...r, ...p }))));
   return listas.flat();
 }

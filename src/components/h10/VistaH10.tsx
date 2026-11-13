@@ -377,7 +377,7 @@ export function VistaH10({
         {en("informe", "conclusiones") &&
           (resumen ? (
             <div className="flex flex-col gap-4">
-              <InformeEstrategico key={`informe-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} calidad={revisarDatos(estudio, palabrasEstudio, costesPropios)} />
+              <InformeEstrategico key={`informe-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} calidad={revisarDatos(estudio, palabrasEstudio, costesPropios)} paises={invitado || estudio.ejemplo ? null : estudio.mercados.map((m) => m.codigoPais)} />
               <Informe
                 conRentabilidad={CON_RENTABILIDAD}
                 informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], analizarResenas(estudio), CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)}
