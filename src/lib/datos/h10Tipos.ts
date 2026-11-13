@@ -76,6 +76,8 @@ export type EstudioH10 = {
   kitsCompetidores?: KitsCompetidores;
   /** Listings taken out of the «Listings» top 10 by hand, as «ES|B0…»: the next one by revenue takes their place. */
   listingsQuitados?: string[];
+  /** «Precio por mercado»: your kit, the rivals chosen by hand and your own prices. */
+  precioMercado?: PrecioMercado;
   /** Monthly searches of each country's keyword over the last years (Helium 10's «Search Volume» chart). */
   busquedas?: Partial<Record<CodigoPais, HistorialBusquedas>>;
   /** Each competitor's Helium 10 «Review Analysis», and the themes the AI put together from all of them. */
@@ -493,6 +495,16 @@ export type PalabraLanzamiento = {
 export type DestinoPalabra = "principal" | "titulo" | "bullets" | "backend" | "ppc";
 export const DESTINOS_PALABRA: DestinoPalabra[] = ["principal", "titulo", "bullets", "backend", "ppc"];
 /** One thing a competitor's kit includes, as its listing says it: «2 × Portería · 120×90 cm». */
+/** «Precio por mercado»: what you'll sell, against whom and at what price, per country. */
+export type PrecioMercado = {
+  /** How many of the study's main element your kit brings (2 goals) and its extras, as you name them. */
+  cantidad: number;
+  extras: string[];
+  /** Rivals chosen by hand, «ES|B0…» → in (true) or out (false); the rest go by the size of their kit. */
+  rivales: Record<string, boolean>;
+  /** Your own price typed for each country (its currency). */
+  precios: Partial<Record<CodigoPais, number>>;
+};
 export type ElementoKit = { cantidad: number | null; nombre: string; detalle: string | null };
 /** A best-selling competitor and what its kit includes (read from its Amazon listing by the AI). */
 export type KitCompetidor = {

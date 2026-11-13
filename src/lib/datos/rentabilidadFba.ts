@@ -83,3 +83,21 @@ export function rentabilidad(r: CalculoTarifa, s: SupuestosRentabilidad, eurPorG
     return { pais, moneda: MONEDA_TARIFA[pais], filas };
   });
 }
+
+/** What one unit leaves at a given sale price (with VAT) in a store: the same costs as `rentabilidad`, the other way round. */
+export function aPrecio(r: CalculoTarifa, s: SupuestosRentabilidad, eurPorGbp: number, pais: PaisTarifa, precio: number) {
+  if (!r.categoria || precio <= 0) return null;
+  const m3 = r.volumen / 1_000_000;
+  const tamano = r.categoria.porKg ? "grande" : "estandar";
+  const aLocal = pais === "UK" ? 1 / eurPorGbp : 1;
+  const logistica = r.paises.find((p) => p.pais === pais)!.total;
+  const almacen = m3 * ALMACEN[tamano][pais === "UK" ? "UK" : "UE"][s.temporada] * Math.max(0, s.meses);
+  const coste = s.coste * aLocal;
+  const envio = s.envio * aLocal;
+  const dst = SERVICIOS_DIGITALES[pais] / 100;
+  const comision = Math.max((s.comision / 100) * precio, COMISION_MINIMA);
+  const servicios = comision * dst;
+  const iva = (precio * IVA[pais]) / (100 + IVA[pais]);
+  const ganancia = precio - comision - servicios - iva - logistica - almacen - coste - envio;
+  return { precio, comision, servicios, logistica, almacen, iva, coste, envio, ganancia, margen: ganancia / precio, roas: ganancia > 0 ? precio / ganancia : null };
+}

@@ -27,6 +27,7 @@ import { QueKitLanzar } from "./QueKitLanzar";
 import { useListingPropio } from "./ListingPropio";
 import { PestanaKits, type VentasMercado } from "./PestanaKits";
 import { PestanaTarifasFba } from "./PestanaTarifasFba";
+import { PrecioPorMercado } from "./PrecioPorMercado";
 import { VistaCalculadora } from "@/components/calculadora/VistaCalculadora";
 import { ConversorDivisas, type Cambios } from "@/components/calculadora/ConversorDivisas";
 import type { AjustesCalc } from "@/lib/datos/calculadora";
@@ -60,6 +61,7 @@ const ANTES: Record<string, [Pestana, string?]> = {
   numeros: ["numeros"],
   tarifas: ["numeros", "tarifas"],
   calculadora: ["numeros", "calculadora"],
+  precio: ["numeros", "precio"],
   rentabilidad: ["numeros", "tarifas"],
   lanzamiento: ["lanzamiento"],
   informe: ["informe"],
@@ -201,7 +203,7 @@ export function VistaH10({
       ["kit", "Qué kit lanzar"],
       ["mejoras", "Mejoras"],
     ],
-    numeros: [["tarifas", "Tarifas FBA y rentabilidad"], ...(ajustesCalc ? ([["calculadora", "Calculadora de Amazon"]] as [string, string][]) : []), ...(cambios ? ([["divisas", "Divisas"]] as [string, string][]) : [])],
+    numeros: [["tarifas", "Tarifas FBA y rentabilidad"], ["precio", "Precio por mercado"], ...(ajustesCalc ? ([["calculadora", "Calculadora de Amazon"]] as [string, string][]) : []), ...(cambios ? ([["divisas", "Divisas"]] as [string, string][]) : [])],
     lanzamiento: [["estrategia", "Estrategia y listing"], ...(!invitado ? ([["prediccion", "Predicción vs realidad"]] as [string, string][]) : [])],
     informe: [
       ["conclusiones", "Conclusiones"],
@@ -355,6 +357,7 @@ export function VistaH10({
         )}
 
         {en("numeros", "tarifas") && <PestanaTarifasFba key={`tarifas-${estudio.id}`} estudio={estudio} eurPorGbp={cambios?.GBP} />}
+        {en("numeros", "precio") && <PrecioPorMercado key={`precio-${estudio.id}`} estudio={estudio} eurPorGbp={cambios?.GBP} onIrA={(p, x) => irA(p, x)} />}
         {/* Always mounted (hidden when not chosen): coming back to it keeps the product and figures typed. */}
         {ajustesCalc && !estudio.ejemplo && (
           <div className={en("numeros", "calculadora") ? "" : "hidden"}>

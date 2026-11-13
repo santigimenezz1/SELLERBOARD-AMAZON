@@ -42,6 +42,7 @@ import {
   type ListingAmazon,
   type LanzamientoPropio,
   type MejoraProducto,
+  type PrecioMercado,
   type PalabraLanzamiento,
   type ListingPropio,
   type KitsCompetidores,
@@ -79,6 +80,7 @@ type EstudioGuardado = {
   kitsCompetidores?: KitsCompetidores;
   /** «ES|B0…» taken out of the «Listings» top 10. */
   listingsQuitados?: string[];
+  precioMercado?: PrecioMercado;
   /** Main photo of the market leader, for the study's card (read once from Amazon's catalog). */
   portada?: { asin: string; codigoPais: CodigoPais; url: string };
   /** The guest who made it (accesos.ts): only they see it. The owners' studies have none and are shared by them. */
@@ -269,6 +271,24 @@ function leerSupuestos(v: unknown, actual: SupuestosRentabilidad): SupuestosRent
   };
 }
 
+/** «Precio por mercado» as the page sends it: your kit (up to 20 extras), rivals chosen by hand and your prices. */
+function leerPrecioMercado(v: unknown): PrecioMercado {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  const cantidad = Number(o.cantidad);
+  const rivales = o.rivales && typeof o.rivales === "object" ? (o.rivales as Record<string, unknown>) : {};
+  const precios = o.precios && typeof o.precios === "object" ? (o.precios as Record<string, unknown>) : {};
+  return {
+    cantidad: Number.isInteger(cantidad) && cantidad > 0 && cantidad <= 1000 ? cantidad : 1,
+    extras: (Array.isArray(o.extras) ? o.extras : []).map((x) => texto(x, 60)).filter(Boolean).slice(0, 20),
+    rivales: Object.fromEntries(Object.entries(rivales).filter(([k, x]) => esClaveListing(k) && typeof x === "boolean").slice(0, 500)) as Record<string, boolean>,
+    precios: Object.fromEntries(
+      Object.entries(precios)
+        .filter(([p, x]) => esCodigoPais(p) && typeof x === "number" && x > 0 && x < 10_000)
+        .map(([p, x]) => [p, Math.round((x as number) * 100) / 100]),
+    ),
+  };
+}
+
 /** Your launched product: ASIN, country and launch day (null takes it out). */
 function leerLanzamiento(v: unknown): LanzamientoPropio | undefined {
   if (v === null) return undefined;
@@ -339,7 +359,7 @@ const esClaveListing = (v: unknown): v is string => typeof v === "string" && /^(
  */
 export async function editarEstudio(
   id: string,
-  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown; mejoras?: unknown; palabrasLanzamiento?: unknown; listingPropio?: unknown },
+  cambios: { nombre?: unknown; descripcion?: unknown; supuestos?: unknown; quitarListing?: unknown; restaurarListings?: unknown; lanzamiento?: unknown; mejoras?: unknown; palabrasLanzamiento?: unknown; listingPropio?: unknown; precioMercado?: unknown },
 ): Promise<void> {
   const e = await entrada(id);
   if (cambios.quitarListing !== undefined && !esClaveListing(cambios.quitarListing)) throw new Error("Listing no válido");
@@ -354,6 +374,7 @@ export async function editarEstudio(
     ...(cambios.mejoras !== undefined && { mejoras: leerMejoras(cambios.mejoras) }),
     ...(cambios.palabrasLanzamiento !== undefined && { palabrasLanzamiento: leerPalabrasLanzamiento(cambios.palabrasLanzamiento) }),
     ...(cambios.listingPropio !== undefined && { listingPropio: leerListingPropio(cambios.listingPropio) }),
+    ...(cambios.precioMercado !== undefined && { precioMercado: leerPrecioMercado(cambios.precioMercado) }),
     actualizadoEn: new Date().toISOString(),
   };
   // Taken out: no empty field left in the document.
@@ -933,6 +954,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       listingPropio: estudio.listingPropio ?? {},
       ...(estudio.kitsCompetidores && { kitsCompetidores: estudio.kitsCompetidores }),
       listingsQuitados: estudio.listingsQuitados ?? [],
+      ...(estudio.precioMercado && { precioMercado: estudio.precioMercado }),
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],
     },
