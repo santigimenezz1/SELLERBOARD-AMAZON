@@ -106,7 +106,7 @@ export function PestanaAgentes({ estudioId, informe, conBanco = true }: { estudi
             <p className="mt-1 text-sm text-ink-400">
               {enCurso || trabajo
                 ? `${total ? duracion(total) : "—"} en total${gasto ? ` · ${gasto.dolares.toLocaleString("es-ES", { maximumFractionDigits: 3 })} $` : ""}${gasto?.busquedasWeb ? ` · ${gasto.busquedasWeb} búsquedas en internet` : ""}${modo === "ensayo" ? " · ensayo, sin IA" : ""}`
-                : "Cuatro especialistas trabajan a la vez, un verificador automático comprueba cada cifra, la directora puntúa y une su trabajo y un revisor independiente lo examina. Pide el informe en «Conclusiones»."}
+                : "Cuatro especialistas trabajan a la vez, un verificador automático comprueba cada cifra, la directora puntúa y une su trabajo y un revisor independiente lo examina. Pide el informe en Informe → Conclusiones."}
             </p>
           </div>
           {enCurso && <span className="animate-pulse rounded-full bg-success/15 px-3 py-1 text-xs font-semibold text-success">● En directo</span>}

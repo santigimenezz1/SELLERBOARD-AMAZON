@@ -5,7 +5,7 @@ import type { CodigoPais, EstudioH10 } from "@/lib/datos/h10Tipos";
 import { cambioAEur, nombrePais } from "@/lib/datos/h10Analisis";
 import { temporada, type Temporada } from "@/lib/datos/h10Temporada";
 import { formatNumero } from "@/lib/format";
-import { Pais, Seccion, Tarjeta } from "./comun";
+import { Pais, Seccion, Tarjeta, usePaisEstudio } from "./comun";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const MESES_LARGOS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -305,7 +305,9 @@ export function TamanoMercado({ estudio, onIrADatos }: { estudio: EstudioH10; on
   const { porPais, todos, busquedasPais, busquedasTodos, bases } = series(estudio);
   const paises = estudio.mercados.map((m) => m.codigoPais);
   const sinGrafico = paises.filter((p) => !porPais.has(p));
-  const [vista, setVista] = useState<"todos" | CodigoPais>("todos");
+  const [compartido, setCompartido] = usePaisEstudio(paises);
+  const vista = compartido ?? "todos";
+  const setVista = (v: "todos" | CodigoPais) => setCompartido(v === "todos" ? null : v);
   /** The month chosen in the month strip (the latest one until one is picked). */
   const [mesElegido, setMesElegido] = useState<string | null>(null);
   // «All countries» only when every country has its search chart: otherwise it would pass a few countries off as the whole market.

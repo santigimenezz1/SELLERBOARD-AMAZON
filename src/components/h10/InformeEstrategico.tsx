@@ -409,7 +409,7 @@ export function InformeEstrategico({ estudioId, informe: actual, calidad = [] }:
                 </li>
               ))}
             </ul>
-            <p className="mt-1.5 text-ink-400">{graves ? "Arréglalo en «Datos» antes: el informe se apoyaría en datos rotos." : "El equipo los tendrá en cuenta, pero el informe será más preciso si los arreglas antes en «Datos»."}</p>
+            <p className="mt-1.5 text-ink-400">{graves ? "Arréglalo en «Archivos» antes: el informe se apoyaría en datos rotos." : "El equipo los tendrá en cuenta, pero el informe será más preciso si los arreglas antes en «Archivos»."}</p>
           </div>
         )}
         <div className="mt-5 flex justify-end gap-2">

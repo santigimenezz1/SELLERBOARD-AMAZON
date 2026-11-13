@@ -392,7 +392,7 @@ function CargarListings({ estudioId, paises }: { estudioId: string; paises: stri
         disabled={!!enCurso || !paises.length}
         title={
           paises.length
-            ? "Trae de Amazon el título, las viñetas, la descripción y las fotos de los 5 líderes de cada país (uno por familia de variantes). Se ven en «Listings»"
+            ? "Trae de Amazon el título, las viñetas, la descripción y las fotos de los 5 líderes de cada país (uno por familia de variantes). Se ven en Competencia → Listings"
             : "Primero sube el Xray de algún país: de él salen los líderes que se cargan"
         }
         className="inline-flex h-7 items-center gap-1.5 rounded-md bg-success px-2.5 text-xs font-semibold text-ink-950 transition-all hover:brightness-110 active:scale-[0.97] disabled:opacity-60"

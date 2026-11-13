@@ -15,7 +15,7 @@ import {
   type TemaResenas,
 } from "@/lib/datos/h10Analisis";
 import { formatNumero } from "@/lib/format";
-import { Pais, Tarjeta } from "./comun";
+import { Pais, Tarjeta, usePaisEstudio } from "./comun";
 import { QuejasEstrellas } from "./QuejasEstrellas";
 
 const estrellas = (v: number) =>
@@ -347,7 +347,7 @@ function MasFuertes({
  */
 export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
   /** Country shown (null: every country together). */
-  const [pais, setPais] = useState<CodigoPais | null>(null);
+  const [pais, setPais] = usePaisEstudio(estudio.mercados.map((m) => m.codigoPais));
   const todo = analizarResenas(estudio);
   const todasCompletas = estudio.resenasCompletas ?? [];
   if (!todo && !todasCompletas.length) return null;
@@ -613,7 +613,7 @@ export function PestanaResenas({ estudio }: { estudio: EstudioH10 }) {
         ) : (
           <p className="mt-3 rounded-lg border border-dashed border-white/[0.12] px-4 py-5 text-center text-sm text-ink-400">
             Los Excel de «Review Analysis» no dicen cuántas estrellas tiene cada
-            reseña. Para verlo, sube en «Datos» el CSV del{" "}
+            reseña. Para verlo, sube en «Archivos» el CSV del{" "}
             <strong className="text-ink-200">Review Downloader</strong> de
             Helium 10 (extensión de Chrome, en la página del producto en
             Amazon), uno por competidor.

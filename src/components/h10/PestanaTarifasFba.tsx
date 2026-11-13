@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { EstudioH10 } from "@/lib/datos/h10Tipos";
 import {
   CATEGORIAS,
   DIVISOR,
@@ -79,27 +80,50 @@ function csv(c: Caja, r: CalculoTarifa, cep: boolean) {
 
 /** «Tarifas FBA»: a box's size tier and band in Amazon's rate card, and its fee in Spain, Germany, France and the UK. */
 /** `eurPorGbp`: the ECB rate, for the UK in «Rentabilidad por país». */
-export function PestanaTarifasFba({ estudioId, eurPorGbp = 1.16 }: { estudioId: string; eurPorGbp?: number }) {
+export function PestanaTarifasFba({ estudio, eurPorGbp = 1.16 }: { estudio: EstudioH10; eurPorGbp?: number }) {
+  const estudioId = estudio.id;
   const [sub, setSub] = useState<"tarifa" | "rentabilidad">("tarifa");
   const clave = `tarifas-fba-caja-${estudioId}`;
-  const [campos, setCampos] = useState<Campos>(VACIO);
-  // The box typed in each study is remembered in this browser.
+  // The box is the study's own («Tu caja», saved with it); the Central Europe choice, this browser's.
+  const guardada = estudio.supuestos?.miCaja;
+  const texto = (v: number | undefined) => (v ? String(v).replace(".", ",") : "");
+  const [campos, setCampos] = useState<Campos>(() =>
+    guardada && Object.values(guardada).some((v) => v > 0)
+      ? { largo: texto(guardada.largo), ancho: texto(guardada.ancho), alto: texto(guardada.alto), pesoKg: texto(guardada.peso), cep: false }
+      : VACIO,
+  );
   useEffect(() => {
     try {
       const g = localStorage.getItem(clave);
       if (g) {
         const { largo, ancho, alto, pesoKg, cep } = { ...VACIO, ...JSON.parse(g) };
         // eslint-disable-next-line react-hooks/set-state-in-effect -- read once from the browser after mounting
-        setCampos({ largo, ancho, alto, pesoKg, cep });
+        setCampos((c) => (c.largo || c.ancho || c.alto || c.pesoKg ? { ...c, cep } : { largo, ancho, alto, pesoKg, cep }));
       }
     } catch {}
   }, [clave]);
+  // Saving the box in the study, a moment after the last change (with the rest of its assumptions as they are).
+  const supuestos = useRef(estudio.supuestos);
+  const espera = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [guardado, setGuardado] = useState<"" | "guardando" | "ok" | "error">("");
+  const guardarCaja = (c: Campos) => {
+    if (espera.current) clearTimeout(espera.current);
+    espera.current = setTimeout(async () => {
+      const miCaja = { largo: leer(c.largo), ancho: leer(c.ancho), alto: leer(c.alto), peso: leer(c.pesoKg) };
+      const nuevos = { ...(supuestos.current ?? {}), miCaja };
+      setGuardado("guardando");
+      const res = await fetch(`/api/h10/estudios/${estudioId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supuestos: nuevos }) }).catch(() => null);
+      if (res?.ok) supuestos.current = nuevos as typeof supuestos.current;
+      setGuardado(res?.ok ? "ok" : "error");
+    }, 900);
+  };
   const cambiar = (c: Partial<Campos>) => {
     const nuevo = { ...campos, ...c };
     setCampos(nuevo);
     try {
       localStorage.setItem(clave, JSON.stringify(nuevo));
     } catch {}
+    if (!estudio.ejemplo && ("largo" in c || "ancho" in c || "alto" in c || "pesoKg" in c)) guardarCaja(nuevo);
   };
 
   const caja: Caja = { largo: leer(campos.largo), ancho: leer(campos.ancho), alto: leer(campos.alto), pesoG: Math.round(leer(campos.pesoKg) * 1000) };
@@ -133,7 +157,10 @@ export function PestanaTarifasFba({ estudioId, eurPorGbp = 1.16 }: { estudioId: 
         </div>
       </div>
 
-      <Tarjeta titulo="1. Tu caja" subtitulo="Medidas exteriores de la caja o bolsa y peso total con el producto y el embalaje dentro.">
+      <Tarjeta
+        titulo="1. Tu caja"
+        subtitulo={`Medidas exteriores de la caja o bolsa y peso total con el producto y el embalaje dentro. Se guarda en el estudio${guardado === "guardando" ? " · guardando…" : guardado === "ok" ? " · guardada ✓" : guardado === "error" ? " · no se pudo guardar" : ""}.`}
+      >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Campo etiqueta="Largo" unidad="cm" valor={campos.largo} onCambio={(v) => cambiar({ largo: v })} />
           <Campo etiqueta="Ancho" unidad="cm" valor={campos.ancho} onCambio={(v) => cambiar({ ancho: v })} />

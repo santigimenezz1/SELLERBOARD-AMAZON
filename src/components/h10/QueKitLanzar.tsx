@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+
 import type { CodigoPais, EstudioH10 } from "@/lib/datos/h10Tipos";
 import { nombrePais } from "@/lib/datos/h10Analisis";
 import { plural, repartoKits, type GrupoKit } from "@/lib/datos/h10Kits";
 import { formatNumero } from "@/lib/format";
-import { Pais, Seccion, Tarjeta } from "./comun";
+import { Pais, Seccion, Tarjeta, usePaisEstudio } from "./comun";
 import { useCuantosListings } from "./PestanaKits";
 
 const euros = (v: number) => `${formatNumero(Math.round(v))} €`;
@@ -63,15 +63,17 @@ export function QueKitLanzar({ estudio, onIrAKits }: { estudio: EstudioH10; onIr
   const cuantos = useCuantosListings(estudio.id);
   const r = repartoKits(estudio, cuantos);
   const paises = estudio.mercados.map((m) => m.codigoPais).filter((p) => r.filas.some((f) => f.pais === p));
-  const [eleccion, setVista] = useState<"todos" | CodigoPais>("todos");
+  const [compartido, setCompartido] = usePaisEstudio();
+  const eleccion = compartido ?? "todos";
+  const setVista = (v: "todos" | CodigoPais) => setCompartido(v === "todos" ? null : v);
   const vista = eleccion !== "todos" && paises.includes(eleccion) ? eleccion : "todos";
 
   if (!r.principal || !r.filas.length)
     return (
       <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/[0.12] px-4 py-12 text-center text-sm text-ink-400">
-        <p className="max-w-md">Para ver qué kit conviene lanzar, analiza primero los kits de la competencia en «Kits competidores».</p>
+        <p className="max-w-md">Para ver qué kit conviene lanzar, analiza primero los kits de la competencia en Competencia → Kits.</p>
         <button onClick={onIrAKits} className="rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-medium text-ink-950 hover:bg-accent-400">
-          Ir a Kits competidores
+          Ir a Competencia → Kits
         </button>
       </div>
     );
@@ -105,7 +107,7 @@ export function QueKitLanzar({ estudio, onIrAKits }: { estudio: EstudioH10; onIr
         <h2 className="text-base font-semibold text-ink-100">Qué kit lanzar</h2>
         <p className="mt-0.5 text-xs text-ink-400">
           Los kits de la competencia agrupados por cuántos {plural(r.principal)} traen: cuánto vende cada tamaño, a qué precio, con qué extras y quién lo domina. Sale de los{" "}
-          {r.analizados} listings analizados en «Kits competidores» (los {cuantos} primeros de cada país).
+          {r.analizados} listings analizados en Competencia → Kits (los {cuantos} primeros de cada país).
         </p>
       </div>
 

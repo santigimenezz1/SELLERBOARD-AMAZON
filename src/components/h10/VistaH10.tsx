@@ -7,12 +7,11 @@ import { Spinner } from "@/components/Spinner";
 import { PestanaDatos } from "./PestanaDatos";
 import { DatosAmazon } from "./DatosAmazon";
 import { TamanoMercado } from "./TamanoMercado";
-import { PestanaRentabilidad } from "./PestanaRentabilidad";
 import { cajaCompleta, rentabilidadPais } from "@/lib/datos/h10Rentabilidad";
 import type { ArchivoH10, CodigoPais, EstudioH10, MercadoXray, PalabrasMercado } from "@/lib/datos/h10Tipos";
 import { asinsParaCerebro, mismaBusqueda, xrayDesdeTitulos, xraySecundarias, analizarResenas, clasificarPalabra, cambioAEur, informeFinal, marcasDelEstudio, nombrePais, notaProducto, posicionesDeRivales, rangosDePrecio, resumirEstudio, type AnalisisMercado } from "@/lib/datos/h10Analisis";
 import { Bandera } from "@/components/Bandera";
-import { Barras, euros, Nota, Pais, Tarjeta } from "./comun";
+import { Barras, euros, Nota, Pais, ProveedorPais, Tarjeta, usePaisEstudio } from "./comun";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
 import { Markdown } from "@/components/chat/Markdown";
 import { PestanaPalabras } from "./PestanaPalabras";
@@ -33,22 +32,42 @@ import { ConversorDivisas, type Cambios } from "@/components/calculadora/Convers
 import type { AjustesCalc } from "@/lib/datos/calculadora";
 import { formatMoneda, formatNumero } from "@/lib/format";
 
+/** The study's tabs, in the order of the work (the files, «datos», are a button beside them). */
 const PESTANAS = [
-  { id: "datos", texto: "Datos" },
+  { id: "resumen", texto: "Resumen" },
   { id: "mercado", texto: "Mercado" },
-  { id: "competidores", texto: "Competidores" },
-  { id: "kits", texto: "Kits competidores" },
+  { id: "competencia", texto: "Competencia" },
   { id: "palabras", texto: "Palabras clave" },
-  { id: "resenas", texto: "Reseñas" },
-  { id: "listings", texto: "Listings" },
-  { id: "rentabilidad", texto: "Rentabilidad" },
-  { id: "conclusiones", texto: "Conclusiones" },
-  { id: "agentes", texto: "Agentes" },
-  { id: "mejoras", texto: "Mejoras de producto" },
+  { id: "producto", texto: "Mi producto" },
+  { id: "numeros", texto: "Números" },
   { id: "lanzamiento", texto: "Lanzamiento" },
-  { id: "tarifas", texto: "Tarifas FBA" },
+  { id: "informe", texto: "Informe" },
 ] as const;
-type Pestana = (typeof PESTANAS)[number]["id"];
+type Pestana = (typeof PESTANAS)[number]["id"] | "datos";
+/** Where a tab name in a link («?pestana=…», old ones too) opens now: its tab and sub-tab. */
+const ANTES: Record<string, [Pestana, string?]> = {
+  datos: ["datos"],
+  resumen: ["resumen"],
+  mercado: ["mercado"],
+  competencia: ["competencia"],
+  competidores: ["competencia", "competidores"],
+  kits: ["competencia", "kits"],
+  listings: ["competencia", "listings"],
+  resenas: ["competencia", "resenas"],
+  palabras: ["palabras"],
+  producto: ["producto"],
+  mejoras: ["producto", "mejoras"],
+  numeros: ["numeros"],
+  tarifas: ["numeros", "tarifas"],
+  calculadora: ["numeros", "calculadora"],
+  rentabilidad: ["numeros", "tarifas"],
+  lanzamiento: ["lanzamiento"],
+  informe: ["informe"],
+  conclusiones: ["informe", "conclusiones"],
+  agentes: ["informe", "agentes"],
+};
+const abrirDesde = (p?: string) => (p ? ANTES[p] : undefined);
+
 /**
  * Profitability is hidden for now: the study judges the product only by its market data. Set to true to bring back
  * its tab, the product files it asks for and its weight in the verdict.
@@ -82,7 +101,7 @@ function SinDatos({ texto, onIrADatos }: { texto: string; onIrADatos?: () => voi
       <p className="max-w-md">{texto}</p>
       {onIrADatos && (
         <button onClick={onIrADatos} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400">
-          Ir a «Datos»
+          Ir a «Archivos»
         </button>
       )}
     </div>
@@ -156,14 +175,16 @@ export function VistaH10({
   cambios?: Cambios;
 }) {
   const router = useRouter();
-  // «Datos» until it has an Xray, then «Mercado».
-  const [elegida, setElegida] = useState<Pestana | undefined>(() => (inicial?.pestana === "calculadora" ? "kits" : PESTANAS.find((x) => x.id === inicial?.pestana)?.id));
-  // «Kits competidores» has two sub-tabs: the kits and Amazon's revenue calculator (at hand while looking at the kits).
-  const [subKits, setSubKits] = useState<"kits" | "calculadora" | "divisas">(() => (inicial?.pestana === "calculadora" ? "calculadora" : "kits"));
-  // «Lanzamiento» has two sub-tabs: the keywords and listing, and which kit to launch (from the competitors' kits).
-  const [subLanzamiento, setSubLanzamiento] = useState<"estrategia" | "kit">("estrategia");
-  const pestana = elegida ?? (estudio.ejemplo || estudio.mercados.length ? "mercado" : "datos");
-  const irA = (p: Pestana) => setElegida(p);
+  const abrir = abrirDesde(inicial?.pestana);
+  const [elegida, setElegida] = useState<Pestana | undefined>(abrir?.[0]);
+  const [subs, setSubs] = useState<Partial<Record<Pestana, string>>>(() => (abrir?.[1] ? { [abrir[0]]: abrir[1] } : {}));
+  // The country chosen in any tab, kept in all the others.
+  const paisCompartido = useState<CodigoPais | null>(null);
+  const pestana: Pestana = elegida ?? (estudio.ejemplo || estudio.mercados.length ? "resumen" : "datos");
+  const irA = (p: Pestana, sub?: string) => {
+    setElegida(p);
+    if (sub) setSubs((x) => ({ ...x, [p]: sub }));
+  };
   const resumen = estudio.mercados.length ? resumirEstudio(estudio) : null;
   const paisInicial = resumen?.mejor.mercado.codigoPais ?? Object.keys(palabrasEstudio)[0] ?? "ES";
   const datosAqui = estudio.ejemplo ? undefined : () => irA("datos");
@@ -171,187 +192,308 @@ export function VistaH10({
   const lanzamiento = usePalabrasLanzamiento(estudio.id, estudio.palabrasLanzamiento ?? []);
   // Your own listing of each country (title and bullets), written in «Lanzamiento».
   const listings = useListingPropio(estudio.id, estudio.listingPropio ?? {});
+  const pasos = pasosEstudio(estudio, palabrasEstudio);
+  const hecho = (id: Pestana) => pasos.some((p) => p.pestana === id) && pasos.filter((p) => p.pestana === id).every((p) => p.hecho);
+  /** Each tab's sub-tabs (the ones this study shows): the first one is open until another is chosen. */
+  const subpestanas: Partial<Record<Pestana, [string, string][]>> = {
+    competencia: [["competidores", "Competidores"], ...(estudio.ejemplo ? [] : ([["kits", "Kits"]] as [string, string][])), ["listings", "Listings"], ["resenas", "Reseñas"]],
+    producto: [
+      ["kit", "Qué kit lanzar"],
+      ["mejoras", "Mejoras"],
+    ],
+    numeros: [["tarifas", "Tarifas FBA y rentabilidad"], ...(ajustesCalc ? ([["calculadora", "Calculadora de Amazon"]] as [string, string][]) : []), ...(cambios ? ([["divisas", "Divisas"]] as [string, string][]) : [])],
+    lanzamiento: [["estrategia", "Estrategia y listing"], ...(!invitado ? ([["prediccion", "Predicción vs realidad"]] as [string, string][]) : [])],
+    informe: [
+      ["conclusiones", "Conclusiones"],
+      ["agentes", "Equipo de agentes"],
+    ],
+  };
+  const sub = (p: Pestana) => {
+    const lista = subpestanas[p] ?? [];
+    const s = subs[p];
+    return lista.some(([id]) => id === s) ? s! : lista[0]?.[0];
+  };
+  const en = (p: Pestana, s?: string) => pestana === p && (!s || sub(p) === s);
+  const visibles = PESTANAS.filter((p) => !estudio.ejemplo || (p.id !== "producto" && p.id !== "lanzamiento"));
+  const subsAqui = subpestanas[pestana] ?? [];
 
   return (
-    <div className="flex flex-col gap-4">
-      <CabeceraEstudio key={`cabecera-${estudio.id}`} estudio={estudio} onBorrado={() => router.push("/analisis-h10")} />
+    <ProveedorPais value={paisCompartido}>
+      <div className="flex flex-col gap-4">
+        <CabeceraEstudio key={`cabecera-${estudio.id}`} estudio={estudio} onBorrado={() => router.push("/analisis-h10")} />
 
-      {/* Tabs */}
-      <nav className="flex flex-wrap gap-x-0.5 border-b border-white/[0.06]">
-        {PESTANAS.filter((p) => (p.id !== "datos" || !estudio.ejemplo) && ((p.id !== "mejoras" && p.id !== "lanzamiento" && p.id !== "kits") || !estudio.ejemplo) && (p.id !== "rentabilidad" || CON_RENTABILIDAD)).map((p) => (
-          <button
-            key={p.id}
-            onClick={() => irA(p.id)}
-            aria-current={pestana === p.id ? "page" : undefined}
-            className={`-mb-px border-b-2 px-2 py-2 text-sm whitespace-nowrap transition-colors ${pestana === p.id ? "border-accent-500 text-ink-100" : "border-transparent text-ink-400 hover:text-ink-100"}`}
-          >
-            {p.texto}
-            {p.id === "datos" && <span className="ml-1.5 text-xs text-ink-500">{archivosEstudio.length}</span>}
-          </button>
-        ))}
-      </nav>
-
-      {pestana === "datos" && !estudio.ejemplo && <PestanaDatos
-          key={estudio.id}
-          estudioId={estudio.id}
-          archivos={archivosEstudio}
-          costesPropios={costesPropios}
-          cajaPropia={cajaCompleta(estudio.supuestos?.miCaja)}
-          tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
-          paisesXray={estudio.mercados.map((m) => m.codigoPais)}
-          // The searches worth a secondary Xray in each country: from its Cerebro (with their searches) or, without
-          // one, from its leaders' titles. Only the main search is left out (the first Xray uploaded there), so the
-          // list stays put and each one turns «hecha» once an Xray of it is uploaded.
-          // The 10 strongest ASINs of each country's Xray, to copy into Cerebro.
-          asinsCerebro={Object.fromEntries(estudio.mercados.map((m) => [m.codigoPais, asinsParaCerebro(m)]))}
-          sugerenciasXray={Object.fromEntries(
-            [...new Set([...Object.keys(palabrasEstudio), ...estudio.mercados.map((m) => m.codigoPais)])].map((p) => {
-              const m = estudio.mercados.find((x) => x.codigoPais === p);
-              const pm = palabrasEstudio[p];
-              const xrays = archivosEstudio
-                .filter((a) => a.herramienta === "xray" && a.codigoPais === p && a.estado !== "error" && a.palabraClave)
-                .sort((a, b) => a.subidoEn.localeCompare(b.subidoEn))
-                .map((a) => a.palabraClave!);
-              const principal = xrays[0] ?? m?.palabraClave ?? "";
-              const subidas = xrays.filter((k) => !mismaBusqueda(k, principal));
-              const lista = pm?.palabras.length ? xraySecundarias(pm, [principal], m?.competidores.map((c) => c.marca) ?? []) : m ? xrayDesdeTitulos(m, [principal]) : [];
-              return [p, lista.map((x) => ({ ...x, hecha: subidas.some((k) => mismaBusqueda(k, x.texto)) }))];
-            }),
+        {/* Tabs, in the order of the work; the files are a button at the end. */}
+        <nav className="flex flex-wrap items-end gap-x-0.5 border-b border-white/[0.06]">
+          {visibles.map((p, i) => (
+            <button
+              key={p.id}
+              onClick={() => irA(p.id)}
+              aria-current={pestana === p.id ? "page" : undefined}
+              className={`-mb-px border-b-2 px-2.5 py-2 text-sm whitespace-nowrap transition-colors ${pestana === p.id ? "border-accent-500 text-ink-100" : "border-transparent text-ink-400 hover:text-ink-100"}`}
+            >
+              {p.id !== "resumen" && <span className="mr-1 text-xs text-ink-500">{i}.</span>}
+              {p.texto}
+              {p.id !== "resumen" && hecho(p.id) && (
+                <span className="ml-1 text-xs text-success" title="Con datos">
+                  ✓
+                </span>
+              )}
+            </button>
+          ))}
+          {!estudio.ejemplo && (
+            <button
+              onClick={() => irA("datos")}
+              aria-current={pestana === "datos" ? "page" : undefined}
+              className={`mb-1 ml-auto rounded-lg border px-3 py-1 text-xs whitespace-nowrap transition-colors ${pestana === "datos" ? "border-accent-400 bg-accent-500/15 text-accent-200" : "border-white/[0.1] text-ink-300 hover:bg-white/[0.05]"}`}
+            >
+              📁 Archivos · {archivosEstudio.length}
+            </button>
           )}
-          // Xrays read without their search (screenshots): the main one can't be left out of the suggestions.
-          sinPrincipal={estudio.mercados.filter((m) => !/\p{L}/u.test(m.palabraClave)).map((m) => m.codigoPais)}
-          listingsAuto={(estudio.listings ?? []).filter((l) => l.fuente === "catalogo").reduce<Record<string, number>>((t, l) => ({ ...t, [l.codigoPais]: (t[l.codigoPais] ?? 0) + 1 }), {})}
-        />}
-      {pestana === "mercado" &&
-        (resumen ? (
-          <PestanaMercado
+        </nav>
+
+        {subsAqui.length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {subsAqui.map(([id, texto]) => (
+              <button
+                key={id}
+                onClick={() => irA(pestana, id)}
+                aria-current={sub(pestana) === id ? "page" : undefined}
+                className={`rounded-md border px-3 py-1 text-sm ${sub(pestana) === id ? "border-accent-400 bg-accent-500/15 text-accent-200" : "border-white/[0.08] text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
+              >
+                {texto}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {pestana === "resumen" && <PestanaResumen estudio={estudio} resumen={resumen} pasos={pasos} irA={irA} />}
+
+        {pestana === "datos" && !estudio.ejemplo && (
+          <PestanaDatos
             key={estudio.id}
-            estudio={estudio}
-            resumen={resumen}
-            tamano={<TamanoMercado key={`tamano-${estudio.id}`} estudio={estudio} onIrADatos={datosAqui} />}
+            estudioId={estudio.id}
+            archivos={archivosEstudio}
+            costesPropios={costesPropios}
+            cajaPropia={cajaCompleta(estudio.supuestos?.miCaja)}
+            tarifasAuto={[...new Set((estudio.amazon ?? []).filter((v) => v.ficha.tarifaFba !== null).map((v) => v.ficha.codigoPais))]}
+            paisesXray={estudio.mercados.map((m) => m.codigoPais)}
+            // The 10 strongest ASINs of each country's Xray, to copy into Cerebro.
+            asinsCerebro={Object.fromEntries(estudio.mercados.map((m) => [m.codigoPais, asinsParaCerebro(m)]))}
+            // The searches worth a secondary Xray in each country: from its Cerebro (with their searches) or, without
+            // one, from its leaders' titles. Only the main search is left out (the first Xray uploaded there), so the
+            // list stays put and each one turns «hecha» once an Xray of it is uploaded.
+            sugerenciasXray={Object.fromEntries(
+              [...new Set([...Object.keys(palabrasEstudio), ...estudio.mercados.map((m) => m.codigoPais)])].map((p) => {
+                const m = estudio.mercados.find((x) => x.codigoPais === p);
+                const pm = palabrasEstudio[p];
+                const xrays = archivosEstudio
+                  .filter((a) => a.herramienta === "xray" && a.codigoPais === p && a.estado !== "error" && a.palabraClave)
+                  .sort((a, b) => a.subidoEn.localeCompare(b.subidoEn))
+                  .map((a) => a.palabraClave!);
+                const principal = xrays[0] ?? m?.palabraClave ?? "";
+                const subidas = xrays.filter((k) => !mismaBusqueda(k, principal));
+                const lista = pm?.palabras.length ? xraySecundarias(pm, [principal], m?.competidores.map((c) => c.marca) ?? []) : m ? xrayDesdeTitulos(m, [principal]) : [];
+                return [p, lista.map((x) => ({ ...x, hecha: subidas.some((k) => mismaBusqueda(k, x.texto)) }))];
+              }),
+            )}
+            // Xrays read without their search (screenshots): the main one can't be left out of the suggestions.
+            sinPrincipal={estudio.mercados.filter((m) => !/\p{L}/u.test(m.palabraClave)).map((m) => m.codigoPais)}
+            listingsAuto={(estudio.listings ?? []).filter((l) => l.fuente === "catalogo").reduce<Record<string, number>>((t, l) => ({ ...t, [l.codigoPais]: (t[l.codigoPais] ?? 0) + 1 }), {})}
           />
-        ) : <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />)}
-      {pestana === "competidores" && (
-        <div className="flex flex-col gap-4">
-          {CON_DATOS_AMAZON && (!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon} />}
-          {resumen ? <PestanaCompetidores key={estudio.id} estudio={estudio} palabras={palabrasEstudio} /> : <SinDatos texto="La tabla de competidores sale del Xray: súbelo en «Datos»." onIrADatos={datosAqui} />}
-        </div>
-      )}
-      {pestana === "palabras" &&
-        (Object.keys(palabrasEstudio).length ? (
-          <PestanaPalabras key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={paisInicial} ejemplo={!!estudio.ejemplo} lanzamiento={estudio.ejemplo ? undefined : lanzamiento} />
-        ) : (
-          <SinDatos texto="Para ver las palabras clave, sube el Cerebro o el Magnet (CSV o captura) de algún país." onIrADatos={datosAqui} />
-        ))}
-      {pestana === "resenas" &&
-        (estudio.resenasH10?.length || estudio.resenasCompletas?.length ? (
-          <PestanaResenas key={estudio.id} estudio={estudio} />
-        ) : (
-          <SinDatos
-            texto="Graba las reseñas de los competidores con la extensión («Abrir en Amazon» en Listings → «Enviar a la app»), o sube en «Datos» el «Review Analysis» de Helium 10: aquí verás de qué se quejan, qué valoran y qué mejorar."
-            onIrADatos={datosAqui}
-          />
-        ))}
-      {pestana === "rentabilidad" &&
-        CON_RENTABILIDAD &&
-        (resumen ? (
-          <PestanaRentabilidad key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={resumen.mejor.mercado.codigoPais} />
-        ) : (
-          <SinDatos texto="La rentabilidad necesita el Xray de al menos un país; la calculadora de Amazon la hace mucho más precisa." onIrADatos={datosAqui} />
-        ))}
-      {pestana === "agentes" && <PestanaAgentes key={`agentes-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} conBanco={!invitado} />}
-      {/* Always mounted (hidden when not chosen): coming back to it keeps what was just written, without reloading the study. */}
-      {!estudio.ejemplo && (
-        <div className={pestana === "mejoras" ? "" : "hidden"}>
-          <PestanaMejoras key={`mejoras-${estudio.id}`} estudioId={estudio.id} inicial={estudio.mejoras ?? []} />
-        </div>
-      )}
-      {pestana === "lanzamiento" && !estudio.ejemplo && (
-        <div className="flex gap-1.5">
-          {(
-            [
-              ["estrategia", "Estrategia"],
-              ["kit", "Qué kit lanzar"],
-            ] as const
-          ).map(([id, texto]) => (
-            <button
-              key={id}
-              onClick={() => setSubLanzamiento(id)}
-              aria-current={subLanzamiento === id ? "page" : undefined}
-              className={`rounded-md border px-3 py-1 text-sm ${subLanzamiento === id ? "border-accent-400 bg-accent-500/15 text-accent-200" : "border-white/[0.08] text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
-            >
-              {texto}
-            </button>
+        )}
+
+        {pestana === "mercado" &&
+          (resumen ? (
+            <PestanaMercado key={estudio.id} estudio={estudio} resumen={resumen} tamano={<TamanoMercado key={`tamano-${estudio.id}`} estudio={estudio} onIrADatos={datosAqui} />} />
+          ) : (
+            <SinDatos texto="Para ver el mercado, sube el Xray (CSV o captura) de al menos un país." onIrADatos={datosAqui} />
           ))}
-        </div>
-      )}
-      {pestana === "lanzamiento" && !estudio.ejemplo && subLanzamiento === "estrategia" && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
-      {pestana === "lanzamiento" && !estudio.ejemplo && subLanzamiento === "kit" && (
-        <QueKitLanzar key={`kit-${estudio.id}`} estudio={estudio} onIrAKits={() => irA("kits")} />
-      )}
-      {pestana === "tarifas" && <PestanaTarifasFba key={`tarifas-${estudio.id}`} estudioId={estudio.id} eurPorGbp={cambios?.GBP} />}
-      {pestana === "kits" && !estudio.ejemplo && ajustesCalc && (
-        <div className="flex gap-1.5">
-          {(
-            [
-              ["kits", "Kits"],
-              ["calculadora", "Calculadora"],
-              ...(cambios ? [["divisas", "Divisas"] as const] : []),
-            ] as const
-          ).map(([id, texto]) => (
-            <button
-              key={id}
-              onClick={() => setSubKits(id)}
-              aria-current={subKits === id ? "page" : undefined}
-              className={`rounded-md border px-3 py-1 text-sm ${subKits === id ? "border-accent-400 bg-accent-500/15 text-accent-200" : "border-white/[0.08] text-ink-400 hover:bg-white/[0.04] hover:text-ink-100"}`}
-            >
-              {texto}
-            </button>
+
+        {en("competencia", "competidores") && (
+          <div className="flex flex-col gap-4">
+            {CON_DATOS_AMAZON && (!estudio.ejemplo || !!estudio.amazon?.length) && <DatosAmazon key={`amazon-${estudio.id}`} estudio={estudio} pares={paresAmazon} />}
+            {resumen ? (
+              <>
+                <PestanaCompetidores key={estudio.id} estudio={estudio} palabras={palabrasEstudio} />
+                <Marcas estudio={estudio} />
+              </>
+            ) : (
+              <SinDatos texto="La tabla de competidores sale del Xray: súbelo en «Archivos»." onIrADatos={datosAqui} />
+            )}
+          </div>
+        )}
+        {en("competencia", "kits") && !estudio.ejemplo && <PestanaKits key={`kits-${estudio.id}`} estudio={estudio} ventasPorAsin={ventasPorAsin(estudio)} />}
+        {en("competencia", "listings") &&
+          (resumen ? (
+            <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} conExtension={!invitado} />
+          ) : (
+            <SinDatos texto="Para ver los listings líderes, sube el Xray (CSV) de al menos un país." onIrADatos={datosAqui} />
           ))}
-        </div>
+        {en("competencia", "resenas") &&
+          (estudio.resenasH10?.length || estudio.resenasCompletas?.length ? (
+            <PestanaResenas key={estudio.id} estudio={estudio} />
+          ) : (
+            <SinDatos
+              texto="Graba las reseñas de los competidores con la extensión («Abrir en Amazon» en Listings → «Enviar a la app»), o sube en «Archivos» el «Review Analysis» de Helium 10: aquí verás de qué se quejan, qué valoran y qué mejorar."
+              onIrADatos={datosAqui}
+            />
+          ))}
+
+        {pestana === "palabras" &&
+          (Object.keys(palabrasEstudio).length ? (
+            <PestanaPalabras key={estudio.id} estudio={estudio} palabras={palabrasEstudio} inicial={paisInicial} ejemplo={!!estudio.ejemplo} lanzamiento={estudio.ejemplo ? undefined : lanzamiento} />
+          ) : (
+            <SinDatos texto="Para ver las palabras clave, sube el Cerebro o el Magnet (CSV o captura) de algún país." onIrADatos={datosAqui} />
+          ))}
+
+        {en("producto", "kit") && !estudio.ejemplo && <QueKitLanzar key={`kit-${estudio.id}`} estudio={estudio} onIrAKits={() => irA("competencia", "kits")} />}
+        {/* Always mounted (hidden when not chosen): coming back to it keeps what was just written, without reloading the study. */}
+        {!estudio.ejemplo && (
+          <div className={en("producto", "mejoras") ? "" : "hidden"}>
+            <PestanaMejoras key={`mejoras-${estudio.id}`} estudioId={estudio.id} inicial={estudio.mejoras ?? []} />
+          </div>
+        )}
+
+        {en("numeros", "tarifas") && <PestanaTarifasFba key={`tarifas-${estudio.id}`} estudio={estudio} eurPorGbp={cambios?.GBP} />}
+        {/* Always mounted (hidden when not chosen): coming back to it keeps the product and figures typed. */}
+        {ajustesCalc && !estudio.ejemplo && (
+          <div className={en("numeros", "calculadora") ? "" : "hidden"}>
+            <VistaCalculadora key={`calc-${estudio.id}`} ajustesIniciales={ajustesCalc} demo={false} paisInicial={paisInicial as CodigoPais} cambios={cambios ?? { EUR: 1, USD: 0.86, GBP: 1.16 }} />
+          </div>
+        )}
+        {en("numeros", "divisas") && cambios && (
+          <section className="rounded-xl border border-white/[0.08] bg-ink-900/60 p-4">
+            <h2 className="mb-3 text-base font-semibold text-ink-100">Divisas</h2>
+            <ConversorDivisas cambios={cambios} />
+          </section>
+        )}
+
+        {en("lanzamiento", "estrategia") && !estudio.ejemplo && <PestanaLanzamiento l={lanzamiento} palabras={palabrasEstudio} listings={listings} />}
+        {en("lanzamiento", "prediccion") && !estudio.ejemplo && !invitado && <PrediccionRealidad estudioId={estudio.id} lanzamiento={estudio.lanzamiento ?? null} />}
+
+        {en("informe", "conclusiones") &&
+          (resumen ? (
+            <div className="flex flex-col gap-4">
+              <InformeEstrategico key={`informe-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} calidad={revisarDatos(estudio, palabrasEstudio, costesPropios)} />
+              <Informe
+                conRentabilidad={CON_RENTABILIDAD}
+                informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], analizarResenas(estudio), CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)}
+              />
+              <Tarjeta titulo="Todas las conclusiones" subtitulo="Salen de los datos del estudio: Xray, búsquedas, palabras clave y reseñas.">
+                <div className="text-sm leading-relaxed text-ink-300">
+                  <Markdown
+                    texto={[...resumen.conclusiones, ...conclusionesPalabras(resumen.mejor.mercado.codigoPais, palabrasEstudio), ...conclusionesResenas(estudio)].map((c) => `- ${c}`).join("\n")}
+                  />
+                </div>
+              </Tarjeta>
+            </div>
+          ) : (
+            <SinDatos texto="Las conclusiones necesitan al menos el Xray de un país." onIrADatos={datosAqui} />
+          ))}
+        {en("informe", "agentes") && <PestanaAgentes key={`agentes-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} conBanco={!invitado} />}
+      </div>
+    </ProveedorPais>
+  );
+}
+
+/** One step of a study: whether it's done and where it's done. */
+type PasoEstudio = { texto: string; ayuda: string; hecho: boolean; pestana: Pestana; sub?: string };
+
+/** The steps of a study in order, each one done or not (for «Resumen» and the ✓ of the tabs). */
+function pasosEstudio(estudio: EstudioH10, palabras: Record<string, PalabrasMercado>): PasoEstudio[] {
+  const paises = estudio.mercados.map((m) => m.codigoPais);
+  const sinGrafico = paises.filter((p) => !estudio.busquedas?.[p]);
+  const kits = Object.values(estudio.kitsCompetidores?.porPais ?? {}).flat().length;
+  const conPalabras = Object.keys(palabras);
+  const resenas = !!(estudio.resenasCompletas?.length || estudio.resenasH10?.length);
+  const caja = cajaCompleta(estudio.supuestos?.miCaja);
+  return [
+    { texto: "Xray de cada país", ayuda: paises.length ? `Tienes ${paises.join(", ")}` : "Sube el Xray de Helium 10 de al menos un país", hecho: paises.length > 0, pestana: "mercado" },
+    {
+      texto: "Gráfico de búsquedas de 3 años",
+      ayuda: !paises.length ? "Después del Xray" : sinGrafico.length ? `Falta en ${sinGrafico.join(", ")}: sin él, el mercado de ese país sale solo del mes del Xray` : "En todos los países",
+      hecho: paises.length > 0 && !sinGrafico.length,
+      pestana: "mercado",
+    },
+    { texto: "Palabras clave (Cerebro o Magnet)", ayuda: conPalabras.length ? `De ${conPalabras.join(", ")}` : "Sube el Cerebro de algún país", hecho: conPalabras.length > 0, pestana: "palabras" },
+    { texto: "Reseñas de la competencia", ayuda: resenas ? "Ya hay reseñas guardadas" : "Grábalas con la extensión desde Competencia → Listings", hecho: resenas, pestana: "competencia", sub: "resenas" },
+    { texto: "Kits de la competencia analizados", ayuda: kits ? `${kits} listings analizados` : "En Competencia → Kits, pulsa «Analizar»", hecho: kits > 0, pestana: "producto", sub: "kit" },
+    { texto: "Tu caja (medidas y peso)", ayuda: caja ? "Guardada: ya puedes ver tarifas y rentabilidad" : "Ponla en Números → Tarifas FBA", hecho: caja, pestana: "numeros", sub: "tarifas" },
+    {
+      texto: "Palabras elegidas para el lanzamiento",
+      ayuda: estudio.palabrasLanzamiento?.length ? `${estudio.palabrasLanzamiento.length} palabras elegidas` : "Márcalas en Palabras clave",
+      hecho: !!estudio.palabrasLanzamiento?.length,
+      pestana: "lanzamiento",
+      sub: "estrategia",
+    },
+    { texto: "Informe final", ayuda: estudio.informe ? "Ya generado" : "Genéralo en Informe → Conclusiones", hecho: !!estudio.informe, pestana: "informe", sub: "conclusiones" },
+  ];
+}
+
+/** «Resumen»: the product at a glance, what's done and what's missing, and the next step. */
+function PestanaResumen({
+  estudio,
+  resumen,
+  pasos,
+  irA,
+}: {
+  estudio: EstudioH10;
+  resumen: ReturnType<typeof resumirEstudio> | null;
+  pasos: PasoEstudio[];
+  irA: (p: Pestana, sub?: string) => void;
+}) {
+  const siguiente = pasos.find((p) => !p.hecho);
+  // A missing Xray or search chart is uploaded in the files.
+  const ir = (p: PasoEstudio) => (!p.hecho && p.pestana === "mercado" && !estudio.ejemplo ? irA("datos") : p.texto.startsWith("Kits") && !p.hecho ? irA("competencia", "kits") : irA(p.pestana, p.sub));
+  const conclusiones = resumen ? resumen.conclusiones.slice(0, 4) : [];
+  return (
+    <div className="flex flex-col gap-4">
+      {resumen ? (
+        <CabeceraProducto estudio={estudio} resumen={resumen} />
+      ) : (
+        <SinDatos texto="Sube el Xray de Helium 10 de al menos un país para ver la nota del producto y el tamaño del mercado." onIrADatos={estudio.ejemplo ? undefined : () => irA("datos")} />
       )}
-      {pestana === "kits" && !estudio.ejemplo && (
-        <div className={subKits === "kits" || !ajustesCalc ? "" : "hidden"}>
-          <PestanaKits key={`kits-${estudio.id}`} estudio={estudio} ventasPorAsin={ventasPorAsin(estudio)} />
-        </div>
-      )}
-      {/* Always mounted (hidden when not chosen): coming back to it keeps the product and figures typed. */}
-      {ajustesCalc && !estudio.ejemplo && (
-        <div className={pestana === "kits" && subKits === "calculadora" ? "" : "hidden"}>
-          <VistaCalculadora key={`calc-${estudio.id}`} ajustesIniciales={ajustesCalc} demo={false} paisInicial={paisInicial as CodigoPais} cambios={cambios ?? { EUR: 1, USD: 0.86, GBP: 1.16 }} />
-        </div>
-      )}
-      {pestana === "kits" && !estudio.ejemplo && ajustesCalc && cambios && subKits === "divisas" && (
-        <section className="rounded-xl border border-white/[0.08] bg-ink-900/60 p-4">
-          <h2 className="mb-3 text-base font-semibold text-ink-100">Divisas</h2>
-          <ConversorDivisas cambios={cambios} />
+
+      {siguiente && !estudio.ejemplo && (
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent-500/30 bg-accent-500/[0.06] p-4">
+          <div>
+            <p className="text-[11px] font-semibold tracking-wide text-accent-300 uppercase">Siguiente paso</p>
+            <p className="mt-0.5 text-sm font-semibold text-ink-100">{siguiente.texto}</p>
+            <p className="text-xs text-ink-400">{siguiente.ayuda}</p>
+          </div>
+          <button onClick={() => ir(siguiente)} className="rounded-lg bg-accent-500 px-3.5 py-2 text-sm font-medium text-ink-950 hover:bg-accent-400">
+            {siguiente.pestana === "mercado" ? "Subir archivos" : "Ir ahora"}
+          </button>
         </section>
       )}
-      {pestana === "listings" &&
-        (resumen ? (
-          <PestanaListings key={estudio.id} estudio={estudio} palabras={palabrasEstudio} conExtension={!invitado} />
-        ) : (
-          <SinDatos texto="Para ver los listings líderes, sube el Xray (CSV) de al menos un país." onIrADatos={datosAqui} />
-        ))}
-      {pestana === "conclusiones" &&
-        (resumen ? (
-          <div className="flex flex-col gap-4">
-            <InformeEstrategico key={`informe-${estudio.id}`} estudioId={estudio.id} informe={estudio.informe ?? null} calidad={revisarDatos(estudio, palabrasEstudio, costesPropios)} />
-            {!invitado && !estudio.ejemplo && <PrediccionRealidad estudioId={estudio.id} lanzamiento={estudio.lanzamiento ?? null} />}
-            <Informe conRentabilidad={CON_RENTABILIDAD} informe={informeFinal(resumen, palabrasEstudio[resumen.mejor.mercado.codigoPais], analizarResenas(estudio), CON_RENTABILIDAD ? rentabilidadInforme(estudio, resumen, palabrasEstudio) : undefined)} />
-            <Tarjeta titulo="Todas las conclusiones" subtitulo="Salen de los datos del estudio: Xray, búsquedas, palabras clave y reseñas.">
-              <div className="text-sm leading-relaxed text-ink-300">
-                <Markdown
-                  texto={[...resumen.conclusiones, ...conclusionesPalabras(resumen.mejor.mercado.codigoPais, palabrasEstudio), ...conclusionesResenas(estudio)]
-                    .map((c) => `- ${c}`)
-                    .join("\n")}
-                />
-              </div>
-            </Tarjeta>
-          </div>
-        ) : (
-          <SinDatos texto="Las conclusiones necesitan al menos el Xray de un país." onIrADatos={datosAqui} />
-        ))}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Tarjeta titulo={`Pasos del estudio · ${pasos.filter((p) => p.hecho).length} de ${pasos.length}`} subtitulo="Toca uno para ir a donde se hace.">
+          <ul className="flex flex-col gap-1">
+            {pasos.map((p) => (
+              <li key={p.texto}>
+                <button onClick={() => ir(p)} className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-white/[0.04]">
+                  <span className={`mt-0.5 text-sm ${p.hecho ? "text-success" : "text-ink-600"}`}>{p.hecho ? "✓" : "○"}</span>
+                  <span className="min-w-0">
+                    <span className={`block text-sm ${p.hecho ? "text-ink-200" : "text-ink-100"}`}>{p.texto}</span>
+                    <span className="block text-xs text-ink-500">{p.ayuda}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Tarjeta>
+        {conclusiones.length > 0 && (
+          <Tarjeta titulo="Lo más importante" subtitulo="Las primeras conclusiones del estudio (todas en Informe → Conclusiones).">
+            <div className="text-sm leading-relaxed text-ink-300">
+              <Markdown texto={conclusiones.map((c) => `- ${c}`).join("\n")} />
+            </div>
+            <button onClick={() => irA("informe", "conclusiones")} className="mt-3 text-xs font-medium text-accent-300 hover:text-accent-400">
+              Ver el informe completo →
+            </button>
+          </Tarjeta>
+        )}
+      </div>
     </div>
   );
 }
@@ -542,76 +684,79 @@ function CabeceraEstudio({ estudio, onBorrado }: { estudio: EstudioH10; onBorrad
   );
 }
 
-/** `tamano`: the market's size month by month, shown right under the headline figures. */
-function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; resumen: ReturnType<typeof resumirEstudio>; tamano: React.ReactNode }) {
+/** The product at a glance: its score and verdict, and the market's size and best price (top of «Resumen»). */
+function CabeceraProducto({ estudio, resumen }: { estudio: EstudioH10; resumen: ReturnType<typeof resumirEstudio> }) {
   const nota = notaProducto(resumen, analizarResenas(estudio)).nota;
   const conHistorial = resumen.analisis.filter((x) => x.temporada).length;
-  const [paisPrecio, setPaisPrecio] = useState(resumen.mejor.mercado.codigoPais);
+  return (
+        <section className="rounded-xl border border-white/[0.08] bg-ink-900/80 p-5 shadow-soft">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs font-medium tracking-wide text-ink-400 uppercase">Producto</p>
+              <h2 className="mt-0.5 truncate text-2xl font-semibold tracking-tight text-ink-100">{estudio.nombre}</h2>
+              <p className={`mt-1 text-sm font-medium ${nota >= 7 ? "text-success" : nota >= 5 ? "text-warning" : "text-danger"}`}>
+                {nota >= 7 ? "✓ Lanzar" : nota >= 5 ? "◐ Validar primero" : "✕ Descartar"}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="tabular text-4xl font-semibold text-ink-100">
+                {nota.toLocaleString("es-ES")}
+                <span className="text-lg text-ink-400">/10</span>
+              </p>
+              <p className="text-xs text-ink-400">nota final · todos los países</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-accent-500/30 bg-accent-500/[0.06] px-4 py-3">
+              <p className="text-xs text-ink-400">Mercado medio al mes</p>
+              <p className="tabular mt-0.5 text-3xl font-semibold text-ink-100">{euros(resumen.mercadoTotalEur)}</p>
+              <p className="mt-0.5 text-[11px] text-ink-400">
+                {conHistorial === resumen.analisis.length
+                  ? "media de todo el año, sumando todos los países"
+                  : `${conHistorial} de ${resumen.analisis.length} países con la media del año; ${resumen.analisis.filter((a) => !a.temporada).map((a) => a.mercado.codigoPais).join(", ")} con el mes de su Xray (sube su CSV de búsquedas)`}
+              </p>
+            </div>
+            <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-4 py-3">
+              <p className="text-xs text-ink-400">Mercado al año</p>
+              <p className="tabular mt-0.5 text-2xl font-semibold text-ink-100">{euros(resumen.mercadoTotalEur * 12)}</p>
+              <p className="mt-0.5 text-[11px] text-ink-400">estimado, todos los países</p>
+            </div>
+            <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-4 py-3">
+              <p className="text-xs text-ink-400">Precio con más ventas</p>
+              <p className="tabular mt-0.5 text-2xl font-semibold text-ink-100">
+                {resumen.precioRecomendado ? `${resumen.precioRecomendado.desde}–${resumen.precioRecomendado.hasta === Infinity ? "+" : resumen.precioRecomendado.hasta} €` : "—"}
+              </p>
+              <p className="mt-0.5 text-[11px] text-ink-400">en {nombrePais(resumen.mejor.mercado.codigoPais)}, el mercado principal</p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[...resumen.analisis]
+              .sort((a, b) => b.baseEur - a.baseEur)
+              .map((a) => (
+                <span key={a.mercado.codigoPais} className="inline-flex items-center gap-2 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-xs text-ink-300">
+                  <Pais codigo={a.mercado.codigoPais} corto />
+                  <span className="tabular font-medium text-ink-100">{euros(a.baseEur)}/mes</span>
+                  <span className="text-ink-500">{Math.round((a.baseEur / Math.max(1, resumen.mercadoTotalEur)) * 100)} %</span>
+                  {(() => {
+                    // Where most of that country's money is.
+                    const r = [...rangosDePrecio(a.mercado)].sort((x, y) => y.facturacionEur - x.facturacionEur)[0];
+                    return r ? <span className="text-ink-400">· más ventas a {r.desde}–{r.hasta === Infinity ? "+" : r.hasta} €</span> : null;
+                  })()}
+                </span>
+              ))}
+          </div>
+        </section>
+  );
+}
+
+function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; resumen: ReturnType<typeof resumirEstudio>; tamano: React.ReactNode }) {
+  const [compartido, setPaisPrecio] = usePaisEstudio(estudio.mercados.map((m) => m.codigoPais));
+  const paisPrecio = compartido ?? resumen.mejor.mercado.codigoPais;
   const mercadoPrecio = estudio.mercados.find((m) => m.codigoPais === paisPrecio) ?? resumen.mejor.mercado;
   const avisos = resumen.analisis.flatMap((a) => a.avisos.map((t) => ({ pais: a.mercado.codigoPais, t })));
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Headline figures */}
-      {/* The product: its final score and the market's size, a monthly average over the year in every country. */}
-      <section className="rounded-xl border border-white/[0.08] bg-ink-900/80 p-5 shadow-soft">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-xs font-medium tracking-wide text-ink-400 uppercase">Producto</p>
-            <h2 className="mt-0.5 truncate text-2xl font-semibold tracking-tight text-ink-100">{estudio.nombre}</h2>
-            <p className={`mt-1 text-sm font-medium ${nota >= 7 ? "text-success" : nota >= 5 ? "text-warning" : "text-danger"}`}>
-              {nota >= 7 ? "✓ Lanzar" : nota >= 5 ? "◐ Validar primero" : "✕ Descartar"}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="tabular text-4xl font-semibold text-ink-100">
-              {nota.toLocaleString("es-ES")}
-              <span className="text-lg text-ink-400">/10</span>
-            </p>
-            <p className="text-xs text-ink-400">nota final · todos los países</p>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-accent-500/30 bg-accent-500/[0.06] px-4 py-3">
-            <p className="text-xs text-ink-400">Mercado medio al mes</p>
-            <p className="tabular mt-0.5 text-3xl font-semibold text-ink-100">{euros(resumen.mercadoTotalEur)}</p>
-            <p className="mt-0.5 text-[11px] text-ink-400">
-              {conHistorial === resumen.analisis.length
-                ? "media de todo el año, sumando todos los países"
-                : `${conHistorial} de ${resumen.analisis.length} países con la media del año; ${resumen.analisis.filter((a) => !a.temporada).map((a) => a.mercado.codigoPais).join(", ")} con el mes de su Xray (sube su CSV de búsquedas)`}
-            </p>
-          </div>
-          <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-4 py-3">
-            <p className="text-xs text-ink-400">Mercado al año</p>
-            <p className="tabular mt-0.5 text-2xl font-semibold text-ink-100">{euros(resumen.mercadoTotalEur * 12)}</p>
-            <p className="mt-0.5 text-[11px] text-ink-400">estimado, todos los países</p>
-          </div>
-          <div className="rounded-lg border border-white/[0.06] bg-ink-950/40 px-4 py-3">
-            <p className="text-xs text-ink-400">Precio con más ventas</p>
-            <p className="tabular mt-0.5 text-2xl font-semibold text-ink-100">
-              {resumen.precioRecomendado ? `${resumen.precioRecomendado.desde}–${resumen.precioRecomendado.hasta === Infinity ? "+" : resumen.precioRecomendado.hasta} €` : "—"}
-            </p>
-            <p className="mt-0.5 text-[11px] text-ink-400">en {nombrePais(resumen.mejor.mercado.codigoPais)}, el mercado principal</p>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {[...resumen.analisis]
-            .sort((a, b) => b.baseEur - a.baseEur)
-            .map((a) => (
-              <span key={a.mercado.codigoPais} className="inline-flex items-center gap-2 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-xs text-ink-300">
-                <Pais codigo={a.mercado.codigoPais} corto />
-                <span className="tabular font-medium text-ink-100">{euros(a.baseEur)}/mes</span>
-                <span className="text-ink-500">{Math.round((a.baseEur / Math.max(1, resumen.mercadoTotalEur)) * 100)} %</span>
-                {(() => {
-                  // Where most of that country's money is.
-                  const r = [...rangosDePrecio(a.mercado)].sort((x, y) => y.facturacionEur - x.facturacionEur)[0];
-                  return r ? <span className="text-ink-400">· más ventas a {r.desde}–{r.hasta === Infinity ? "+" : r.hasta} €</span> : null;
-                })()}
-              </span>
-            ))}
-        </div>
-      </section>
-
       {tamano}
 
       {/* Country comparison */}
@@ -681,8 +826,6 @@ function PestanaMercado({ estudio, resumen, tamano }: { estudio: EstudioH10; res
           }))}
         />
       </Tarjeta>
-
-      <Marcas estudio={estudio} />
 
       {avisos.length > 0 && (
         <Tarjeta titulo="Avisos sobre los datos" subtitulo="Cosas raras que conviene comprobar antes de decidir">
@@ -858,7 +1001,7 @@ function conclusionesPalabras(pais: string, palabras: Record<string, PalabrasMer
 }
 
 function PestanaCompetidores({ estudio, palabras }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado> }) {
-  const [pais, setPais] = useState<string | null>(null);
+  const [pais, setPais] = usePaisEstudio(estudio.mercados.map((m) => m.codigoPais));
   /** Open competitor card: «country|brand». */
   const [abierta, setAbierta] = useState<string | null>(null);
   const tieneFicha = (codigo: string, marca: string) => !!palabras[codigo]?.rivales.includes(marca);

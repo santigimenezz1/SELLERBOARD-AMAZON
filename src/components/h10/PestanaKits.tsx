@@ -9,7 +9,7 @@ import { cambioAEur } from "@/lib/datos/h10Analisis";
 import { cantidadPrincipal, elementoPrincipal, grupoExtra, plural } from "@/lib/datos/h10Kits";
 import { formatMoneda, formatNumero } from "@/lib/format";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
-import { Pais } from "./comun";
+import { Pais, usePaisEstudio } from "./comun";
 
 /** Amazon serves any photo smaller with a size before the extension: 300 px is plenty for a card. */
 const pequena = (url: string) => url.replace(/^(https:\/\/m\.media-amazon\.com\/images\/I\/[^.]+)(\.[a-z]+)$/i, "$1._SL300_$2");
@@ -407,7 +407,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
     return { pais: mejor.codigoPais, total: mejor.total };
   };
   const router = useRouter();
-  const [pais, setPais] = useState<CodigoPais | null>(null);
+  const [pais, setPais] = usePaisEstudio(estudio.mercados.map((m) => m.codigoPais));
   const [cantidad, setCantidad] = useState<number | null>(null);
   /** The extras chosen (their groups): the kits that bring all of them; SIN_EXTRAS, the ones that bring nothing else. */
   const [extras, setExtras] = useState<string[]>([]);
@@ -665,7 +665,7 @@ export function PestanaKits({ estudio, ventasPorAsin }: { estudio: EstudioH10; v
 
       {lista.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/[0.12] px-4 py-12 text-center text-sm text-ink-400">
-          <p className="max-w-md">{paises.length ? "No hay listings en esta vista de «Listings»." : "Sube primero el Xray de algún país en «Datos»."}</p>
+          <p className="max-w-md">{paises.length ? "No hay listings en esta vista de «Listings»." : "Sube primero el Xray de algún país en «Archivos»."}</p>
         </div>
       ) : (
         <>

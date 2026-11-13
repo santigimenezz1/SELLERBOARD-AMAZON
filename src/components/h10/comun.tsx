@@ -1,10 +1,27 @@
 "use client";
 
+import { createContext, useContext, useState } from "react";
 import { Bandera } from "@/components/Bandera";
+import type { CodigoPais } from "@/lib/datos/h10Tipos";
 import { nombrePais } from "@/lib/datos/h10Analisis";
 import { formatMoneda } from "@/lib/format";
 
 /* Pieces shared by the «Análisis H10» tabs. */
+
+type PaisElegido = [CodigoPais | null, (p: CodigoPais | null) => void];
+const ContextoPais = createContext<PaisElegido | null>(null);
+/** The study's country, chosen once for every tab (null: every country together). */
+export const ProveedorPais = ContextoPais.Provider;
+/**
+ * The country the study's tabs show: shared by all of them, so picking one in a tab keeps it in the next. Only a
+ * country of `disponibles` (when given): any other one, as if none were chosen. Without the study around it, its own.
+ */
+export function usePaisEstudio(disponibles?: readonly string[]): PaisElegido {
+  const compartido = useContext(ContextoPais);
+  const propio = useState<CodigoPais | null>(null);
+  const [pais, setPais] = compartido ?? propio;
+  return [pais && (!disponibles || disponibles.includes(pais)) ? pais : null, setPais];
+}
 
 export const euros = (v: number) => formatMoneda(Math.round(v), "EUR").replace(",00", "");
 

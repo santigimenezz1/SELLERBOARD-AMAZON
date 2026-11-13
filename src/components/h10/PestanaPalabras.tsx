@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+
 import type { CodigoPais, EstudioH10, PalabraClave, PalabrasMercado } from "@/lib/datos/h10Tipos";
 import { clavePalabra } from "./PestanaLanzamiento";
 import { clasificarPalabra, nombrePais, palabrasParaTitulo, posicionesDeRivales, type ClasePalabra } from "@/lib/datos/h10Analisis";
 import { formatMoneda, formatNumero } from "@/lib/format";
-import { Barras, Pais, Tarjeta } from "./comun";
+import { Barras, Pais, Tarjeta, usePaisEstudio } from "./comun";
 
 /** The three key columns (searches, CPR, title density), marked in green. */
 const CLAVE_CABECERA = "bg-success/10 text-success";
@@ -46,7 +46,8 @@ export function PestanaPalabras({
   lanzamiento?: { elegidas: Set<string>; alternar: (pais: CodigoPais, p: PalabraClave) => void };
 }) {
   const paises = [...new Set([...estudio.mercados.map((m) => m.codigoPais as string), ...Object.keys(palabras)])].filter((p) => palabras[p]);
-  const [pais, setPais] = useState(paises.find((p) => p === inicial) ?? paises[0]);
+  const [compartido, setPais] = usePaisEstudio(paises);
+  const pais = compartido ?? paises.find((p) => p === inicial) ?? paises[0];
   const datos = palabras[pais];
   if (!datos) return null;
   const moneda = estudio.mercados.find((m) => m.codigoPais === pais)?.moneda ?? "EUR";
@@ -68,7 +69,7 @@ export function PestanaPalabras({
         {paises.map((p) => (
           <button
             key={p}
-            onClick={() => setPais(p)}
+            onClick={() => setPais(p as CodigoPais)}
             aria-pressed={p === pais}
             className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ${p === pais ? "border-accent-500/60 bg-accent-500/10 text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
           >
@@ -98,7 +99,7 @@ export function PestanaPalabras({
             <thead>
               <tr className="border-b border-white/[0.08] text-left text-xs text-ink-400">
                 {lanzamiento && (
-                  <th className="px-2 py-2 text-center font-medium" title="Llévala a la pestaña «Lanzamiento» para ordenar tu estrategia">
+                  <th className="px-2 py-2 text-center font-medium" title="Llévala a la pestaña Lanzamiento para ordenar tu estrategia">
                     Lanz.
                   </th>
                 )}

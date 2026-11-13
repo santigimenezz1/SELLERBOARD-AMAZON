@@ -27,7 +27,7 @@ export function revisarDatos(estudio: EstudioH10, palabrasEstudio: Record<string
   const salida: ProblemaDatos[] = [];
   const add = (nivel: ProblemaDatos["nivel"], pais: string | null, texto: string) => salida.push({ nivel, pais, texto });
   if (!estudio.mercados.length) add("grave", null, "No hay ningún Xray: el informe no tiene mercado que analizar.");
-  if (!costesPropios) add("aviso", null, "No has puesto tus costes (fábrica y envío) en Rentabilidad: el beneficio, el margen y el precio mínimo saldrán de costes supuestos.");
+  if (!costesPropios) add("aviso", null, "No has puesto tus costes (fábrica y envío) en Números: el beneficio, el margen y el precio mínimo saldrán de costes supuestos.");
 
   for (const m of estudio.mercados) {
     const p = m.codigoPais;

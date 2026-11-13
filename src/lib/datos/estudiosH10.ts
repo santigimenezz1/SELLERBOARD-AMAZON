@@ -939,7 +939,8 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
     paresAmazon: paresAmazon([...mercados.values()], estudio.asinsManuales ?? []),
     palabras,
     archivos: estudio.archivos,
-    costesPropios: !!estudio.supuestos,
+    // Saving only the box (from «Tarifas FBA») is not giving your costs.
+    costesPropios: !!estudio.supuestos && (estudio.supuestos.costeFabrica !== SUPUESTOS_INICIALES.costeFabrica || estudio.supuestos.envioUnidad !== SUPUESTOS_INICIALES.envioUnidad),
     creadoEn: estudio.creadoEn,
   };
 }

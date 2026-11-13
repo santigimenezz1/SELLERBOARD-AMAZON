@@ -8,7 +8,7 @@ import { cambioAEur, nombrePais } from "@/lib/datos/h10Analisis";
 import { auditarListing, claveCuantosListings, colorNota, lideresListings, listingDe, resumenListings, TOP_LISTINGS } from "@/lib/datos/h10Listings";
 import { formatMoneda, formatNumero, formatPorcentaje } from "@/lib/format";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
-import { Pais, Tarjeta } from "./comun";
+import { Pais, Tarjeta, usePaisEstudio } from "./comun";
 import { FotoGenerica } from "./FotoGenerica";
 
 /**
@@ -39,7 +39,7 @@ function leerCuantos(memoria: string): number {
 
 export function PestanaListings({ estudio, palabras, conExtension = true }: { estudio: EstudioH10; palabras: Record<string, PalabrasMercado>; conExtension?: boolean }) {
   const router = useRouter();
-  const [pais, setPais] = useState<CodigoPais | null>(null);
+  const [pais, setPais] = usePaisEstudio(estudio.mercados.map((m) => m.codigoPais));
   // Shown at once; saved in the study in the background.
   const [quitados, setQuitados] = useState<string[]>(estudio.listingsQuitados ?? []);
   const [errorQuitar, setErrorQuitar] = useState("");
