@@ -81,16 +81,39 @@ button{padding:6px 12px;border-radius:8px;border:1px solid #bbb;background:#fff;
 }
 
 /** «Informe de rentabilidad»: the sale price for each margin in every store, with its costs, profit and ROAS. */
-export function InformeRentabilidadFba({ estudioId, caja, r, cep, eurPorGbp }: { estudioId: string; caja: Caja; r: CalculoTarifa; cep: boolean; eurPorGbp: number }) {
+/**
+ * `costesGuardados`: your product cost and shipping saved in the study (the agents' numbers use them); `onCostes`:
+ * saves them there when changed here.
+ */
+export function InformeRentabilidadFba({
+  estudioId,
+  caja,
+  r,
+  cep,
+  eurPorGbp,
+  costesGuardados = null,
+  onCostes,
+}: {
+  estudioId: string;
+  caja: Caja;
+  r: CalculoTarifa;
+  cep: boolean;
+  eurPorGbp: number;
+  costesGuardados?: { coste: number; envio: number } | null;
+  onCostes?: (coste: number, envio: number) => void;
+}) {
   const clave = `tarifas-fba-rentabilidad-${estudioId}`;
-  const [campos, setCampos] = useState<Campos>(VACIO);
+  const texto = (v: number) => String(v).replace(".", ",");
+  const [campos, setCampos] = useState<Campos>(() => (costesGuardados ? { ...VACIO, coste: texto(costesGuardados.coste), envio: texto(costesGuardados.envio) } : VACIO));
   const [pais, setPais] = useState<PaisTarifa>("ES");
   useEffect(() => {
     try {
       const g = localStorage.getItem(clave);
+      // The study's costs win over this browser's (they're what the agents use).
       // eslint-disable-next-line react-hooks/set-state-in-effect -- read once from the browser after mounting
-      if (g) setCampos({ ...VACIO, ...JSON.parse(g) });
+      if (g) setCampos((c) => ({ ...VACIO, ...JSON.parse(g), ...(costesGuardados ? { coste: c.coste, envio: c.envio } : {}) }));
     } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on opening
   }, [clave]);
   const cambiar = (c: Partial<Campos>) => {
     const nuevo = { ...campos, ...c };
@@ -98,6 +121,7 @@ export function InformeRentabilidadFba({ estudioId, caja, r, cep, eurPorGbp }: {
     try {
       localStorage.setItem(clave, JSON.stringify(nuevo));
     } catch {}
+    if (onCostes && ("coste" in c || "envio" in c)) onCostes(leer(nuevo.coste), leer(nuevo.envio));
   };
   const s: SupuestosRentabilidad = { coste: leer(campos.coste), envio: leer(campos.envio), comision: leer(campos.comision), meses: leer(campos.meses), temporada: campos.temporada };
   // Only the chosen market (and only it in the document).
@@ -110,7 +134,7 @@ export function InformeRentabilidadFba({ estudioId, caja, r, cep, eurPorGbp }: {
 
   return (
     <div className="flex flex-col gap-4">
-      <Tarjeta titulo="Tus costes" subtitulo="En euros por unidad (para Reino Unido se pasan a libras al cambio del BCE). Se recuerdan en este navegador.">
+      <Tarjeta titulo="Tus costes" subtitulo="En euros por unidad (para Reino Unido se pasan a libras al cambio del BCE). El coste y el envío se guardan en el estudio: los usan también los agentes.">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Campo etiqueta="Coste del producto" unidad="€" valor={campos.coste} onCambio={(v) => cambiar({ coste: v })} />
           <Campo etiqueta="Envío a Amazon (por unidad)" unidad="€" valor={campos.envio} onCambio={(v) => cambiar({ envio: v })} ayuda="Flete, aduanas y transporte hasta el almacén" />

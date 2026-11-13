@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { EstudioH10 } from "@/lib/datos/h10Tipos";
+import { SUPUESTOS_INICIALES, type EstudioH10 } from "@/lib/datos/h10Tipos";
 import {
   CATEGORIAS,
   DIVISOR,
@@ -106,17 +106,25 @@ export function PestanaTarifasFba({ estudio, eurPorGbp = 1.16 }: { estudio: Estu
   const supuestos = useRef(estudio.supuestos);
   const espera = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [guardado, setGuardado] = useState<"" | "guardando" | "ok" | "error">("");
-  const guardarCaja = (c: Campos) => {
+  // What's waiting to be saved (the box and/or your costs), sent together.
+  const pendiente = useRef<Record<string, unknown>>({});
+  const guardarSupuestos = (cambios: Record<string, unknown>) => {
+    pendiente.current = { ...pendiente.current, ...cambios };
+    if (estudio.ejemplo) return;
     if (espera.current) clearTimeout(espera.current);
     espera.current = setTimeout(async () => {
-      const miCaja = { largo: leer(c.largo), ancho: leer(c.ancho), alto: leer(c.alto), peso: leer(c.pesoKg) };
-      const nuevos = { ...(supuestos.current ?? {}), miCaja };
+      const nuevos = { ...(supuestos.current ?? {}), ...pendiente.current };
+      pendiente.current = {};
       setGuardado("guardando");
       const res = await fetch(`/api/h10/estudios/${estudioId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supuestos: nuevos }) }).catch(() => null);
       if (res?.ok) supuestos.current = nuevos as typeof supuestos.current;
       setGuardado(res?.ok ? "ok" : "error");
     }, 900);
   };
+  const guardarCaja = (c: Campos) => guardarSupuestos({ miCaja: { largo: leer(c.largo), ancho: leer(c.ancho), alto: leer(c.alto), peso: leer(c.pesoKg) } });
+  // Your costs, the study's own once given (the defaults are no one's costs).
+  const sup = estudio.supuestos;
+  const costesGuardados = sup && (sup.costeFabrica !== SUPUESTOS_INICIALES.costeFabrica || sup.envioUnidad !== SUPUESTOS_INICIALES.envioUnidad) ? { coste: sup.costeFabrica, envio: sup.envioUnidad } : null;
   const cambiar = (c: Partial<Campos>) => {
     const nuevo = { ...campos, ...c };
     setCampos(nuevo);
@@ -194,7 +202,15 @@ export function PestanaTarifasFba({ estudio, eurPorGbp = 1.16 }: { estudio: Estu
           ))}
         </div>
       )}
-      {r?.categoria && sub === "rentabilidad" && <InformeRentabilidadFba estudioId={estudioId} caja={caja} r={r} cep={campos.cep} eurPorGbp={eurPorGbp} />}
+      {r?.categoria && sub === "rentabilidad" && <InformeRentabilidadFba
+          estudioId={estudioId}
+          caja={caja}
+          r={r}
+          cep={campos.cep}
+          eurPorGbp={eurPorGbp}
+          costesGuardados={costesGuardados}
+          onCostes={(coste, envio) => guardarSupuestos({ costeFabrica: coste, envioUnidad: envio })}
+        />}
 
       {r && (sub === "tarifa" || !r.categoria) && (
         <>

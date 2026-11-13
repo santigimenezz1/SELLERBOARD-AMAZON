@@ -1,4 +1,5 @@
 import { cambioAEur, rangosDePrecio } from "./h10Analisis";
+import { calcularTarifa, formatPesoTramo } from "./tarifasFba";
 import { SUPUESTOS_INICIALES, type CodigoPais, type EstudioH10, type FichaAmazon, type MercadoXray, type Paquete, type PalabrasMercado, type SupuestosRentabilidad } from "./h10Tipos";
 
 /*
@@ -145,7 +146,16 @@ export function rentabilidadPais(estudio: EstudioH10, m: MercadoXray, palabras: 
         ? { valor: rf.comision / rf.precioTarifas, fuente: `Amazon (automático) · ${nombreRef}` }
         : { valor: COMISION_HABITUAL, fuente: "Habitual en la categoría" };
   const fbaXray = mediana(m.competidores.map((c) => c.tarifaFba).filter((v): v is number => !!v));
-  const tarifaFba: Dato = calc
+  // With your box: Amazon's official rate card (Feb 2026) for its size tier and weight band, the most exact one.
+  const paisTabla = m.codigoPais === "GB" ? "UK" : m.codigoPais;
+  const conCaja = cajaCompleta(s.miCaja) && ["ES", "DE", "FR", "UK"].includes(paisTabla) ? calcularTarifa({ largo: s.miCaja!.largo, ancho: s.miCaja!.ancho, alto: s.miCaja!.alto, pesoG: Math.round(s.miCaja!.peso * 1000) }, false) : null;
+  const deTabla = conCaja?.categoria ? conCaja.paises.find((x) => x.pais === paisTabla) : undefined;
+  const tarifaFba: Dato = deTabla
+    ? {
+        valor: aEur(deTabla.total, paisTabla === "UK" ? "GBP" : "EUR"),
+        fuente: `Tabla oficial de Amazon con tu caja (${conCaja!.categoria!.nombre}, ${conCaja!.categoria!.porKg ? "tamaño grande" : formatPesoTramo(conCaja!.categoria!.tramos[conCaja!.tramo].hasta)}${paisTabla === "UK" ? `, ${deTabla.total.toLocaleString("es-ES")} £` : ""})`,
+      }
+    : calc
     ? { valor: aEur(calc.tarifaFba, calc.moneda), fuente: "Calculadora de Amazon" }
     : rf?.tarifaFba !== undefined && rf?.tarifaFba !== null
       ? { valor: aEur(rf.tarifaFba, rf.moneda), fuente: `Amazon (automático) · como el de ${nombreRef}, con stock en ese país` }
@@ -154,7 +164,12 @@ export function rentabilidadPais(estudio: EstudioH10, m: MercadoXray, palabras: 
       : fbaXray
         ? { valor: aEur(fbaXray, m.moneda), fuente: "Mediana de los competidores (Xray)" }
         : { valor: FBA_POR_DEFECTO, fuente: "Estimado" };
-  const almacenamientoMes: Dato = calc
+  // With your box: its volume at the rate card's standard-size storage (Jan–Sep): 27,54 €/m³ in the EU, 0,76 £/ft³ in the UK.
+  const m3Caja = cajaCompleta(s.miCaja) ? (s.miCaja.largo * s.miCaja.ancho * s.miCaja.alto) / 1_000_000 : null;
+  const almacenamientoMes: Dato =
+    m3Caja && !calc
+      ? { valor: m3Caja * (m.codigoPais === "GB" ? aEur(0.76 * 35.3147, "GBP") : 27.54), fuente: "Tabla oficial de Amazon con tu caja (ene–sep)" }
+      : calc
     ? { valor: aEur(calc.almacenamientoMes, calc.moneda), fuente: "Calculadora de Amazon (ene–sep)" }
     : otra
       ? { valor: aEur(otra.almacenamientoMes, otra.moneda), fuente: `Calculadora de ${otra.codigoPais} (estimado)` }
