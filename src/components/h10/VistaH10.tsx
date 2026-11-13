@@ -39,10 +39,10 @@ const PESTANAS = [
   { id: "mercado", texto: "Mercado" },
   { id: "competencia", texto: "Competencia" },
   { id: "palabras", texto: "Palabras clave" },
-  { id: "producto", texto: "Mi producto" },
   { id: "numeros", texto: "Números" },
-  { id: "lanzamiento", texto: "Lanzamiento" },
+  { id: "producto", texto: "Mi producto" },
   { id: "informe", texto: "Informe" },
+  { id: "lanzamiento", texto: "Lanzamiento" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["id"] | "datos";
 /** Where a tab name in a link («?pestana=…», old ones too) opens now: its tab and sub-tab. */
