@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CodigoPais, EstudioH10, KitCompetidor, PrecioMercado } from "@/lib/datos/h10Tipos";
+import type { CodigoPais, CombinacionKit, EstudioH10, KitCompetidor, PrecioMercado } from "@/lib/datos/h10Tipos";
 import { cantidadPrincipal, elementoPrincipal, grupoExtra, plural } from "@/lib/datos/h10Kits";
 import { lideresListings } from "@/lib/datos/h10Listings";
 import { enlaceAmazon } from "@/lib/datos/h10Enlaces";
@@ -24,7 +24,11 @@ const pct = (v: number) => `${Math.round(v * 100)} %`;
 /** A price as shops write it: 38,99. */
 const comercial = (v: number) => Math.max(0.99, Math.round(v) - 0.01);
 const precioDe = (k: KitCompetidor) => k.precio ?? k.precioXray;
-const INICIAL: PrecioMercado = { cantidad: 2, extras: ["Conos reforzados", "Calcetines", "Caja personalizada", "App con ejercicios"], rivales: {}, precios: {} };
+const INICIAL: CombinacionKit = { id: "k1", nombre: "", cantidad: 2, extras: ["Conos reforzados", "Calcetines", "Caja personalizada", "App con ejercicios"], coste: null, envio: null, rivales: {}, precios: {} };
+const nuevoId = () => `k${Date.now().toString(36)}`;
+/** A kit's name: the one you gave it, or what it brings («2 porterías + conos reforzados…»). */
+const nombreDe = (k: CombinacionKit, principal: string) =>
+  k.nombre || `${k.cantidad} ${k.cantidad === 1 ? principal.toLowerCase() : plural(principal)}${k.extras.length ? ` + ${k.extras.join(", ").toLowerCase()}` : ""}`;
 
 /** The value below which `parte` of the units sell (each price weighted by its units). */
 function percentil(filas: { precio: number; uds: number }[], parte: number) {
@@ -60,7 +64,7 @@ function useCostes(estudioId: string) {
 }
 
 /** One country's rivals: every analysed kit among its best sellers, in (same size of kit, or chosen) or out. */
-function rivalesDe(estudio: EstudioH10, pais: CodigoPais, cuantos: number, pm: PrecioMercado, principal: string | null) {
+function rivalesDe(estudio: EstudioH10, pais: CodigoPais, cuantos: number, pm: CombinacionKit, principal: string | null) {
   const asins = new Set(lideresListings(estudio.mercados, pais, estudio.listingsQuitados ?? [], cuantos).map((x) => x.c.asin));
   return (estudio.kitsCompetidores?.porPais[pais] ?? [])
     .filter((k) => asins.has(k.asin))
@@ -98,8 +102,11 @@ function preciosDe(rivales: ReturnType<typeof rivalesDe>) {
 export function PrecioPorMercado({ estudio, eurPorGbp = 1.16, onIrA }: { estudio: EstudioH10; eurPorGbp?: number; onIrA: (pestana: "competencia" | "numeros", sub: string) => void }) {
   const cuantos = useCuantosListings(estudio.id);
   const principal = elementoPrincipal(estudio.kitsCompetidores);
-  const [pm, setPm] = useState<PrecioMercado>(estudio.precioMercado ?? INICIAL);
-  const [extrasTexto, setExtrasTexto] = useState(pm.extras.join(", "));
+  const [datos, setDatos] = useState<PrecioMercado>(estudio.precioMercado?.combinaciones.length ? estudio.precioMercado : { combinaciones: [INICIAL], activa: INICIAL.id });
+  const pm = datos.combinaciones.find((c) => c.id === datos.activa) ?? datos.combinaciones[0];
+  /** The kit being edited (a copy, saved with «Guardar») and whether it's a new one; null: none. */
+  const [editando, setEditando] = useState<{ k: CombinacionKit; extras: string; nueva: boolean } | null>(null);
+  const [borrar, setBorrar] = useState(false);
   const [compartido, setPais] = usePaisEstudio(PAISES);
   const pais = compartido ?? "ES";
   const costes = useCostes(estudio.id);
@@ -107,7 +114,7 @@ export function PrecioPorMercado({ estudio, eurPorGbp = 1.16, onIrA }: { estudio
   const [guardado, setGuardado] = useState<"" | "guardando" | "ok" | "error">("");
 
   const cambiar = (nuevo: PrecioMercado) => {
-    setPm(nuevo);
+    setDatos(nuevo);
     if (estudio.ejemplo) return;
     if (espera.current) clearTimeout(espera.current);
     espera.current = setTimeout(async () => {
@@ -119,8 +126,27 @@ export function PrecioPorMercado({ estudio, eurPorGbp = 1.16, onIrA }: { estudio
 
   const caja = estudio.supuestos?.miCaja;
   const tarifa = caja && caja.largo && caja.ancho && caja.alto && caja.peso ? calcularTarifa({ largo: caja.largo, ancho: caja.ancho, alto: caja.alto, pesoG: Math.round(caja.peso * 1000) }, costes?.cep ?? false) : null;
-  const sinCostes = !costes?.s.coste;
-  const ganancia = (p: CodigoPais, precio: number) => (tarifa?.categoria && costes ? aPrecio(tarifa, costes.s, eurPorGbp, aTarifa(p), precio) : null);
+  /** A kit's costs: its own, if it has them, else the ones of «Rentabilidad por país». */
+  const costesDe = (k: CombinacionKit) => (costes ? { ...costes.s, coste: k.coste ?? costes.s.coste, envio: k.envio ?? costes.s.envio } : null);
+  const sinCostes = !costesDe(pm)?.coste;
+  const gananciaDe = (k: CombinacionKit, p: CodigoPais, precio: number) => {
+    const c = costesDe(k);
+    return tarifa?.categoria && c ? aPrecio(tarifa, c, eurPorGbp, aTarifa(p), precio) : null;
+  };
+  const ganancia = (p: CodigoPais, precio: number) => gananciaDe(pm, p, precio);
+  /** Changes the kit being looked at (its rivals or prices). */
+  const cambiarKit = (k: CombinacionKit) => cambiar({ ...datos, combinaciones: datos.combinaciones.map((c) => (c.id === k.id ? k : c)) });
+  const guardarEdicion = () => {
+    if (!editando) return;
+    const k = { ...editando.k, extras: editando.extras.split(",").map((x) => x.trim()).filter(Boolean) };
+    cambiar(editando.nueva ? { combinaciones: [...datos.combinaciones, k], activa: k.id } : { ...datos, combinaciones: datos.combinaciones.map((c) => (c.id === k.id ? k : c)) });
+    setEditando(null);
+  };
+  const eliminar = () => {
+    const resto = datos.combinaciones.filter((c) => c.id !== pm.id);
+    if (resto.length) cambiar({ combinaciones: resto, activa: resto[0].id });
+    setBorrar(false);
+  };
 
   if (!principal)
     return (
@@ -152,31 +178,124 @@ export function PrecioPorMercado({ estudio, eurPorGbp = 1.16, onIrA }: { estudio
         </p>
       </div>
 
-      <Tarjeta titulo="1. Tu kit" subtitulo={`Lo que vas a vender. Se guarda en el estudio${guardado === "guardando" ? " · guardando…" : guardado === "ok" ? " · guardado ✓" : guardado === "error" ? " · no se pudo guardar" : ""}.`}>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs text-ink-400">
-            {principal}s
-            <input
-              inputMode="numeric"
-              value={pm.cantidad}
-              onChange={(e) => cambiar({ ...pm, cantidad: Math.max(1, Math.min(999, Math.round(Number(e.target.value.replace(/\D/g, "")) || 1))) })}
-              className="tabular h-9 w-20 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
-            />
-          </label>
-          <label className="flex min-w-64 flex-1 flex-col gap-1 text-xs text-ink-400">
-            Extras (separados por comas)
-            <input
-              value={extrasTexto}
-              onChange={(e) => {
-                setExtrasTexto(e.target.value);
-                cambiar({ ...pm, extras: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) });
+      <Tarjeta
+        titulo="1. Tus combinaciones"
+        subtitulo={`Los kits que te planteas vender. Elige uno para ver contra quién compite y a qué precio. Se guardan en el estudio${guardado === "guardando" ? " · guardando…" : guardado === "ok" ? " · guardado ✓" : guardado === "error" ? " · no se pudo guardar" : ""}.`}
+      >
+        <div className="flex flex-wrap gap-2">
+          {datos.combinaciones.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => {
+                cambiar({ ...datos, activa: c.id });
+                setEditando(null);
+                setBorrar(false);
               }}
-              className="h-9 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
-            />
-          </label>
+              aria-pressed={c.id === pm.id}
+              className={`max-w-full rounded-lg border px-3 py-1.5 text-left text-sm ${c.id === pm.id ? "border-accent-400 bg-accent-500/15 text-accent-100" : "border-white/[0.08] text-ink-300 hover:bg-white/[0.04]"}`}
+            >
+              {c.id === pm.id && <span className="mr-1">●</span>}
+              {nombreDe(c, principal)}
+            </button>
+          ))}
+          <button
+            onClick={() => setEditando({ k: { ...INICIAL, id: nuevoId(), cantidad: 1, extras: [] }, extras: "", nueva: true })}
+            className="rounded-lg border border-dashed border-white/[0.15] px-3 py-1.5 text-sm text-ink-300 hover:bg-white/[0.04] hover:text-ink-100"
+          >
+            ＋ Nueva combinación
+          </button>
         </div>
-        <p className="mt-2 text-xs text-ink-400">
-          Compites contra los que venden <b className="text-ink-200">{nombreKit}</b>. Puedes añadir o quitar rivales a mano en la lista de cada país.
+
+        {!editando && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-ink-400">
+              Elegida: <b className="text-ink-200">{nombreDe(pm, principal)}</b>
+              {(pm.coste !== null || pm.envio !== null) && ` · coste ${pm.coste ?? "—"} € + envío ${pm.envio ?? "—"} €`}
+            </span>
+            <button onClick={() => setEditando({ k: pm, extras: pm.extras.join(", "), nueva: false })} className="rounded-md border border-white/[0.1] px-2.5 py-1 text-ink-200 hover:bg-white/[0.05]">
+              ✎ Editar
+            </button>
+            {datos.combinaciones.length > 1 &&
+              (borrar ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-danger">¿Eliminar esta combinación?</span>
+                  <button onClick={eliminar} className="rounded-md bg-danger px-2.5 py-1 font-medium text-ink-950">
+                    Sí, eliminar
+                  </button>
+                  <button onClick={() => setBorrar(false)} className="rounded-md border border-white/[0.1] px-2.5 py-1 text-ink-300">
+                    Cancelar
+                  </button>
+                </span>
+              ) : (
+                <button onClick={() => setBorrar(true)} className="rounded-md border border-danger/40 px-2.5 py-1 text-danger hover:bg-danger/10">
+                  🗑 Eliminar
+                </button>
+              ))}
+          </div>
+        )}
+
+        {editando && (
+          <div className="mt-3 flex flex-col gap-3 rounded-lg border border-accent-500/30 bg-accent-500/[0.04] p-3">
+            <p className="text-xs font-semibold text-accent-300">{editando.nueva ? "Nueva combinación" : "Editar combinación"}</p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs text-ink-400">
+                {plural(principal).replace(/^./, (x) => x.toUpperCase())}
+                <input
+                  inputMode="numeric"
+                  value={editando.k.cantidad}
+                  onChange={(e) => setEditando({ ...editando, k: { ...editando.k, cantidad: Math.max(1, Math.min(999, Math.round(Number(e.target.value.replace(/\D/g, "")) || 1))) } })}
+                  className="tabular h-9 w-20 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
+                />
+              </label>
+              <label className="flex min-w-56 flex-1 flex-col gap-1 text-xs text-ink-400">
+                Extras (separados por comas)
+                <input
+                  value={editando.extras}
+                  placeholder="Conos reforzados, calcetines…"
+                  onChange={(e) => setEditando({ ...editando, extras: e.target.value })}
+                  className="h-9 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-ink-400">
+                Nombre (opcional)
+                <input
+                  value={editando.k.nombre}
+                  placeholder="Kit básico…"
+                  onChange={(e) => setEditando({ ...editando, k: { ...editando.k, nombre: e.target.value.slice(0, 80) } })}
+                  className="h-9 w-44 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              {(["coste", "envio"] as const).map((campo) => (
+                <label key={campo} className="flex flex-col gap-1 text-xs text-ink-400" title="Vacío: el de Números → Tarifas FBA → Rentabilidad por país">
+                  {campo === "coste" ? "Coste del producto (€/u)" : "Envío a Amazon (€/u)"}
+                  <input
+                    inputMode="decimal"
+                    value={editando.k[campo] === null ? "" : String(editando.k[campo]).replace(".", ",")}
+                    placeholder={String((campo === "coste" ? costes?.s.coste : costes?.s.envio) ?? 0).replace(".", ",")}
+                    onChange={(e) => {
+                      const v = Number(e.target.value.replace(",", "."));
+                      setEditando({ ...editando, k: { ...editando.k, [campo]: e.target.value.trim() === "" || !Number.isFinite(v) ? null : v } });
+                    }}
+                    className="tabular h-9 w-36 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
+                  />
+                </label>
+              ))}
+              <span className="pb-2 text-[11px] text-ink-500">Vacío: el de Rentabilidad por país. Cada kit puede costar distinto.</span>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={guardarEdicion} className="rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-medium text-ink-950 hover:bg-accent-400">
+                {editando.nueva ? "Añadir combinación" : "Guardar cambios"}
+              </button>
+              <button onClick={() => setEditando(null)} className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs text-ink-300 hover:bg-white/[0.05]">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-ink-400">
+          Compites contra los que venden <b className="text-ink-200">{nombreKit}</b>. Puedes añadir o quitar rivales a mano en la lista de cada país (cada combinación guarda los suyos).
         </p>
       </Tarjeta>
 
@@ -226,7 +345,7 @@ export function PrecioPorMercado({ estudio, eurPorGbp = 1.16, onIrA }: { estudio
                       <input
                         type="checkbox"
                         checked={dentro}
-                        onChange={(e) => cambiar({ ...pm, rivales: { ...pm.rivales, [clave]: e.target.checked } })}
+                        onChange={(e) => cambiarKit({ ...pm, rivales: { ...pm.rivales, [clave]: e.target.checked } })}
                         aria-label={`Competidor: ${k.marca}`}
                         className="accent-accent-500"
                       />
@@ -353,14 +472,14 @@ export function PrecioPorMercado({ estudio, eurPorGbp = 1.16, onIrA }: { estudio
             <input
               inputMode="decimal"
               defaultValue={propio ? String(propio).replace(".", ",") : ""}
-              key={pais}
+              key={`${pm.id}-${pais}`}
               placeholder="0,00"
               onChange={(e) => {
                 const v = Number(e.target.value.replace(",", "."));
                 const precios2 = { ...pm.precios };
                 if (Number.isFinite(v) && v > 0) precios2[pais] = v;
                 else delete precios2[pais];
-                cambiar({ ...pm, precios: precios2 });
+                cambiarKit({ ...pm, precios: precios2 });
               }}
               className="tabular h-8 w-24 rounded-lg border border-white/[0.08] bg-ink-950/60 px-2 text-right text-sm text-ink-100 outline-none focus:border-accent-500/60"
             />
@@ -405,6 +524,50 @@ export function PrecioPorMercado({ estudio, eurPorGbp = 1.16, onIrA }: { estudio
           Lanzamiento: 10 % por debajo del típico. Objetivo: el típico. Máximo: el nivel de los más caros que venden. Precios de hoy en Amazon (o del Xray si no hay oferta), con IVA; Reino Unido en libras.
         </p>
       </Tarjeta>
+      {datos.combinaciones.length > 1 && (
+        <Tarjeta titulo="6. Comparar tus combinaciones" subtitulo="Cada una con sus rivales y su precio objetivo en cada país, y lo que te deja por unidad. Toca una para elegirla.">
+          <div className="-mx-4 overflow-x-auto px-4">
+            <table className="tabular w-full min-w-[760px] text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.08] text-xs text-ink-400">
+                  <th className="px-2 py-2 text-left font-medium">Combinación</th>
+                  {PAISES.map((p) => (
+                    <th key={p} className="px-2 py-2 text-right font-medium">
+                      <Pais codigo={p} corto />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {datos.combinaciones.map((c) => (
+                  <tr key={c.id} onClick={() => cambiar({ ...datos, activa: c.id })} className={`cursor-pointer border-b border-white/[0.04] hover:bg-white/[0.03] ${c.id === pm.id ? "bg-accent-500/[0.06]" : ""}`}>
+                    <td className="px-2 py-2 font-medium text-ink-100">{nombreDe(c, principal)}</td>
+                    {PAISES.map((p) => {
+                      const pr = preciosDe(rivalesDe(estudio, p, cuantos, c, principal));
+                      const g = pr ? gananciaDe(c, p, pr.propuestos[1].precio) : null;
+                      return (
+                        <td key={p} className="px-2 py-2 text-right">
+                          {pr ? (
+                            <>
+                              <span className="block font-semibold text-ink-100">{dinero(pr.propuestos[1].precio, p)}</span>
+                              <span className={`block text-xs ${g ? (g.ganancia >= 0 ? "text-success" : "text-danger") : "text-ink-500"}`}>
+                                {g ? `ganas ${dinero(g.ganancia, p)}` : `${pr.filas.length} rivales`}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-xs text-ink-500">sin rivales</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-xs text-ink-500">Precio objetivo = el típico de los rivales de cada combinación. La ganancia usa tu caja de Tarifas FBA para todas (si un kit va en otra caja, ajusta allí).</p>
+        </Tarjeta>
+      )}
     </div>
   );
 }

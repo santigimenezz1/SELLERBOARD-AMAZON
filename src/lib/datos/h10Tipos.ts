@@ -495,16 +495,24 @@ export type PalabraLanzamiento = {
 export type DestinoPalabra = "principal" | "titulo" | "bullets" | "backend" | "ppc";
 export const DESTINOS_PALABRA: DestinoPalabra[] = ["principal", "titulo", "bullets", "backend", "ppc"];
 /** One thing a competitor's kit includes, as its listing says it: «2 × Portería · 120×90 cm». */
-/** «Precio por mercado»: what you'll sell, against whom and at what price, per country. */
-export type PrecioMercado = {
-  /** How many of the study's main element your kit brings (2 goals) and its extras, as you name them. */
+/** One kit you might sell («2 porterías + conos…»), against whom and at what price, per country. */
+export type CombinacionKit = {
+  id: string;
+  /** Its name, if you gave it one (else it's named after what it brings). */
+  nombre: string;
+  /** How many of the study's main element it brings (2 goals) and its extras, as you name them. */
   cantidad: number;
   extras: string[];
+  /** Its own product cost and shipping per unit in euros (null: the ones of «Rentabilidad por país»). */
+  coste: number | null;
+  envio: number | null;
   /** Rivals chosen by hand, «ES|B0…» → in (true) or out (false); the rest go by the size of their kit. */
   rivales: Record<string, boolean>;
   /** Your own price typed for each country (its currency). */
   precios: Partial<Record<CodigoPais, number>>;
 };
+/** «Precio por mercado»: the kits you weigh up and the one you're looking at. */
+export type PrecioMercado = { combinaciones: CombinacionKit[]; activa: string };
 export type ElementoKit = { cantidad: number | null; nombre: string; detalle: string | null };
 /** A best-selling competitor and what its kit includes (read from its Amazon listing by the AI). */
 export type KitCompetidor = {

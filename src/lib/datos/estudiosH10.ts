@@ -43,6 +43,7 @@ import {
   type LanzamientoPropio,
   type MejoraProducto,
   type PrecioMercado,
+  type CombinacionKit,
   type PalabraLanzamiento,
   type ListingPropio,
   type KitsCompetidores,
@@ -271,15 +272,20 @@ function leerSupuestos(v: unknown, actual: SupuestosRentabilidad): SupuestosRent
   };
 }
 
-/** «Precio por mercado» as the page sends it: your kit (up to 20 extras), rivals chosen by hand and your prices. */
-function leerPrecioMercado(v: unknown): PrecioMercado {
+/** One kit of «Precio por mercado» as the page sends it (an old single kit too). */
+function leerCombinacion(v: unknown, i: number): CombinacionKit {
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
   const cantidad = Number(o.cantidad);
+  const euros = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x >= 0 && x < 10_000 ? Math.round(x * 100) / 100 : null);
   const rivales = o.rivales && typeof o.rivales === "object" ? (o.rivales as Record<string, unknown>) : {};
   const precios = o.precios && typeof o.precios === "object" ? (o.precios as Record<string, unknown>) : {};
   return {
+    id: typeof o.id === "string" && /^[w-]{1,40}$/.test(o.id) ? o.id : `k${i + 1}`,
+    nombre: texto(o.nombre, 80),
     cantidad: Number.isInteger(cantidad) && cantidad > 0 && cantidad <= 1000 ? cantidad : 1,
     extras: (Array.isArray(o.extras) ? o.extras : []).map((x) => texto(x, 60)).filter(Boolean).slice(0, 20),
+    coste: euros(o.coste),
+    envio: euros(o.envio),
     rivales: Object.fromEntries(Object.entries(rivales).filter(([k, x]) => esClaveListing(k) && typeof x === "boolean").slice(0, 500)) as Record<string, boolean>,
     precios: Object.fromEntries(
       Object.entries(precios)
@@ -287,6 +293,21 @@ function leerPrecioMercado(v: unknown): PrecioMercado {
         .map(([p, x]) => [p, Math.round((x as number) * 100) / 100]),
     ),
   };
+}
+
+/** «Precio por mercado» as the page sends it: up to 20 kits and the one chosen. */
+function leerPrecioMercado(v: unknown): PrecioMercado {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  const lista = Array.isArray(o.combinaciones) ? o.combinaciones : [o];
+  const combinaciones = lista.slice(0, 20).map(leerCombinacion);
+  // Ids once each.
+  const vistos = new Set<string>();
+  for (const [i, c] of combinaciones.entries()) {
+    if (vistos.has(c.id)) c.id = `k${i + 1}-${Date.now()}`;
+    vistos.add(c.id);
+  }
+  const activa = typeof o.activa === "string" && combinaciones.some((c) => c.id === o.activa) ? o.activa : combinaciones[0].id;
+  return { combinaciones, activa };
 }
 
 /** Your launched product: ASIN, country and launch day (null takes it out). */
@@ -954,7 +975,7 @@ function ensamblar({ estudio, datos, amazon, listings: delCatalogo }: Entrada): 
       listingPropio: estudio.listingPropio ?? {},
       ...(estudio.kitsCompetidores && { kitsCompetidores: estudio.kitsCompetidores }),
       listingsQuitados: estudio.listingsQuitados ?? [],
-      ...(estudio.precioMercado && { precioMercado: estudio.precioMercado }),
+      ...(estudio.precioMercado && { precioMercado: leerPrecioMercado(estudio.precioMercado) }),
       // Each country and ASIN once: a listing read from its page (newest file) beats the catalog's, which lacks A+ and video.
       listings: [...new Map([...delCatalogo.values(), ...lista.flatMap(([, d]) => d.listings ?? []).reverse()].map((l) => [`${l.codigoPais}|${l.asin}`, l])).values()],
     },
