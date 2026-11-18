@@ -13,10 +13,14 @@ type Sesion = {
   salir: () => void;
 };
 
-const SesionContext = createContext<Sesion | null>(null);
+const USUARIO_DEMO: Usuario = { nombre: 'Demo', email: 'demo@miapp.com' };
+
+const SesionContext =createContext<Sesion | null>(null);
 
 export function SesionProvider({ children }: { children: ReactNode }) {
-  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  // De momento se entra automáticamente con un usuario de prueba.
+  // Para volver a pedir login al abrir la app, cambia el valor inicial a `null`.
+  const [usuario, setUsuario] = useState<Usuario | null>(USUARIO_DEMO);
 
   const valor: Sesion = {
     usuario,
