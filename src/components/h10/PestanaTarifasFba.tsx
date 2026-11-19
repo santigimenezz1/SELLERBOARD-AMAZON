@@ -33,7 +33,7 @@ const leer = (s: string) => {
   return Number.isFinite(v) && v > 0 ? v : 0;
 };
 
-function Campo({ etiqueta, valor, unidad, onCambio }: { etiqueta: string; valor: string; unidad: string; onCambio: (v: string) => void }) {
+function Campo({ etiqueta, valor, unidad, onCambio }: { etiqueta: string; valor: string; unidad: React.ReactNode; onCambio: (v: string) => void }) {
   return (
     <label className="flex flex-col gap-1 text-xs text-ink-400">
       {etiqueta}
@@ -134,6 +134,24 @@ export function PestanaTarifasFba({ estudio, eurPorGbp = 1.16 }: { estudio: Estu
     if (!estudio.ejemplo && ("largo" in c || "ancho" in c || "alto" in c || "pesoKg" in c)) guardarCaja(nuevo);
   };
 
+  // The weight in kg (the default) or in grams: only how it's typed; it's kept in kg.
+  const [enGramos, setEnGramos] = useState(false);
+  const pesoTecleado = enGramos ? (campos.pesoKg ? String(Math.round(leer(campos.pesoKg) * 1000)) : "") : campos.pesoKg;
+  const unidadPeso = (
+    <span className="flex overflow-hidden rounded-md border border-white/[0.1] text-[11px]">
+      {(["kg", "g"] as const).map((u) => (
+        <button
+          key={u}
+          type="button"
+          onClick={() => setEnGramos(u === "g")}
+          aria-pressed={enGramos === (u === "g")}
+          className={`px-1.5 py-0.5 ${enGramos === (u === "g") ? "bg-accent-500/20 text-accent-200" : "text-ink-500 hover:text-ink-200"}`}
+        >
+          {u}
+        </button>
+      ))}
+    </span>
+  );
   const caja: Caja = { largo: leer(campos.largo), ancho: leer(campos.ancho), alto: leer(campos.alto), pesoG: Math.round(leer(campos.pesoKg) * 1000) };
   const completa = caja.largo > 0 && caja.ancho > 0 && caja.alto > 0 && caja.pesoG > 0;
   const r = completa ? calcularTarifa(caja, campos.cep) : null;
@@ -173,7 +191,12 @@ export function PestanaTarifasFba({ estudio, eurPorGbp = 1.16 }: { estudio: Estu
           <Campo etiqueta="Largo" unidad="cm" valor={campos.largo} onCambio={(v) => cambiar({ largo: v })} />
           <Campo etiqueta="Ancho" unidad="cm" valor={campos.ancho} onCambio={(v) => cambiar({ ancho: v })} />
           <Campo etiqueta="Alto" unidad="cm" valor={campos.alto} onCambio={(v) => cambiar({ alto: v })} />
-          <Campo etiqueta="Peso con embalaje" unidad="kg" valor={campos.pesoKg} onCambio={(v) => cambiar({ pesoKg: v })} />
+          <Campo
+            etiqueta="Peso con embalaje"
+            unidad={unidadPeso}
+            valor={pesoTecleado}
+            onCambio={(v) => cambiar({ pesoKg: enGramos ? (v ? String(leer(v) / 1000).replace(".", ",") : "") : v })}
+          />
         </div>
         <label className="mt-3 flex items-center gap-2 text-xs text-ink-300">
           <input type="checkbox" checked={campos.cep} onChange={(e) => cambiar({ cep: e.target.checked })} className="accent-accent-500" />
