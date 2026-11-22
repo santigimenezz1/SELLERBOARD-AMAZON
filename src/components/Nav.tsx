@@ -17,6 +17,7 @@ const ENLACES = [
   { href: "/analisis-h10", texto: "Análisis H10" },
   // Tickets live inside «Documentos».
   { href: "/documentos", texto: "Documentos" },
+  { href: "/wallapop", texto: "Wallapop" },
   // Hidden for now, see CON_SUSCRIPCIONES: uncomment to show it again.
   // { href: "/suscripciones", texto: "Suscripciones" },
   { href: "/variantes", texto: "Variantes" },
