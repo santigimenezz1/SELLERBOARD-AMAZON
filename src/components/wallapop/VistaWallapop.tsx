@@ -376,26 +376,39 @@ function SelectorColor({
   );
 }
 
-/** The product's box over the card: its color (per product, chosen with the swatch) and the editable text. */
+/** The product box's color: the one chosen for that product, else orange for «ESCALERA», else none (dark box). */
+const colorProducto = (envio: EnvioWallapop, colores: Record<string, string>) => {
+  const producto = envio.producto ?? "";
+  return (producto ? colores[claveProducto(producto)] : undefined) ?? (esEscalera(`${producto} ${envio.nombre}`) ? NARANJA_ESCALERA : undefined);
+};
+
+/** The color swatch of a card's product, apart from the box (under the image), so the label stays clear. */
+function ColorDeProducto({ envio, colores, onColor }: { envio: EnvioWallapop; colores: Record<string, string>; onColor: (producto: string, color: string) => void }) {
+  const producto = envio.producto ?? "";
+  if (!producto) return null;
+  return (
+    <span className="flex shrink-0 items-center">
+      <SelectorColor color={colorProducto(envio, colores) ?? "#111827"} titulo={`Color de «${producto}» (todas sus tarjetas)`} onCambiar={(c) => onColor(producto, c)} />
+    </span>
+  );
+}
+
+/** The product's box over the card: only its text, on its color (chosen apart, with the swatch under the image). */
 function CajaProducto({
   envio,
   soloLectura,
   grande,
   colores,
-  onColor,
   onGuardar,
 }: {
   envio: EnvioWallapop;
   soloLectura: boolean;
   grande?: boolean;
   colores: Record<string, string>;
-  onColor: (producto: string, color: string) => void;
   onGuardar: (texto: string) => Promise<void>;
 }) {
   const producto = envio.producto ?? "";
-  const color =
-    (producto ? colores[claveProducto(producto)] : undefined) ??
-    (esEscalera(`${producto} ${envio.nombre}`) ? NARANJA_ESCALERA : undefined);
+  const color = colorProducto(envio, colores);
   return (
     <div
       className={`pointer-events-auto flex max-w-full items-center rounded-md shadow-lg ring-1 ring-white/10 ${color ? "" : "bg-ink-950/85 backdrop-blur"} ${grande ? "min-w-0 flex-1" : ""}`}
@@ -409,13 +422,6 @@ function CajaProducto({
         colorTexto={color ? textoSobre(color) : undefined}
         onGuardar={onGuardar}
       />
-      {!soloLectura && producto && (
-        <SelectorColor
-          color={color ?? "#111827"}
-          titulo={`Color de «${producto}» (todas sus tarjetas)`}
-          onCambiar={(c) => onColor(producto, c)}
-        />
-      )}
     </div>
   );
 }
@@ -486,9 +492,6 @@ function CampoProducto({
       style={actual && colorTexto ? { color: colorTexto } : undefined}
     >
       {guardando ? "Guardando…" : actual || (soloLectura ? "" : "＋ Producto")}
-      {!soloLectura && actual && !guardando && (
-        <span className="ml-1 opacity-60">✎</span>
-      )}
     </button>
   );
 }
@@ -1009,7 +1012,6 @@ export function VistaWallapop({
                                 envio={e}
                                 soloLectura={soloLectura}
                                 colores={colores}
-                                onColor={cambiarColor}
                                 onGuardar={(producto) =>
                                   editar(e, { producto })
                                 }
@@ -1017,12 +1019,12 @@ export function VistaWallapop({
                             </div>
                           </div>
                           <div className="flex flex-1 flex-col gap-2 p-2.5">
-                            <p
-                              className="truncate text-xs text-ink-400"
-                              title={e.nombre}
-                            >
-                              {e.nombre}
-                            </p>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              {!soloLectura && <ColorDeProducto envio={e} colores={colores} onColor={cambiarColor} />}
+                              <p className="min-w-0 truncate text-xs text-ink-400" title={e.nombre}>
+                                {e.nombre}
+                              </p>
+                            </div>
                             {e.entregadoEn && (
                               <p className="text-xs text-ink-500">
                                 Entregado {fechaHora(e.entregadoEn)}
@@ -1094,9 +1096,9 @@ export function VistaWallapop({
                 soloLectura={soloLectura}
                 grande
                 colores={colores}
-                onColor={cambiarColor}
                 onGuardar={(producto) => editar(abierto, { producto })}
               />
+              {!soloLectura && <ColorDeProducto envio={abierto} colores={colores} onColor={cambiarColor} />}
             </div>
             <div className="flex shrink-0 gap-2">
               {!soloLectura &&
