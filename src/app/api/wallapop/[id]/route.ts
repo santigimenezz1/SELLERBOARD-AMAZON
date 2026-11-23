@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     // `?bytes=1`: the file from this same site (a PDF is drawn in the browser from it).
     if (req.nextUrl.searchParams.get("bytes") === "1") {
       const { datos, contentType } = await bytesEnvioWallapop(id);
-      return new NextResponse(new Uint8Array(datos), { headers: { "content-type": contentType, "cache-control": "private, max-age=600" } });
+      return new NextResponse(new Uint8Array(datos), { headers: { "content-type": contentType, "content-disposition": "inline", "cache-control": "private, max-age=600" } });
     }
     return NextResponse.redirect(await enlaceEnvioWallapop(id));
   } catch (e) {

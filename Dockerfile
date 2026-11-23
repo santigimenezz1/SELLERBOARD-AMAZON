@@ -27,6 +27,8 @@ ENV NODE_ENV=production \
     PORT=3000
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
+# Static files (pdf.js, the FBA rate card…): standalone doesn't bring them by itself.
+COPY --from=build --chown=node:node /app/public ./public
 # Usuario sin privilegios que ya trae la imagen oficial de Node.
 USER node
 EXPOSE 3000

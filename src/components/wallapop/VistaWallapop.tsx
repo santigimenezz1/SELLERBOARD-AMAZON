@@ -65,6 +65,7 @@ const abrirPdf = (e: EnvioWallapop) => {
 function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura?: boolean; ancho: number }) {
   const caja = useRef<HTMLDivElement>(null);
   const [estado, setEstado] = useState<"cargando" | "ok" | "error">("cargando");
+  const [error, setError] = useState("");
   useEffect(() => {
     let cancelado = false;
     const destino = caja.current;
@@ -91,7 +92,10 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
         setEstado("ok");
       } catch (e) {
         console.error("[wallapop] PDF", e);
-        if (!cancelado) setEstado("error");
+        if (!cancelado) {
+          setError(e instanceof Error ? e.message : String(e));
+          setEstado("error");
+        }
       }
     })();
     return () => {
@@ -101,11 +105,22 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
   return (
     <div className={miniatura ? "relative h-full w-full bg-white" : "relative flex w-full flex-col gap-3"}>
       <div ref={caja} className={miniatura ? "h-full w-full" : "flex flex-col gap-3"} />
-      {estado !== "ok" && (
+      {estado === "cargando" && (
         <div className={`flex items-center justify-center text-sm ${miniatura ? "absolute inset-0 text-ink-500" : "py-20 text-ink-300"}`}>
-          {estado === "cargando" ? <Spinner tamano="sm" /> : "No se pudo mostrar el PDF"}
+          <Spinner tamano="sm" />
         </div>
       )}
+      {/* Couldn't draw it: the browser's own PDF viewer instead (same site, so it isn't blocked). */}
+      {estado === "error" &&
+        (miniatura ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-ink-950/80 p-3 text-center text-xs text-ink-300">
+            <span className="text-2xl">📄</span>
+            <span>PDF · toca para verlo</span>
+            <span className="line-clamp-3 text-[10px] text-ink-500">{error}</span>
+          </div>
+        ) : (
+          <iframe src={`${src(envio)}?bytes=1`} title={envio.nombre} className="h-[80vh] w-full rounded-lg bg-white" />
+        ))}
     </div>
   );
 }
@@ -373,19 +388,26 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {visibles.map((e) => (
             <div key={e.id} className={`flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}>
-              <button type="button" onClick={() => setAbiertoId(e.id)} className="relative block aspect-[3/4] w-full overflow-hidden bg-ink-950/60" title="Ver">
-                {esPdf(e) ? (
-                  <VistaPdf envio={e} miniatura ancho={260} />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element -- private image behind a signed-link redirect
-                  <img src={src(e)} alt={e.producto || e.nombre} loading="lazy" className="h-full w-full object-cover transition-transform hover:scale-[1.03]" />
-                )}
-              </button>
-              <div className="flex flex-1 flex-col gap-2 p-2.5">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <Etiqueta tipo={e.tipo} />
-                  <CampoProducto key={e.producto ?? ""} envio={e} soloLectura={soloLectura} onGuardar={(producto) => editar(e, { producto })} />
+              <div className="relative aspect-[3/4] w-full overflow-hidden bg-ink-950/60">
+                <button type="button" onClick={() => setAbiertoId(e.id)} className="block h-full w-full" title="Ver">
+                  {esPdf(e) ? (
+                    <VistaPdf envio={e} miniatura ancho={260} />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element -- private image behind a signed-link redirect
+                    <img src={src(e)} alt={e.producto || e.nombre} loading="lazy" className="h-full w-full object-cover transition-transform hover:scale-[1.03]" />
+                  )}
+                </button>
+                {/* On top of the image: the carrier and, under it, the product (editable). */}
+                <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col items-start gap-1">
+                  <span className="pointer-events-auto">
+                    <Etiqueta tipo={e.tipo} />
+                  </span>
+                  <div className="pointer-events-auto flex max-w-full rounded-md bg-ink-950/85 shadow-lg ring-1 ring-white/10 backdrop-blur">
+                    <CampoProducto key={e.producto ?? ""} envio={e} soloLectura={soloLectura} onGuardar={(producto) => editar(e, { producto })} />
+                  </div>
                 </div>
+              </div>
+              <div className="flex flex-1 flex-col gap-2 p-2.5">
                 <p className="text-xs text-ink-500">{e.entregadoEn ? `Entregado ${fechaHora(e.entregadoEn)}` : `Subido ${fechaHora(e.subidoEn)}`}</p>
                 {!soloLectura && (
                   <div className="mt-auto flex gap-1.5">
