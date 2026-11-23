@@ -13,7 +13,7 @@ import { contarEscrituras, contarLecturas } from "./consumo";
  * - The list is one doc, `config/wallapop`, kept in memory (one read per server start, one write per change).
  */
 
-export const TIPOS_ENVIO = ["vinted", "wallapop", "correos"] as const;
+export const TIPOS_ENVIO = ["vinted", "wallapop", "correos", "inpost"] as const;
 export type TipoEnvio = (typeof TIPOS_ENVIO)[number];
 export const esTipoEnvio = (v: unknown): v is TipoEnvio => TIPOS_ENVIO.includes(v as TipoEnvio);
 
@@ -22,6 +22,8 @@ export type EnvioWallapop = {
   tipo: TipoEnvio;
   /** Name shown on the card (the file name unless changed). */
   nombre: string;
+  /** Which product it is (typed by the user, editable). */
+  producto?: string;
   archivo: string;
   contentType: string;
   tamano: number;
@@ -51,8 +53,8 @@ async function guardar(lista: EnvioWallapop[]) {
   g.__wallapop = lista;
 }
 
-export async function subirEnvioWallapop(archivo: File, tipo: unknown): Promise<EnvioWallapop> {
-  if (!esTipoEnvio(tipo)) throw new Error("Elige Vinted, Wallapop o Correos");
+export async function subirEnvioWallapop(archivo: File, tipo: unknown, producto?: unknown): Promise<EnvioWallapop> {
+  if (!esTipoEnvio(tipo)) throw new Error("Elige Vinted, Wallapop, Correos o InPost");
   if (archivo.size === 0) throw new Error("El archivo está vacío");
   if (archivo.size > TAMANO_MAXIMO_WALLAPOP) throw new Error("El archivo pasa de 15 MB");
   const contentType = archivo.type || "application/octet-stream";
@@ -61,6 +63,7 @@ export async function subirEnvioWallapop(archivo: File, tipo: unknown): Promise<
     id: randomUUID(),
     tipo,
     nombre: archivo.name.replace(/\.[^.]+$/, "").slice(0, 120) || "Envío",
+    producto: typeof producto === "string" ? producto.trim().slice(0, 200) : "",
     archivo: nombreArchivo(archivo.name),
     contentType,
     tamano: archivo.size,
@@ -80,7 +83,7 @@ export async function subirEnvioWallapop(archivo: File, tipo: unknown): Promise<
 }
 
 /** Marks it handed over (`entregado`) or back to pending; can also change its type or name. */
-export async function editarEnvioWallapop(id: string, cambios: { entregado?: unknown; tipo?: unknown; nombre?: unknown }): Promise<EnvioWallapop> {
+export async function editarEnvioWallapop(id: string, cambios: { entregado?: unknown; tipo?: unknown; nombre?: unknown; producto?: unknown }): Promise<EnvioWallapop> {
   const lista = await listarEnviosWallapop();
   const actual = lista.find((e) => e.id === id);
   if (!actual) throw new Error("Envío no encontrado");
@@ -89,6 +92,7 @@ export async function editarEnvioWallapop(id: string, cambios: { entregado?: unk
     ...actual,
     tipo: esTipoEnvio(cambios.tipo) ? cambios.tipo : actual.tipo,
     nombre: nombre || actual.nombre,
+    producto: typeof cambios.producto === "string" ? cambios.producto.trim().slice(0, 200) : (actual.producto ?? ""),
     entregadoEn: typeof cambios.entregado === "boolean" ? (cambios.entregado ? (actual.entregadoEn ?? new Date().toISOString()) : null) : actual.entregadoEn,
   };
   await guardar(lista.map((e) => (e.id === id ? nuevo : e)));
@@ -101,6 +105,14 @@ export async function borrarEnvioWallapop(id: string): Promise<void> {
   if (!e) return;
   await bucket().file(ruta(e)).delete({ ignoreNotFound: true });
   await guardar(lista.filter((x) => x.id !== id));
+}
+
+/** The file itself (served from this site, so the browser can draw a PDF without cross-site limits). */
+export async function bytesEnvioWallapop(id: string): Promise<{ datos: Buffer; contentType: string }> {
+  const e = (await listarEnviosWallapop()).find((x) => x.id === id);
+  if (!e) throw new Error("Envío no encontrado");
+  const [datos] = await bucket().file(ruta(e)).download();
+  return { datos, contentType: e.contentType };
 }
 
 /** A link to the image valid for 10 minutes. */

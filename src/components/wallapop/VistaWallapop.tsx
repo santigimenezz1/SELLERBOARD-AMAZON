@@ -6,12 +6,14 @@ import { Spinner } from "@/components/Spinner";
 
 const MAXIMO = 15 * 1024 * 1024;
 
-const TIPOS: { id: TipoEnvio; nombre: string; color: string; texto: string }[] = [
-  { id: "vinted", nombre: "Vinted", color: "#09b1ba", texto: "#04363a" },
-  { id: "wallapop", nombre: "Wallapop", color: "#13c1ac", texto: "#043a33" },
-  { id: "correos", nombre: "Correos", color: "#ffcd00", texto: "#3d3100" },
+/** `boton`: the color of its upload button on the dark page (InPost's dark grey wouldn't show). */
+const TIPOS: { id: TipoEnvio; nombre: string; color: string; texto: string; boton: string }[] = [
+  { id: "vinted", nombre: "Vinted", color: "#09b1ba", texto: "#04363a", boton: "#09b1ba" },
+  { id: "wallapop", nombre: "Wallapop", color: "#13c1ac", texto: "#043a33", boton: "#13c1ac" },
+  { id: "correos", nombre: "Correos", color: "#ffcd00", texto: "#3d3100", boton: "#ffcd00" },
+  { id: "inpost", nombre: "InPost", color: "#2b2b2b", texto: "#ffcd00", boton: "#f5b800" },
 ];
-const tipoDe = (id: TipoEnvio) => TIPOS.find((t) => t.id === id)!;
+const tipoDe = (id: TipoEnvio) => TIPOS.find((t) => t.id === id) ?? TIPOS[0];
 
 const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
 const esPdf = (e: EnvioWallapop) => e.contentType === "application/pdf";
@@ -20,22 +22,160 @@ const src = (e: EnvioWallapop) => `/api/wallapop/${e.id}`;
 function Etiqueta({ tipo }: { tipo: TipoEnvio }) {
   const t = tipoDe(tipo);
   return (
-    <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold" style={{ background: t.color, color: t.texto }}>
+    <span className="inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-black/20" style={{ background: t.color, color: t.texto }}>
       {t.nombre}
     </span>
   );
 }
 
-/** «Wallapop»: upload the images of Vinted, Wallapop and Correos shipments; each one is a card, pending until delivered. */
+// ---------- PDF drawn in the browser (labels with their QR) ----------
+
+type PdfJs = typeof import("pdfjs-dist");
+let pdfjs: Promise<PdfJs> | null = null;
+const cargarPdfJs = () =>
+  (pdfjs ??= import("pdfjs-dist").then((m) => {
+    m.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+    return m;
+  }));
+/** Each PDF is downloaded once per page visit, shared by its card and the big view. */
+const documentos = new Map<string, Promise<Awaited<ReturnType<PdfJs["getDocument"]>["promise"]>>>();
+const abrirPdf = (e: EnvioWallapop) => {
+  let d = documentos.get(e.id);
+  if (!d) {
+    d = cargarPdfJs().then(async (m) => {
+      const r = await fetch(`${src(e)}?bytes=1`);
+      if (!r.ok) throw new Error(`error ${r.status}`);
+      return m.getDocument({ data: new Uint8Array(await r.arrayBuffer()) }).promise;
+    });
+    d.catch(() => documentos.delete(e.id));
+    documentos.set(e.id, d);
+  }
+  return d;
+};
+
+/**
+ * A PDF drawn on canvases: its first page in a card (`miniatura`), or every page as wide as `ancho` in the big
+ * view. Drawn at the screen's pixel density, so the QR stays sharp enough to scan.
+ */
+function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura?: boolean; ancho: number }) {
+  const caja = useRef<HTMLDivElement>(null);
+  const [estado, setEstado] = useState<"cargando" | "ok" | "error">("cargando");
+  useEffect(() => {
+    let cancelado = false;
+    const destino = caja.current;
+    (async () => {
+      try {
+        const doc = await abrirPdf(envio);
+        const paginas = miniatura ? 1 : doc.numPages;
+        const lienzos: HTMLCanvasElement[] = [];
+        for (let n = 1; n <= paginas; n++) {
+          const pagina = await doc.getPage(n);
+          const base = pagina.getViewport({ scale: 1 });
+          const densidad = Math.min(3, window.devicePixelRatio || 1) * (miniatura ? 1 : 1.5);
+          const vista = pagina.getViewport({ scale: (ancho / base.width) * densidad });
+          const lienzo = document.createElement("canvas");
+          lienzo.width = Math.round(vista.width);
+          lienzo.height = Math.round(vista.height);
+          lienzo.className = miniatura ? "h-full w-full object-contain bg-white" : "w-full rounded-lg bg-white";
+          await pagina.render({ canvasContext: lienzo.getContext("2d")!, viewport: vista }).promise;
+          lienzos.push(lienzo);
+          if (cancelado) return;
+        }
+        if (cancelado || !destino) return;
+        destino.replaceChildren(...lienzos);
+        setEstado("ok");
+      } catch {
+        if (!cancelado) setEstado("error");
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [envio, miniatura, ancho]);
+  return (
+    <div className={miniatura ? "relative h-full w-full bg-white" : "relative flex w-full flex-col gap-3"}>
+      <div ref={caja} className={miniatura ? "h-full w-full" : "flex flex-col gap-3"} />
+      {estado !== "ok" && (
+        <div className={`flex items-center justify-center text-sm ${miniatura ? "absolute inset-0 text-ink-500" : "py-20 text-ink-300"}`}>
+          {estado === "cargando" ? <Spinner tamano="sm" /> : "No se pudo mostrar el PDF"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Product text (editable) ----------
+
+function CampoProducto({ envio, soloLectura, onGuardar, grande }: { envio: EnvioWallapop; soloLectura: boolean; onGuardar: (texto: string) => Promise<void>; grande?: boolean }) {
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState(envio.producto ?? "");
+  const [guardando, setGuardando] = useState(false);
+  const actual = envio.producto ?? "";
+  const guardar = async () => {
+    const t = texto.trim();
+    setEditando(false);
+    if (t === actual) return;
+    setGuardando(true);
+    try {
+      await onGuardar(t);
+    } catch {
+      setTexto(actual);
+    } finally {
+      setGuardando(false);
+    }
+  };
+  const tamano = grande ? "text-sm" : "text-xs";
+  if (editando)
+    return (
+      <input
+        autoFocus
+        value={texto}
+        maxLength={200}
+        placeholder="¿Qué producto es?"
+        onChange={(ev) => setTexto(ev.target.value)}
+        onBlur={guardar}
+        onClick={(ev) => ev.stopPropagation()}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter") ev.currentTarget.blur();
+          if (ev.key === "Escape") {
+            ev.stopPropagation();
+            setTexto(actual);
+            setEditando(false);
+          }
+        }}
+        className={`h-7 min-w-0 flex-1 rounded-md border border-accent-500/60 bg-ink-950/80 px-2 ${tamano} text-ink-100 outline-none`}
+      />
+    );
+  return (
+    <button
+      type="button"
+      disabled={soloLectura}
+      onClick={(ev) => {
+        ev.stopPropagation();
+        setTexto(actual);
+        setEditando(true);
+      }}
+      title={soloLectura ? actual : "Editar el producto"}
+      className={`min-w-0 flex-1 truncate rounded-md px-1.5 py-0.5 text-left ${tamano} ${actual ? "font-medium text-ink-100" : "italic text-ink-500"} enabled:hover:bg-white/[0.06]`}
+    >
+      {guardando ? "Guardando…" : actual || (soloLectura ? "" : "＋ Producto")}
+      {!soloLectura && actual && !guardando && <span className="ml-1 text-ink-500">✎</span>}
+    </button>
+  );
+}
+
+/** «Wallapop»: upload the labels of Vinted, Wallapop, Correos and InPost shipments; each one is a card, pending until delivered. */
 export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]; soloLectura: boolean }) {
   const [lista, setLista] = useState(envios);
   const [vista, setVista] = useState<"pendientes" | "entregadas">("pendientes");
   const [filtro, setFiltro] = useState<TipoEnvio | "todos">("todos");
   const [subiendo, setSubiendo] = useState<{ hecho: number; total: number } | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
-  const [abierto, setAbierto] = useState<EnvioWallapop | null>(null);
+  const [abiertoId, setAbiertoId] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
+  const [productoNuevo, setProductoNuevo] = useState("");
   const entradas = useRef<Partial<Record<TipoEnvio, HTMLInputElement | null>>>({});
+  const abierto = lista.find((e) => e.id === abiertoId) ?? null;
 
   const pendientes = lista.filter((e) => !e.entregadoEn);
   const entregadas = lista.filter((e) => e.entregadoEn).sort((a, b) => b.entregadoEn!.localeCompare(a.entregadoEn!));
@@ -55,6 +195,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
         const f = new FormData();
         f.set("archivo", a);
         f.set("tipo", tipo);
+        f.set("producto", productoNuevo);
         const r = await fetch("/api/wallapop", { method: "POST", body: f });
         const b = (await r.json().catch(() => ({}))) as { error?: string; envio?: EnvioWallapop };
         if (!r.ok || !b.envio) throw new Error(b.error ?? `error ${r.status}`);
@@ -68,35 +209,43 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
     setErrores(fallos);
     setSubiendo(null);
     setVista("pendientes");
+    if (nuevos.length) setProductoNuevo("");
   };
 
-  const cambiar = async (e: EnvioWallapop, entregado: boolean) => {
-    setOcupado(e.id);
+  /** Saves a change; the card shows it at once and goes back if the server says no. */
+  const editar = async (e: EnvioWallapop, cambios: { entregado?: boolean; producto?: string }) => {
     const antes = lista;
-    const nuevo = { ...e, entregadoEn: entregado ? new Date().toISOString() : null };
-    setLista((l) => l.map((x) => (x.id === e.id ? nuevo : x)));
-    if (abierto?.id === e.id) setAbierto(nuevo);
+    const optimista: EnvioWallapop = {
+      ...e,
+      ...(cambios.producto !== undefined && { producto: cambios.producto }),
+      ...(cambios.entregado !== undefined && { entregadoEn: cambios.entregado ? new Date().toISOString() : null }),
+    };
+    setLista((l) => l.map((x) => (x.id === e.id ? optimista : x)));
     try {
-      const r = await fetch(`/api/wallapop/${e.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ entregado }) });
+      const r = await fetch(`/api/wallapop/${e.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(cambios) });
       const b = (await r.json().catch(() => ({}))) as { error?: string; envio?: EnvioWallapop };
       if (!r.ok || !b.envio) throw new Error(b.error ?? `error ${r.status}`);
       setLista((l) => l.map((x) => (x.id === e.id ? b.envio! : x)));
     } catch (err) {
       setLista(antes);
       setErrores([`No se pudo guardar: ${err instanceof Error ? err.message : "error"}`]);
-    } finally {
-      setOcupado(null);
+      throw err;
     }
+  };
+  const marcar = async (e: EnvioWallapop, entregado: boolean) => {
+    setOcupado(e.id);
+    await editar(e, { entregado }).catch(() => {});
+    setOcupado(null);
   };
 
   const borrar = async (e: EnvioWallapop) => {
-    if (!confirm(`¿Borrar «${e.nombre}»? Se elimina la imagen y no se puede deshacer.`)) return;
+    if (!confirm(`¿Borrar «${e.producto || e.nombre}»? Se elimina el archivo y no se puede deshacer.`)) return;
     setOcupado(e.id);
     try {
       const r = await fetch(`/api/wallapop/${e.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `error ${r.status}`);
       setLista((l) => l.filter((x) => x.id !== e.id));
-      if (abierto?.id === e.id) setAbierto(null);
+      if (abiertoId === e.id) setAbiertoId(null);
     } catch (err) {
       setErrores([`No se pudo borrar: ${err instanceof Error ? err.message : "error"}`]);
     } finally {
@@ -104,44 +253,56 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
     }
   };
 
-  // Esc closes the image.
+  // Esc closes the big view.
   useEffect(() => {
-    if (!abierto) return;
-    const tecla = (ev: KeyboardEvent) => ev.key === "Escape" && setAbierto(null);
+    if (!abiertoId) return;
+    const tecla = (ev: KeyboardEvent) => ev.key === "Escape" && setAbiertoId(null);
     window.addEventListener("keydown", tecla);
     return () => window.removeEventListener("keydown", tecla);
-  }, [abierto]);
+  }, [abiertoId]);
 
   return (
     <div className="flex flex-col gap-5">
       {!soloLectura && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          {TIPOS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              disabled={!!subiendo}
-              onClick={() => entradas.current[t.id]?.click()}
-              className="flex items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-4 text-sm font-medium transition-colors hover:bg-white/[0.04] disabled:opacity-50"
-              style={{ borderColor: `${t.color}80`, color: t.color }}
-            >
-              <span className="text-lg leading-none">＋</span> Subir {t.nombre}
-              <input
-                ref={(el) => {
-                  entradas.current[t.id] = el;
-                }}
-                type="file"
-                accept="image/*,application/pdf"
-                multiple
-                hidden
-                onChange={(ev) => {
-                  const archivos = [...(ev.target.files ?? [])];
-                  ev.target.value = "";
-                  void subir(t.id, archivos);
-                }}
-              />
-            </button>
-          ))}
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1 text-xs text-ink-400 sm:max-w-md">
+            Producto (opcional, se pone en las tarjetas que subas ahora)
+            <input
+              value={productoNuevo}
+              maxLength={200}
+              onChange={(ev) => setProductoNuevo(ev.target.value)}
+              placeholder="Ej.: Portería plegable 2 uds"
+              className="h-9 w-full rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {TIPOS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                disabled={!!subiendo}
+                onClick={() => entradas.current[t.id]?.click()}
+                className="flex items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-4 text-sm font-medium transition-colors hover:bg-white/[0.04] disabled:opacity-50"
+                style={{ borderColor: `${t.boton}80`, color: t.boton }}
+              >
+                <span className="text-lg leading-none">＋</span> Subir {t.nombre}
+                <input
+                  ref={(el) => {
+                    entradas.current[t.id] = el;
+                  }}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  hidden
+                  onChange={(ev) => {
+                    const archivos = [...(ev.target.files ?? [])];
+                    ev.target.value = "";
+                    void subir(t.id, archivos);
+                  }}
+                />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -190,7 +351,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
               type="button"
               onClick={() => setFiltro(t.id)}
               className={`rounded-full border px-3 py-1 text-xs ${filtro === t.id ? "text-ink-100" : "border-white/[0.08] text-ink-400 hover:text-ink-100"}`}
-              style={filtro === t.id ? { borderColor: t.color } : undefined}
+              style={filtro === t.id ? { borderColor: t.boton } : undefined}
             >
               {t.nombre} ({cuenta(t.id)})
             </button>
@@ -206,32 +367,28 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {visibles.map((e) => (
             <div key={e.id} className={`flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}>
-              <button type="button" onClick={() => setAbierto(e)} className="relative block aspect-[3/4] w-full overflow-hidden bg-ink-950/60" title="Ver">
+              <button type="button" onClick={() => setAbiertoId(e.id)} className="relative block aspect-[3/4] w-full overflow-hidden bg-ink-950/60" title="Ver">
                 {esPdf(e) ? (
-                  <span className="flex h-full items-center justify-center text-sm text-ink-400">📄 PDF</span>
+                  <VistaPdf envio={e} miniatura ancho={260} />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element -- private image behind a signed-link redirect
-                  <img src={src(e)} alt={e.nombre} loading="lazy" className="h-full w-full object-cover transition-transform hover:scale-[1.03]" />
+                  <img src={src(e)} alt={e.producto || e.nombre} loading="lazy" className="h-full w-full object-cover transition-transform hover:scale-[1.03]" />
                 )}
-                <span className="absolute top-2 left-2">
-                  <Etiqueta tipo={e.tipo} />
-                </span>
               </button>
               <div className="flex flex-1 flex-col gap-2 p-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-ink-100" title={e.nombre}>
-                    {e.nombre}
-                  </p>
-                  <p className="text-xs text-ink-500">{e.entregadoEn ? `Entregado ${fechaHora(e.entregadoEn)}` : `Subido ${fechaHora(e.subidoEn)}`}</p>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <Etiqueta tipo={e.tipo} />
+                  <CampoProducto key={e.producto ?? ""} envio={e} soloLectura={soloLectura} onGuardar={(producto) => editar(e, { producto })} />
                 </div>
+                <p className="text-xs text-ink-500">{e.entregadoEn ? `Entregado ${fechaHora(e.entregadoEn)}` : `Subido ${fechaHora(e.subidoEn)}`}</p>
                 {!soloLectura && (
                   <div className="mt-auto flex gap-1.5">
                     {e.entregadoEn ? (
-                      <button type="button" disabled={ocupado === e.id} onClick={() => cambiar(e, false)} className="flex-1 rounded-lg border border-white/[0.1] px-2 py-1.5 text-xs text-ink-300 hover:bg-white/[0.05]">
+                      <button type="button" disabled={ocupado === e.id} onClick={() => marcar(e, false)} className="flex-1 rounded-lg border border-white/[0.1] px-2 py-1.5 text-xs text-ink-300 hover:bg-white/[0.05]">
                         ↩ A pendiente
                       </button>
                     ) : (
-                      <button type="button" disabled={ocupado === e.id} onClick={() => cambiar(e, true)} className="flex-1 rounded-lg bg-success/90 px-2 py-1.5 text-xs font-semibold text-ink-950 hover:bg-success">
+                      <button type="button" disabled={ocupado === e.id} onClick={() => marcar(e, true)} className="flex-1 rounded-lg bg-success/90 px-2 py-1.5 text-xs font-semibold text-ink-950 hover:bg-success">
                         ✓ Entregado
                       </button>
                     )}
@@ -247,37 +404,39 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
       )}
 
       {abierto && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/85 p-3 sm:p-6" onClick={() => setAbierto(null)}>
-          <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 pb-3" onClick={(ev) => ev.stopPropagation()}>
-            <div className="flex min-w-0 items-center gap-2">
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/85 p-3 sm:p-6" onClick={() => setAbiertoId(null)}>
+          <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 pb-3" onClick={(ev) => ev.stopPropagation()}>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <Etiqueta tipo={abierto.tipo} />
-              <span className="truncate text-sm text-ink-100">{abierto.nombre}</span>
+              <CampoProducto key={abierto.producto ?? ""} envio={abierto} soloLectura={soloLectura} grande onGuardar={(producto) => editar(abierto, { producto })} />
             </div>
             <div className="flex shrink-0 gap-2">
               {!soloLectura &&
                 (abierto.entregadoEn ? (
-                  <button type="button" onClick={() => cambiar(abierto, false)} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10">
+                  <button type="button" onClick={() => marcar(abierto, false)} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10">
                     ↩ A pendiente
                   </button>
                 ) : (
-                  <button type="button" onClick={() => cambiar(abierto, true)} className="rounded-lg bg-success px-3 py-1.5 text-sm font-semibold text-ink-950">
+                  <button type="button" onClick={() => marcar(abierto, true)} className="rounded-lg bg-success px-3 py-1.5 text-sm font-semibold text-ink-950">
                     ✓ Entregado
                   </button>
                 ))}
               <a href={src(abierto)} target="_blank" rel="noreferrer" className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10">
                 Abrir
               </a>
-              <button type="button" onClick={() => setAbierto(null)} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10" aria-label="Cerrar">
+              <button type="button" onClick={() => setAbiertoId(null)} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10" aria-label="Cerrar">
                 ✕
               </button>
             </div>
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="flex min-h-0 flex-1 justify-center overflow-y-auto">
             {esPdf(abierto) ? (
-              <iframe src={src(abierto)} title={abierto.nombre} className="h-full w-full max-w-4xl rounded-lg bg-white" onClick={(ev) => ev.stopPropagation()} />
+              <div className="w-full max-w-3xl" onClick={(ev) => ev.stopPropagation()}>
+                <VistaPdf envio={abierto} ancho={720} />
+              </div>
             ) : (
               // eslint-disable-next-line @next/next/no-img-element -- private image behind a signed-link redirect
-              <img src={src(abierto)} alt={abierto.nombre} className="max-h-full max-w-full rounded-lg object-contain" onClick={(ev) => ev.stopPropagation()} />
+              <img src={src(abierto)} alt={abierto.producto || abierto.nombre} className="max-h-full max-w-full self-center rounded-lg object-contain" onClick={(ev) => ev.stopPropagation()} />
             )}
           </div>
         </div>

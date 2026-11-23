@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { mismoOrigen } from "@/lib/origen";
 import { getSessionUser } from "@/lib/auth/session";
-import { borrarEnvioWallapop, editarEnvioWallapop, enlaceEnvioWallapop } from "@/lib/datos/wallapop";
+import { bytesEnvioWallapop, borrarEnvioWallapop, editarEnvioWallapop, enlaceEnvioWallapop } from "@/lib/datos/wallapop";
 import { volcarConsumo } from "@/lib/datos/consumo";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -12,7 +12,13 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (!user) return NextResponse.redirect(new URL("/login", req.url));
   if (user.rol !== "dueno") return NextResponse.json({ error: "No disponible" }, { status: 403 });
   try {
-    return NextResponse.redirect(await enlaceEnvioWallapop((await params).id));
+    const id = (await params).id;
+    // `?bytes=1`: the file from this same site (a PDF is drawn in the browser from it).
+    if (req.nextUrl.searchParams.get("bytes") === "1") {
+      const { datos, contentType } = await bytesEnvioWallapop(id);
+      return new NextResponse(new Uint8Array(datos), { headers: { "content-type": contentType, "cache-control": "private, max-age=600" } });
+    }
+    return NextResponse.redirect(await enlaceEnvioWallapop(id));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "No se pudo abrir" }, { status: 404 });
   }
