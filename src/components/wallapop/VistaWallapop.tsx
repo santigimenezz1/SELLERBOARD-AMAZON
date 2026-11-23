@@ -190,6 +190,19 @@ const textoSobre = (hex: string) => {
   return l > 0.6 ? "#111827" : "#ffffff";
 };
 const claveProducto = (p: string) => p.trim().toUpperCase();
+/** Box of a product with «ESCALERA» in it (or in the file name), unless that product has its own color. */
+const NARANJA_ESCALERA = "#f97316";
+const esEscalera = (texto: string) => /escalera/i.test(texto.normalize("NFD").replace(/[̀-ͯ]/g, ""));
+/**
+ * The product written in the file name («CORREOS ALFOMBRA + ESCALERA.png» → «ALFOMBRA + ESCALERA»), or null when it
+ * names none of the known products.
+ */
+const PRODUCTOS_CONOCIDOS = ["ALFOMBRA", "ESCALERA"];
+const productoDeNombre = (nombre: string) => {
+  const t = nombre.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+  const hallados = PRODUCTOS_CONOCIDOS.filter((p) => t.includes(p));
+  return hallados.length ? hallados.join(" + ") : null;
+};
 
 /** A round swatch that opens the browser's color picker. */
 function SelectorColor({ color, onCambiar, titulo }: { color: string; onCambiar: (color: string) => void; titulo: string }) {
@@ -222,7 +235,7 @@ function CajaProducto({
   onGuardar: (texto: string) => Promise<void>;
 }) {
   const producto = envio.producto ?? "";
-  const color = producto ? colores[claveProducto(producto)] : undefined;
+  const color = (producto ? colores[claveProducto(producto)] : undefined) ?? (esEscalera(`${producto} ${envio.nombre}`) ? NARANJA_ESCALERA : undefined);
   return (
     <div
       className={`pointer-events-auto flex max-w-full items-center rounded-md shadow-lg ring-1 ring-white/10 ${color ? "" : "bg-ink-950/85 backdrop-blur"} ${grande ? "min-w-0 flex-1" : ""}`}
@@ -371,7 +384,7 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
         const f = new FormData();
         f.set("archivo", a);
         f.set("tipo", tipo);
-        f.set("producto", productoNuevo);
+        f.set("producto", productoDeNombre(a.name) ?? productoNuevo);
         if (tipo === "auto" && a.type === "application/pdf") f.set("texto", await textoDePdf(a));
         const r = await fetch("/api/wallapop", { method: "POST", body: f });
         const b = (await r.json().catch(() => ({}))) as { error?: string; envio?: EnvioWallapop };
