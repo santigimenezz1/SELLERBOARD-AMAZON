@@ -1,42 +1,123 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  DndContext,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { EnvioWallapop, TipoEnvio } from "@/lib/datos/wallapop";
 import { Spinner } from "@/components/Spinner";
 
 const MAXIMO = 15 * 1024 * 1024;
 
 /** `boton`: the color of its upload button on the dark page (InPost's dark grey wouldn't show). */
-const TODOS_TIPOS: { id: TipoEnvio; nombre: string; color: string; texto: string; boton: string }[] = [
-  { id: "vinted", nombre: "Vinted", color: "#09b1ba", texto: "#04363a", boton: "#09b1ba" },
-  { id: "correos", nombre: "Correos", color: "#ffcd00", texto: "#3d3100", boton: "#ffcd00" },
-  { id: "inpost", nombre: "InPost", color: "#2b2b2b", texto: "#ffcd00", boton: "#f5b800" },
-  { id: "seur", nombre: "SEUR", color: "#0047bb", texto: "#ffffff", boton: "#4d8eff" },
+const TODOS_TIPOS: {
+  id: TipoEnvio;
+  nombre: string;
+  color: string;
+  texto: string;
+  boton: string;
+}[] = [
+  {
+    id: "vinted",
+    nombre: "Vinted",
+    color: "#09b1ba",
+    texto: "#04363a",
+    boton: "#09b1ba",
+  },
+  {
+    id: "correos",
+    nombre: "Correos",
+    color: "#ffcd00",
+    texto: "#3d3100",
+    boton: "#ffcd00",
+  },
+  {
+    id: "inpost",
+    nombre: "InPost",
+    color: "#2b2b2b",
+    texto: "#ffcd00",
+    boton: "#f5b800",
+  },
+  {
+    id: "seur",
+    nombre: "SEUR",
+    color: "#0047bb",
+    texto: "#ffffff",
+    boton: "#4d8eff",
+  },
   // No longer offered: only so cards uploaded before still show right.
-  { id: "wallapop", nombre: "Wallapop", color: "#13c1ac", texto: "#043a33", boton: "#13c1ac" },
+  {
+    id: "wallapop",
+    nombre: "Wallapop",
+    color: "#13c1ac",
+    texto: "#043a33",
+    boton: "#13c1ac",
+  },
   // Uploaded without choosing and couldn't be told: the user picks it on the card.
-  { id: "desconocido", nombre: "Sin identificar", color: "#6b7280", texto: "#ffffff", boton: "#9ca3af" },
+  {
+    id: "desconocido",
+    nombre: "Sin identificar",
+    color: "#6b7280",
+    texto: "#ffffff",
+    boton: "#9ca3af",
+  },
 ];
 /** The carriers offered (upload buttons, filters, the card's picker). */
-const TIPOS = TODOS_TIPOS.filter((t) => t.id !== "wallapop" && t.id !== "desconocido");
+const TIPOS = TODOS_TIPOS.filter(
+  (t) => t.id !== "wallapop" && t.id !== "desconocido",
+);
 /** Order of the groups when sorted by carrier (unidentified first, to fix them; old Wallapop cards last). */
-const ORDEN_EMPRESAS: TipoEnvio[] = ["desconocido", "vinted", "correos", "inpost", "seur", "wallapop"];
+const ORDEN_EMPRESAS: TipoEnvio[] = [
+  "desconocido",
+  "vinted",
+  "correos",
+  "inpost",
+  "seur",
+  "wallapop",
+];
 const CLAVE_ORDEN = "wallapop.orden";
 /** Product put on new cards unless another is typed. */
 const PRODUCTO_POR_DEFECTO = "ALFOMBRA";
-const tipoDe = (id: TipoEnvio) => TODOS_TIPOS.find((t) => t.id === id) ?? TODOS_TIPOS[0];
+const tipoDe = (id: TipoEnvio) =>
+  TODOS_TIPOS.find((t) => t.id === id) ?? TODOS_TIPOS[0];
 
-const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
+const fechaHora = (iso: string) =>
+  new Date(iso).toLocaleString("es-ES", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Madrid",
+  });
 const esPdf = (e: EnvioWallapop) => e.contentType === "application/pdf";
 const src = (e: EnvioWallapop) => `/api/wallapop/${e.id}`;
 
 function Etiqueta({ tipo, ia }: { tipo: TipoEnvio; ia?: boolean }) {
   const t = tipoDe(tipo);
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-black/20" style={{ background: t.color, color: t.texto }}>
+    <span
+      className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-black/20"
+      style={{ background: t.color, color: t.texto }}
+    >
       {t.nombre}
       {ia && (
-        <span title="Empresa detectada por la IA" className="rounded bg-black/25 px-1 text-[9px] leading-tight">
+        <span
+          title="Empresa detectada por la IA"
+          className="rounded bg-black/25 px-1 text-[9px] leading-tight"
+        >
           IA
         </span>
       )}
@@ -45,11 +126,25 @@ function Etiqueta({ tipo, ia }: { tipo: TipoEnvio; ia?: boolean }) {
 }
 
 /** The carrier's label; tapping it lets you change the carrier (a native select laid invisibly over it). */
-function EtiquetaEditable({ envio, soloLectura, onCambiar }: { envio: EnvioWallapop; soloLectura: boolean; onCambiar: (tipo: TipoEnvio) => void }) {
-  const etiqueta = <Etiqueta tipo={envio.tipo} ia={envio.identificadoPor === "ia"} />;
+function EtiquetaEditable({
+  envio,
+  soloLectura,
+  onCambiar,
+}: {
+  envio: EnvioWallapop;
+  soloLectura: boolean;
+  onCambiar: (tipo: TipoEnvio) => void;
+}) {
+  const etiqueta = (
+    <Etiqueta tipo={envio.tipo} ia={envio.identificadoPor === "ia"} />
+  );
   if (soloLectura) return etiqueta;
   return (
-    <span className="relative inline-flex cursor-pointer" title="Cambiar la empresa" onClick={(ev) => ev.stopPropagation()}>
+    <span
+      className="relative inline-flex cursor-pointer"
+      title="Cambiar la empresa"
+      onClick={(ev) => ev.stopPropagation()}
+    >
       {etiqueta}
       <select
         aria-label="Empresa"
@@ -57,8 +152,12 @@ function EtiquetaEditable({ envio, soloLectura, onCambiar }: { envio: EnvioWalla
         onChange={(ev) => onCambiar(ev.target.value as TipoEnvio)}
         className="absolute inset-0 cursor-pointer opacity-0"
       >
-        {envio.tipo === "desconocido" && <option value="desconocido">Elige la empresa…</option>}
-        {TODOS_TIPOS.filter((t) => TIPOS.includes(t) || t.id === envio.tipo).map((t) => (
+        {envio.tipo === "desconocido" && (
+          <option value="desconocido">Elige la empresa…</option>
+        )}
+        {TODOS_TIPOS.filter(
+          (t) => TIPOS.includes(t) || t.id === envio.tipo,
+        ).map((t) => (
           <option key={t.id} value={t.id}>
             {t.nombre}
           </option>
@@ -72,7 +171,9 @@ function EtiquetaEditable({ envio, soloLectura, onCambiar }: { envio: EnvioWalla
 async function textoDePdf(archivo: File): Promise<string> {
   try {
     const m = await cargarPdfJs();
-    const doc = await m.getDocument({ data: new Uint8Array(await archivo.arrayBuffer()) }).promise;
+    const doc = await m.getDocument({
+      data: new Uint8Array(await archivo.arrayBuffer()),
+    }).promise;
     let texto = "";
     for (let n = 1; n <= Math.min(doc.numPages, 3); n++) {
       const c = await (await doc.getPage(n)).getTextContent();
@@ -91,7 +192,11 @@ let pdfjs: Promise<PdfJs> | null = null;
 /** pdf.js is loaded as a plain file from /public (bundled, pdf.js 4 breaks: «Object.defineProperty called on non-object»). */
 const RUTA_PDFJS = "/pdf.min.mjs";
 const cargarPdfJs = () =>
-  (pdfjs ??= (import(/* webpackIgnore: true */ /* turbopackIgnore: true */ RUTA_PDFJS) as Promise<PdfJs>).then((m) => {
+  (pdfjs ??= (
+    import(
+      /* webpackIgnore: true */ /* turbopackIgnore: true */ RUTA_PDFJS
+    ) as Promise<PdfJs>
+  ).then((m) => {
     m.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     return m;
   })).catch((e) => {
@@ -99,14 +204,18 @@ const cargarPdfJs = () =>
     throw e;
   });
 /** Each PDF is downloaded once per page visit, shared by its card and the big view. */
-const documentos = new Map<string, Promise<Awaited<ReturnType<PdfJs["getDocument"]>["promise"]>>>();
+const documentos = new Map<
+  string,
+  Promise<Awaited<ReturnType<PdfJs["getDocument"]>["promise"]>>
+>();
 const abrirPdf = (e: EnvioWallapop) => {
   let d = documentos.get(e.id);
   if (!d) {
     d = cargarPdfJs().then(async (m) => {
       const r = await fetch(`${src(e)}?bytes=1`);
       if (!r.ok) throw new Error(`error ${r.status}`);
-      return m.getDocument({ data: new Uint8Array(await r.arrayBuffer()) }).promise;
+      return m.getDocument({ data: new Uint8Array(await r.arrayBuffer()) })
+        .promise;
     });
     d.catch(() => documentos.delete(e.id));
     documentos.set(e.id, d);
@@ -118,7 +227,15 @@ const abrirPdf = (e: EnvioWallapop) => {
  * A PDF drawn on canvases: its first page in a card (`miniatura`), or every page as wide as `ancho` in the big
  * view. Drawn at the screen's pixel density, so the QR stays sharp enough to scan.
  */
-function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura?: boolean; ancho: number }) {
+function VistaPdf({
+  envio,
+  miniatura,
+  ancho,
+}: {
+  envio: EnvioWallapop;
+  miniatura?: boolean;
+  ancho: number;
+}) {
   const caja = useRef<HTMLDivElement>(null);
   const [estado, setEstado] = useState<"cargando" | "ok" | "error">("cargando");
   const [error, setError] = useState("");
@@ -133,13 +250,21 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
         for (let n = 1; n <= paginas; n++) {
           const pagina = await doc.getPage(n);
           const base = pagina.getViewport({ scale: 1 });
-          const densidad = Math.min(3, window.devicePixelRatio || 1) * (miniatura ? 1 : 1.5);
-          const vista = pagina.getViewport({ scale: (ancho / base.width) * densidad });
+          const densidad =
+            Math.min(3, window.devicePixelRatio || 1) * (miniatura ? 1 : 1.5);
+          const vista = pagina.getViewport({
+            scale: (ancho / base.width) * densidad,
+          });
           const lienzo = document.createElement("canvas");
           lienzo.width = Math.round(vista.width);
           lienzo.height = Math.round(vista.height);
-          lienzo.className = miniatura ? "h-full w-full object-contain bg-white" : "w-full rounded-lg bg-white";
-          await pagina.render({ canvasContext: lienzo.getContext("2d")!, viewport: vista }).promise;
+          lienzo.className = miniatura
+            ? "h-full w-full object-contain bg-white"
+            : "w-full rounded-lg bg-white";
+          await pagina.render({
+            canvasContext: lienzo.getContext("2d")!,
+            viewport: vista,
+          }).promise;
           lienzos.push(lienzo);
           if (cancelado) return;
         }
@@ -159,10 +284,21 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
     };
   }, [envio, miniatura, ancho]);
   return (
-    <div className={miniatura ? "relative h-full w-full bg-white" : "relative flex w-full flex-col gap-3"}>
-      <div ref={caja} className={miniatura ? "h-full w-full" : "flex flex-col gap-3"} />
+    <div
+      className={
+        miniatura
+          ? "relative h-full w-full bg-white"
+          : "relative flex w-full flex-col gap-3"
+      }
+    >
+      <div
+        ref={caja}
+        className={miniatura ? "h-full w-full" : "flex flex-col gap-3"}
+      />
       {estado === "cargando" && (
-        <div className={`flex items-center justify-center text-sm ${miniatura ? "absolute inset-0 text-ink-500" : "py-20 text-ink-300"}`}>
+        <div
+          className={`flex items-center justify-center text-sm ${miniatura ? "absolute inset-0 text-ink-500" : "py-20 text-ink-300"}`}
+        >
           <Spinner tamano="sm" />
         </div>
       )}
@@ -172,10 +308,16 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-ink-950/80 p-3 text-center text-xs text-ink-300">
             <span className="text-2xl">📄</span>
             <span>PDF · toca para verlo</span>
-            <span className="line-clamp-3 text-[10px] text-ink-500">{error}</span>
+            <span className="line-clamp-3 text-[10px] text-ink-500">
+              {error}
+            </span>
           </div>
         ) : (
-          <iframe src={`${src(envio)}?bytes=1`} title={envio.nombre} className="h-[80vh] w-full rounded-lg bg-white" />
+          <iframe
+            src={`${src(envio)}?bytes=1`}
+            title={envio.nombre}
+            className="h-[80vh] w-full rounded-lg bg-white"
+          />
         ))}
     </div>
   );
@@ -186,13 +328,16 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
 /** Black or white text, whichever reads better on that background. */
 const textoSobre = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
-  const l = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  const l =
+    (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) /
+    255;
   return l > 0.6 ? "#111827" : "#ffffff";
 };
 const claveProducto = (p: string) => p.trim().toUpperCase();
 /** Box of a product with «ESCALERA» in it (or in the file name), unless that product has its own color. */
 const NARANJA_ESCALERA = "#f97316";
-const esEscalera = (texto: string) => /escalera/i.test(texto.normalize("NFD").replace(/[̀-ͯ]/g, ""));
+const esEscalera = (texto: string) =>
+  /escalera/i.test(texto.normalize("NFD").replace(/[̀-ͯ]/g, ""));
 /**
  * The product written in the file name («CORREOS ALFOMBRA + ESCALERA.png» → «ALFOMBRA + ESCALERA»), or null when it
  * names none of the known products.
@@ -205,7 +350,15 @@ const productoDeNombre = (nombre: string) => {
 };
 
 /** A round swatch that opens the browser's color picker. */
-function SelectorColor({ color, onCambiar, titulo }: { color: string; onCambiar: (color: string) => void; titulo: string }) {
+function SelectorColor({
+  color,
+  onCambiar,
+  titulo,
+}: {
+  color: string;
+  onCambiar: (color: string) => void;
+  titulo: string;
+}) {
   return (
     <label
       title={titulo}
@@ -213,7 +366,12 @@ function SelectorColor({ color, onCambiar, titulo }: { color: string; onCambiar:
       className="relative mr-1 inline-flex size-4 shrink-0 cursor-pointer rounded-full ring-2 ring-white/70 hover:ring-white"
       style={{ background: color }}
     >
-      <input type="color" value={color} onChange={(ev) => onCambiar(ev.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
+      <input
+        type="color"
+        value={color}
+        onChange={(ev) => onCambiar(ev.target.value)}
+        className="absolute inset-0 cursor-pointer opacity-0"
+      />
     </label>
   );
 }
@@ -235,14 +393,29 @@ function CajaProducto({
   onGuardar: (texto: string) => Promise<void>;
 }) {
   const producto = envio.producto ?? "";
-  const color = (producto ? colores[claveProducto(producto)] : undefined) ?? (esEscalera(`${producto} ${envio.nombre}`) ? NARANJA_ESCALERA : undefined);
+  const color =
+    (producto ? colores[claveProducto(producto)] : undefined) ??
+    (esEscalera(`${producto} ${envio.nombre}`) ? NARANJA_ESCALERA : undefined);
   return (
     <div
       className={`pointer-events-auto flex max-w-full items-center rounded-md shadow-lg ring-1 ring-white/10 ${color ? "" : "bg-ink-950/85 backdrop-blur"} ${grande ? "min-w-0 flex-1" : ""}`}
       style={color ? { background: color } : undefined}
     >
-      <CampoProducto key={producto} envio={envio} soloLectura={soloLectura} grande={grande} colorTexto={color ? textoSobre(color) : undefined} onGuardar={onGuardar} />
-      {!soloLectura && producto && <SelectorColor color={color ?? "#111827"} titulo={`Color de «${producto}» (todas sus tarjetas)`} onCambiar={(c) => onColor(producto, c)} />}
+      <CampoProducto
+        key={producto}
+        envio={envio}
+        soloLectura={soloLectura}
+        grande={grande}
+        colorTexto={color ? textoSobre(color) : undefined}
+        onGuardar={onGuardar}
+      />
+      {!soloLectura && producto && (
+        <SelectorColor
+          color={color ?? "#111827"}
+          titulo={`Color de «${producto}» (todas sus tarjetas)`}
+          onCambiar={(c) => onColor(producto, c)}
+        />
+      )}
     </div>
   );
 }
@@ -313,14 +486,109 @@ function CampoProducto({
       style={actual && colorTexto ? { color: colorTexto } : undefined}
     >
       {guardando ? "Guardando…" : actual || (soloLectura ? "" : "＋ Producto")}
-      {!soloLectura && actual && !guardando && <span className="ml-1 opacity-60">✎</span>}
+      {!soloLectura && actual && !guardando && (
+        <span className="ml-1 opacity-60">✎</span>
+      )}
     </button>
   );
 }
 
+/**
+ * A card that can be dragged to another place in its group (mouse: drag a few pixels; phone: hold ~¼ s, then drag),
+ * so clicks, taps and scrolling keep working as before.
+ */
+function Arrastrable({
+  id,
+  activo,
+  children,
+}: {
+  id: string;
+  activo: boolean;
+  children: React.ReactNode;
+}) {
+  const {
+    setNodeRef,
+    attributes,
+    listeners,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: !activo });
+  return (
+    <div
+      ref={setNodeRef}
+      {...(activo ? { ...attributes, ...listeners } : {})}
+      className={`${activo ? "cursor-grab active:cursor-grabbing" : ""} ${isDragging ? "relative z-20 opacity-80 shadow-2xl" : ""}`}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Within a group: cards never moved first (newest first), then the ones placed by hand, in their order. */
+const porOrdenManual = (l: EnvioWallapop[]) =>
+  [...l].sort((a, b) =>
+    a.orden === undefined
+      ? b.orden === undefined
+        ? 0
+        : -1
+      : b.orden === undefined
+        ? 1
+        : a.orden - b.orden,
+  );
+
 /** «Wallapop»: upload the labels of Vinted, Wallapop, Correos and InPost shipments; each one is a card, pending until delivered. */
-export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }: { envios: EnvioWallapop[]; colores: Record<string, string>; soloLectura: boolean }) {
+export function VistaWallapop({
+  envios,
+  colores: coloresIniciales,
+  soloLectura,
+}: {
+  envios: EnvioWallapop[];
+  colores: Record<string, string>;
+  soloLectura: boolean;
+}) {
   const [lista, setLista] = useState(envios);
+  const sensores = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 8 },
+    }),
+  );
+  /** A card dropped in a new place: the group's new order is shown at once and saved. */
+  const soltar = async (grupo: EnvioWallapop[], ev: DragEndEvent) => {
+    const { active, over } = ev;
+    if (!over || active.id === over.id) return;
+    const ids = grupo.map((e) => e.id);
+    const nuevos = arrayMove(
+      ids,
+      ids.indexOf(String(active.id)),
+      ids.indexOf(String(over.id)),
+    );
+    const antes = lista;
+    setLista((l) =>
+      l.map((e) =>
+        nuevos.includes(e.id) ? { ...e, orden: nuevos.indexOf(e.id) } : e,
+      ),
+    );
+    try {
+      const r = await fetch("/api/wallapop/orden", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: nuevos }),
+      });
+      if (!r.ok)
+        throw new Error(
+          ((await r.json().catch(() => ({}))) as { error?: string }).error ??
+            `error ${r.status}`,
+        );
+    } catch (err) {
+      setLista(antes);
+      setErrores([
+        `No se pudo guardar el orden: ${err instanceof Error ? err.message : "error"}`,
+      ]);
+    }
+  };
   // Box color per product: shown at once, saved shortly after the picker stops moving.
   const [colores, setColores] = useState(coloresIniciales);
   const esperaColor = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -330,10 +598,20 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
     if (esperaColor.current) clearTimeout(esperaColor.current);
     esperaColor.current = setTimeout(async () => {
       try {
-        const r = await fetch("/api/wallapop/colores", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ producto: clave, color }) });
-        if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `error ${r.status}`);
+        const r = await fetch("/api/wallapop/colores", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ producto: clave, color }),
+        });
+        if (!r.ok)
+          throw new Error(
+            ((await r.json().catch(() => ({}))) as { error?: string }).error ??
+              `error ${r.status}`,
+          );
       } catch (err) {
-        setErrores([`No se pudo guardar el color: ${err instanceof Error ? err.message : "error"}`]);
+        setErrores([
+          `No se pudo guardar el color: ${err instanceof Error ? err.message : "error"}`,
+        ]);
       }
     }, 700);
   };
@@ -353,23 +631,39 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
       localStorage.setItem(CLAVE_ORDEN, o);
     } catch {}
   };
-  const [subiendo, setSubiendo] = useState<{ hecho: number; total: number } | null>(null);
+  const [subiendo, setSubiendo] = useState<{
+    hecho: number;
+    total: number;
+  } | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
   const [abiertoId, setAbiertoId] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [productoNuevo, setProductoNuevo] = useState(PRODUCTO_POR_DEFECTO);
-  const entradas = useRef<Partial<Record<TipoEnvio, HTMLInputElement | null>>>({});
+  const entradas = useRef<Partial<Record<TipoEnvio, HTMLInputElement | null>>>(
+    {},
+  );
   const entradaAuto = useRef<HTMLInputElement | null>(null);
   const abierto = lista.find((e) => e.id === abiertoId) ?? null;
 
   const pendientes = lista.filter((e) => !e.entregadoEn);
-  const entregadas = lista.filter((e) => e.entregadoEn).sort((a, b) => b.entregadoEn!.localeCompare(a.entregadoEn!));
+  const entregadas = lista
+    .filter((e) => e.entregadoEn)
+    .sort((a, b) => b.entregadoEn!.localeCompare(a.entregadoEn!));
   const base = vista === "pendientes" ? pendientes : entregadas;
   const visibles = base.filter((e) => filtro === "todos" || e.tipo === filtro);
   // «Por empresa»: every carrier's parcels together (Vinted, Correos, InPost, Wallapop), so they're handed over in one go.
   const grupos: [TipoEnvio | null, EnvioWallapop[]][] =
-    orden === "empresa" ? ORDEN_EMPRESAS.map((t) => [t, visibles.filter((e) => e.tipo === t)] as [TipoEnvio, EnvioWallapop[]]).filter(([, l]) => l.length > 0) : [[null, visibles]];
-  const cuenta = (tipo: TipoEnvio) => base.filter((e) => e.tipo === tipo).length;
+    orden === "empresa"
+      ? ORDEN_EMPRESAS.map(
+          (t) =>
+            [t, porOrdenManual(visibles.filter((e) => e.tipo === t))] as [
+              TipoEnvio,
+              EnvioWallapop[],
+            ],
+        ).filter(([, l]) => l.length > 0)
+      : [[null, visibles]];
+  const cuenta = (tipo: TipoEnvio) =>
+    base.filter((e) => e.tipo === tipo).length;
 
   /** `tipo` "auto": the server finds the carrier (PDF text first, read here for free; then the AI). */
   const subir = async (tipo: TipoEnvio | "auto", archivos: File[]) => {
@@ -385,13 +679,19 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
         f.set("archivo", a);
         f.set("tipo", tipo);
         f.set("producto", productoDeNombre(a.name) ?? productoNuevo);
-        if (tipo === "auto" && a.type === "application/pdf") f.set("texto", await textoDePdf(a));
+        if (tipo === "auto" && a.type === "application/pdf")
+          f.set("texto", await textoDePdf(a));
         const r = await fetch("/api/wallapop", { method: "POST", body: f });
-        const b = (await r.json().catch(() => ({}))) as { error?: string; envio?: EnvioWallapop };
+        const b = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          envio?: EnvioWallapop;
+        };
         if (!r.ok || !b.envio) throw new Error(b.error ?? `error ${r.status}`);
         nuevos.push(b.envio);
       } catch (e) {
-        fallos.push(`${a.name}: ${e instanceof Error ? e.message : "no se pudo subir"}`);
+        fallos.push(
+          `${a.name}: ${e instanceof Error ? e.message : "no se pudo subir"}`,
+        );
       }
       setSubiendo({ hecho: i + 1, total: archivos.length });
     }
@@ -403,23 +703,40 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
   };
 
   /** Saves a change; the card shows it at once and goes back if the server says no. */
-  const editar = async (e: EnvioWallapop, cambios: { entregado?: boolean; producto?: string; tipo?: TipoEnvio }) => {
+  const editar = async (
+    e: EnvioWallapop,
+    cambios: { entregado?: boolean; producto?: string; tipo?: TipoEnvio },
+  ) => {
     const antes = lista;
     const optimista: EnvioWallapop = {
       ...e,
-      ...(cambios.tipo !== undefined && { tipo: cambios.tipo, identificadoPor: undefined }),
+      ...(cambios.tipo !== undefined && {
+        tipo: cambios.tipo,
+        identificadoPor: undefined,
+      }),
       ...(cambios.producto !== undefined && { producto: cambios.producto }),
-      ...(cambios.entregado !== undefined && { entregadoEn: cambios.entregado ? new Date().toISOString() : null }),
+      ...(cambios.entregado !== undefined && {
+        entregadoEn: cambios.entregado ? new Date().toISOString() : null,
+      }),
     };
     setLista((l) => l.map((x) => (x.id === e.id ? optimista : x)));
     try {
-      const r = await fetch(`/api/wallapop/${e.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(cambios) });
-      const b = (await r.json().catch(() => ({}))) as { error?: string; envio?: EnvioWallapop };
+      const r = await fetch(`/api/wallapop/${e.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cambios),
+      });
+      const b = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        envio?: EnvioWallapop;
+      };
       if (!r.ok || !b.envio) throw new Error(b.error ?? `error ${r.status}`);
       setLista((l) => l.map((x) => (x.id === e.id ? b.envio! : x)));
     } catch (err) {
       setLista(antes);
-      setErrores([`No se pudo guardar: ${err instanceof Error ? err.message : "error"}`]);
+      setErrores([
+        `No se pudo guardar: ${err instanceof Error ? err.message : "error"}`,
+      ]);
       throw err;
     }
   };
@@ -430,15 +747,26 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
   };
 
   const borrar = async (e: EnvioWallapop) => {
-    if (!confirm(`¿Borrar «${e.producto || e.nombre}»? Se elimina el archivo y no se puede deshacer.`)) return;
+    if (
+      !confirm(
+        `¿Borrar «${e.producto || e.nombre}»? Se elimina el archivo y no se puede deshacer.`,
+      )
+    )
+      return;
     setOcupado(e.id);
     try {
       const r = await fetch(`/api/wallapop/${e.id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `error ${r.status}`);
+      if (!r.ok)
+        throw new Error(
+          ((await r.json().catch(() => ({}))) as { error?: string }).error ??
+            `error ${r.status}`,
+        );
       setLista((l) => l.filter((x) => x.id !== e.id));
       if (abiertoId === e.id) setAbiertoId(null);
     } catch (err) {
-      setErrores([`No se pudo borrar: ${err instanceof Error ? err.message : "error"}`]);
+      setErrores([
+        `No se pudo borrar: ${err instanceof Error ? err.message : "error"}`,
+      ]);
     } finally {
       setOcupado(null);
     }
@@ -447,7 +775,8 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
   // Esc closes the big view.
   useEffect(() => {
     if (!abiertoId) return;
-    const tecla = (ev: KeyboardEvent) => ev.key === "Escape" && setAbiertoId(null);
+    const tecla = (ev: KeyboardEvent) =>
+      ev.key === "Escape" && setAbiertoId(null);
     window.addEventListener("keydown", tecla);
     return () => window.removeEventListener("keydown", tecla);
   }, [abiertoId]);
@@ -473,7 +802,8 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
                 titulo={`Color de «${productoNuevo.trim()}»`}
                 onCambiar={(c) => cambiarColor(productoNuevo, c)}
               />
-              Color de la caja de «{productoNuevo.trim()}» en las tarjetas (toca el círculo para cambiarlo)
+              Color de la caja de «{productoNuevo.trim()}» en las tarjetas (toca
+              el círculo para cambiarlo)
             </div>
           )}
           <button
@@ -485,7 +815,10 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
             <span className="flex items-center gap-2 text-base font-semibold">
               <span className="text-xl leading-none">＋</span> Subir envíos
             </span>
-            <span className="text-xs text-ink-400">Elige varios a la vez, de cualquier empresa: se detecta sola (y el producto, si aparece)</span>
+            <span className="text-xs text-ink-400">
+              Elige varios a la vez, de cualquier empresa: se detecta sola (y el
+              producto, si aparece)
+            </span>
             <input
               ref={entradaAuto}
               type="file"
@@ -499,7 +832,9 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
               }}
             />
           </button>
-          <p className="text-xs text-ink-500">O súbelos indicando tú la empresa:</p>
+          <p className="text-xs text-ink-500">
+            O súbelos indicando tú la empresa:
+          </p>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {TIPOS.map((t) => (
               <button
@@ -510,7 +845,8 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
                 className="flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2.5 text-sm font-medium transition-colors hover:bg-white/[0.04] disabled:opacity-50"
                 style={{ borderColor: `${t.boton}80`, color: t.boton }}
               >
-                <span className="text-lg leading-none">＋</span> Subir {t.nombre}
+                <span className="text-lg leading-none">＋</span> Subir{" "}
+                {t.nombre}
                 <input
                   ref={(el) => {
                     entradas.current[t.id] = el;
@@ -533,7 +869,8 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
 
       {subiendo && (
         <div className="flex items-center gap-2 text-sm text-ink-300">
-          <Spinner tamano="sm" /> Subiendo e identificando {subiendo.hecho} de {subiendo.total}…
+          <Spinner tamano="sm" /> Subiendo e identificando {subiendo.hecho} de{" "}
+          {subiendo.total}…
         </div>
       )}
       {errores.length > 0 && (
@@ -566,11 +903,15 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
           Ordenar
           <select
             value={orden}
-            onChange={(ev) => cambiarOrden(ev.target.value as "recientes" | "empresa")}
+            onChange={(ev) =>
+              cambiarOrden(ev.target.value as "recientes" | "empresa")
+            }
             className="h-8 rounded-lg border border-white/[0.08] bg-ink-950/60 px-2 text-sm text-ink-100 outline-none focus:border-accent-500/60"
           >
             <option value="recientes">Más recientes primero</option>
-            <option value="empresa">Por empresa (Vinted, Correos, InPost, SEUR)</option>
+            <option value="empresa">
+              Por empresa (Vinted, Correos, InPost, SEUR)
+            </option>
           </select>
         </label>
         <div className="flex flex-wrap gap-1.5">
@@ -597,7 +938,9 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
 
       {visibles.length === 0 ? (
         <p className="rounded-xl border border-white/[0.06] px-4 py-10 text-center text-sm text-ink-400">
-          {vista === "pendientes" ? "No hay envíos pendientes." : "Todavía no has entregado ningún envío."}
+          {vista === "pendientes"
+            ? "No hay envíos pendientes."
+            : "Todavía no has entregado ningún envío."}
         </p>
       ) : (
         <div className="flex flex-col gap-6">
@@ -607,98 +950,207 @@ export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-200">
                   <Etiqueta tipo={tipo} />
                   <span className="text-ink-400">
-                    {envios.length} {envios.length === 1 ? "paquete" : "paquetes"}
+                    {envios.length}{" "}
+                    {envios.length === 1 ? "paquete" : "paquetes"}
                   </span>
                 </h2>
               )}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {envios.map((e) => (
-            <div
-              key={e.id}
-              className={`flex flex-col overflow-hidden rounded-xl border-4 bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}
-              style={{ borderColor: tipoDe(e.tipo).boton }}
-            >
-              <div className="relative aspect-[3/4] w-full overflow-hidden bg-ink-950/60">
-                <button type="button" onClick={() => setAbiertoId(e.id)} className="block h-full w-full" title="Ver">
-                  {esPdf(e) ? (
-                    <VistaPdf envio={e} miniatura ancho={260} />
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element -- private image behind a signed-link redirect
-                    <img src={src(e)} alt={e.producto || e.nombre} loading="lazy" className="h-full w-full object-cover transition-transform hover:scale-[1.03]" />
-                  )}
-                </button>
-                {/* On top of the image: the carrier and, under it, the product (editable). */}
-                <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col items-start gap-1">
-                  <span className="pointer-events-auto">
-                    <EtiquetaEditable envio={e} soloLectura={soloLectura} onCambiar={(tipo) => void editar(e, { tipo }).catch(() => {})} />
-                  </span>
-                  <CajaProducto envio={e} soloLectura={soloLectura} colores={colores} onColor={cambiarColor} onGuardar={(producto) => editar(e, { producto })} />
-                </div>
-              </div>
-              <div className="flex flex-1 flex-col gap-2 p-2.5">
-                <p className="truncate text-xs text-ink-400" title={e.nombre}>
-                  {e.nombre}
-                </p>
-                {e.entregadoEn && <p className="text-xs text-ink-500">Entregado {fechaHora(e.entregadoEn)}</p>}
-                {!soloLectura && (
-                  <div className="mt-auto flex gap-1.5">
-                    {e.entregadoEn ? (
-                      <button type="button" disabled={ocupado === e.id} onClick={() => marcar(e, false)} className="flex-1 rounded-lg border border-white/[0.1] px-2 py-1.5 text-xs text-ink-300 hover:bg-white/[0.05]">
-                        ↩ A pendiente
-                      </button>
-                    ) : (
-                      <button type="button" disabled={ocupado === e.id} onClick={() => marcar(e, true)} className="flex-1 rounded-lg bg-success/90 px-2 py-1.5 text-xs font-semibold text-ink-950 hover:bg-success">
-                        ✓ Entregado
-                      </button>
-                    )}
-                    <button type="button" disabled={ocupado === e.id} onClick={() => borrar(e)} title="Borrar" className="rounded-lg border border-white/[0.1] px-2 py-1.5 text-xs text-ink-400 hover:border-danger/50 hover:text-danger">
-                      🗑
-                    </button>
+              <DndContext
+                sensors={sensores}
+                collisionDetection={closestCenter}
+                onDragEnd={(ev) => soltar(envios, ev)}
+              >
+                <SortableContext
+                  items={envios.map((e) => e.id)}
+                  strategy={rectSortingStrategy}
+                >
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                    {envios.map((e) => (
+                      <Arrastrable
+                        key={e.id}
+                        id={e.id}
+                        activo={!!tipo && !soloLectura}
+                      >
+                        <div
+                          className={`flex h-full flex-col overflow-hidden rounded-xl border-4 bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}
+                          style={{ borderColor: tipoDe(e.tipo).boton }}
+                        >
+                          <div className="relative aspect-[3/4] w-full overflow-hidden bg-ink-950/60">
+                            <button
+                              type="button"
+                              onClick={() => setAbiertoId(e.id)}
+                              className="block h-full w-full"
+                              title="Ver"
+                            >
+                              {esPdf(e) ? (
+                                <VistaPdf envio={e} miniatura ancho={260} />
+                              ) : (
+                                // eslint-disable-next-line @next/next/no-img-element -- private image behind a signed-link redirect
+                                <img
+                                  src={src(e)}
+                                  alt={e.producto || e.nombre}
+                                  loading="lazy"
+                                  className="h-full w-full object-cover transition-transform hover:scale-[1.03]"
+                                />
+                              )}
+                            </button>
+                            {/* On top of the image: the carrier and, under it, the product (editable). */}
+                            <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col items-start gap-1">
+                              <span className="pointer-events-auto">
+                                <EtiquetaEditable
+                                  envio={e}
+                                  soloLectura={soloLectura}
+                                  onCambiar={(tipo) =>
+                                    void editar(e, { tipo }).catch(() => {})
+                                  }
+                                />
+                              </span>
+                              <CajaProducto
+                                envio={e}
+                                soloLectura={soloLectura}
+                                colores={colores}
+                                onColor={cambiarColor}
+                                onGuardar={(producto) =>
+                                  editar(e, { producto })
+                                }
+                              />
+                            </div>
+                          </div>
+                          <div className="flex flex-1 flex-col gap-2 p-2.5">
+                            <p
+                              className="truncate text-xs text-ink-400"
+                              title={e.nombre}
+                            >
+                              {e.nombre}
+                            </p>
+                            {e.entregadoEn && (
+                              <p className="text-xs text-ink-500">
+                                Entregado {fechaHora(e.entregadoEn)}
+                              </p>
+                            )}
+                            {!soloLectura && (
+                              <div className="mt-auto flex gap-1.5">
+                                {e.entregadoEn ? (
+                                  <button
+                                    type="button"
+                                    disabled={ocupado === e.id}
+                                    onClick={() => marcar(e, false)}
+                                    className="flex-1 rounded-lg border border-white/[0.1] px-2 py-1.5 text-xs text-ink-300 hover:bg-white/[0.05]"
+                                  >
+                                    ↩ A pendiente
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={ocupado === e.id}
+                                    onClick={() => marcar(e, true)}
+                                    className="flex-1 rounded-lg bg-success/90 px-2 py-1.5 text-xs font-semibold text-ink-950 hover:bg-success"
+                                  >
+                                    ✓ Entregado
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={ocupado === e.id}
+                                  onClick={() => borrar(e)}
+                                  title="Borrar"
+                                  className="rounded-lg border border-white/[0.1] px-2 py-1.5 text-xs text-ink-400 hover:border-danger/50 hover:text-danger"
+                                >
+                                  🗑
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </Arrastrable>
+                    ))}
                   </div>
-                )}
-              </div>
-            </div>
-              ))}
-              </div>
+                </SortableContext>
+              </DndContext>
             </section>
           ))}
         </div>
       )}
 
       {abierto && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/85 p-3 sm:p-6" onClick={() => setAbiertoId(null)}>
-          <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 pb-3" onClick={(ev) => ev.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-black/85 p-3 sm:p-6"
+          onClick={() => setAbiertoId(null)}
+        >
+          <div
+            className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 pb-3"
+            onClick={(ev) => ev.stopPropagation()}
+          >
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <EtiquetaEditable envio={abierto} soloLectura={soloLectura} onCambiar={(tipo) => void editar(abierto, { tipo }).catch(() => {})} />
-              <CajaProducto envio={abierto} soloLectura={soloLectura} grande colores={colores} onColor={cambiarColor} onGuardar={(producto) => editar(abierto, { producto })} />
+              <EtiquetaEditable
+                envio={abierto}
+                soloLectura={soloLectura}
+                onCambiar={(tipo) =>
+                  void editar(abierto, { tipo }).catch(() => {})
+                }
+              />
+              <CajaProducto
+                envio={abierto}
+                soloLectura={soloLectura}
+                grande
+                colores={colores}
+                onColor={cambiarColor}
+                onGuardar={(producto) => editar(abierto, { producto })}
+              />
             </div>
             <div className="flex shrink-0 gap-2">
               {!soloLectura &&
                 (abierto.entregadoEn ? (
-                  <button type="button" onClick={() => marcar(abierto, false)} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10">
+                  <button
+                    type="button"
+                    onClick={() => marcar(abierto, false)}
+                    className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10"
+                  >
                     ↩ A pendiente
                   </button>
                 ) : (
-                  <button type="button" onClick={() => marcar(abierto, true)} className="rounded-lg bg-success px-3 py-1.5 text-sm font-semibold text-ink-950">
+                  <button
+                    type="button"
+                    onClick={() => marcar(abierto, true)}
+                    className="rounded-lg bg-success px-3 py-1.5 text-sm font-semibold text-ink-950"
+                  >
                     ✓ Entregado
                   </button>
                 ))}
-              <a href={src(abierto)} target="_blank" rel="noreferrer" className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10">
+              <a
+                href={src(abierto)}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10"
+              >
                 Abrir
               </a>
-              <button type="button" onClick={() => setAbiertoId(null)} className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10" aria-label="Cerrar">
+              <button
+                type="button"
+                onClick={() => setAbiertoId(null)}
+                className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-ink-200 hover:bg-white/10"
+                aria-label="Cerrar"
+              >
                 ✕
               </button>
             </div>
           </div>
           <div className="flex min-h-0 flex-1 justify-center overflow-y-auto">
             {esPdf(abierto) ? (
-              <div className="w-full max-w-3xl" onClick={(ev) => ev.stopPropagation()}>
+              <div
+                className="w-full max-w-3xl"
+                onClick={(ev) => ev.stopPropagation()}
+              >
                 <VistaPdf envio={abierto} ancho={720} />
               </div>
             ) : (
               // eslint-disable-next-line @next/next/no-img-element -- private image behind a signed-link redirect
-              <img src={src(abierto)} alt={abierto.producto || abierto.nombre} className="max-h-full max-w-full self-center rounded-lg object-contain" onClick={(ev) => ev.stopPropagation()} />
+              <img
+                src={src(abierto)}
+                alt={abierto.producto || abierto.nombre}
+                className="max-h-full max-w-full self-center rounded-lg object-contain"
+                onClick={(ev) => ev.stopPropagation()}
+              />
             )}
           </div>
         </div>

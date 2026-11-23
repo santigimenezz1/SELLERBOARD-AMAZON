@@ -34,6 +34,8 @@ export type EnvioWallapop = {
   entregadoEn: string | null;
   /** How the carrier was found when uploaded without choosing it: label text/file name, or the AI. */
   identificadoPor?: "texto" | "ia";
+  /** Place within its carrier's group, once moved by hand (dragged); unset = never moved (shown first, newest first). */
+  orden?: number;
 };
 
 export const TAMANO_MAXIMO_WALLAPOP = 15 * 1024 * 1024;
@@ -146,6 +148,14 @@ export async function editarEnvioWallapop(id: string, cambios: { entregado?: unk
   if (nuevo.tipo !== actual.tipo) delete nuevo.identificadoPor;
   await guardar(lista.map((e) => (e.id === id ? nuevo : e)));
   return nuevo;
+}
+
+/** A group's cards in their new order (after dragging one): each gets its place. One write. */
+export async function reordenarEnviosWallapop(ids: unknown): Promise<void> {
+  if (!Array.isArray(ids) || !ids.length || ids.length > 1000 || !ids.every((x) => typeof x === "string")) throw new Error("Orden no válido");
+  const lista = await listarEnviosWallapop();
+  const lugar = new Map((ids as string[]).map((id, i) => [id, i]));
+  await guardar(lista.map((e) => (lugar.has(e.id) ? { ...e, orden: lugar.get(e.id)! } : e)));
 }
 
 export async function borrarEnvioWallapop(id: string): Promise<void> {
