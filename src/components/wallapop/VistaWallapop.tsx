@@ -32,11 +32,16 @@ function Etiqueta({ tipo }: { tipo: TipoEnvio }) {
 
 type PdfJs = typeof import("pdfjs-dist");
 let pdfjs: Promise<PdfJs> | null = null;
+/** pdf.js is loaded as a plain file from /public (bundled, pdf.js 4 breaks: «Object.defineProperty called on non-object»). */
+const RUTA_PDFJS = "/pdf.min.mjs";
 const cargarPdfJs = () =>
-  (pdfjs ??= import("pdfjs-dist").then((m) => {
+  (pdfjs ??= (import(/* webpackIgnore: true */ /* turbopackIgnore: true */ RUTA_PDFJS) as Promise<PdfJs>).then((m) => {
     m.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     return m;
-  }));
+  })).catch((e) => {
+    pdfjs = null;
+    throw e;
+  });
 /** Each PDF is downloaded once per page visit, shared by its card and the big view. */
 const documentos = new Map<string, Promise<Awaited<ReturnType<PdfJs["getDocument"]>["promise"]>>>();
 const abrirPdf = (e: EnvioWallapop) => {
@@ -84,7 +89,8 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
         if (cancelado || !destino) return;
         destino.replaceChildren(...lienzos);
         setEstado("ok");
-      } catch {
+      } catch (e) {
+        console.error("[wallapop] PDF", e);
         if (!cancelado) setEstado("error");
       }
     })();
