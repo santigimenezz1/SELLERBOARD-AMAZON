@@ -22,6 +22,8 @@ const TIPOS = TODOS_TIPOS.filter((t) => t.id !== "wallapop" && t.id !== "descono
 /** Order of the groups when sorted by carrier (unidentified first, to fix them; old Wallapop cards last). */
 const ORDEN_EMPRESAS: TipoEnvio[] = ["desconocido", "vinted", "correos", "inpost", "seur", "wallapop"];
 const CLAVE_ORDEN = "wallapop.orden";
+/** Product put on new cards unless another is typed. */
+const PRODUCTO_POR_DEFECTO = "ALFOMBRA";
 const tipoDe = (id: TipoEnvio) => TODOS_TIPOS.find((t) => t.id === id) ?? TODOS_TIPOS[0];
 
 const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
@@ -262,7 +264,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
   const [errores, setErrores] = useState<string[]>([]);
   const [abiertoId, setAbiertoId] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [productoNuevo, setProductoNuevo] = useState("");
+  const [productoNuevo, setProductoNuevo] = useState(PRODUCTO_POR_DEFECTO);
   const entradas = useRef<Partial<Record<TipoEnvio, HTMLInputElement | null>>>({});
   const entradaAuto = useRef<HTMLInputElement | null>(null);
   const abierto = lista.find((e) => e.id === abiertoId) ?? null;
@@ -304,7 +306,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
     setErrores(fallos);
     setSubiendo(null);
     setVista("pendientes");
-    if (nuevos.length) setProductoNuevo("");
+    if (nuevos.length) setProductoNuevo(PRODUCTO_POR_DEFECTO);
   };
 
   /** Saves a change; the card shows it at once and goes back if the server says no. */
