@@ -183,7 +183,70 @@ function VistaPdf({ envio, miniatura, ancho }: { envio: EnvioWallapop; miniatura
 
 // ---------- Product text (editable) ----------
 
-function CampoProducto({ envio, soloLectura, onGuardar, grande }: { envio: EnvioWallapop; soloLectura: boolean; onGuardar: (texto: string) => Promise<void>; grande?: boolean }) {
+/** Black or white text, whichever reads better on that background. */
+const textoSobre = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  const l = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return l > 0.6 ? "#111827" : "#ffffff";
+};
+const claveProducto = (p: string) => p.trim().toUpperCase();
+
+/** A round swatch that opens the browser's color picker. */
+function SelectorColor({ color, onCambiar, titulo }: { color: string; onCambiar: (color: string) => void; titulo: string }) {
+  return (
+    <label
+      title={titulo}
+      onClick={(ev) => ev.stopPropagation()}
+      className="relative mr-1 inline-flex size-4 shrink-0 cursor-pointer rounded-full ring-2 ring-white/70 hover:ring-white"
+      style={{ background: color }}
+    >
+      <input type="color" value={color} onChange={(ev) => onCambiar(ev.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
+    </label>
+  );
+}
+
+/** The product's box over the card: its color (per product, chosen with the swatch) and the editable text. */
+function CajaProducto({
+  envio,
+  soloLectura,
+  grande,
+  colores,
+  onColor,
+  onGuardar,
+}: {
+  envio: EnvioWallapop;
+  soloLectura: boolean;
+  grande?: boolean;
+  colores: Record<string, string>;
+  onColor: (producto: string, color: string) => void;
+  onGuardar: (texto: string) => Promise<void>;
+}) {
+  const producto = envio.producto ?? "";
+  const color = producto ? colores[claveProducto(producto)] : undefined;
+  return (
+    <div
+      className={`pointer-events-auto flex max-w-full items-center rounded-md shadow-lg ring-1 ring-white/10 ${color ? "" : "bg-ink-950/85 backdrop-blur"} ${grande ? "min-w-0 flex-1" : ""}`}
+      style={color ? { background: color } : undefined}
+    >
+      <CampoProducto key={producto} envio={envio} soloLectura={soloLectura} grande={grande} colorTexto={color ? textoSobre(color) : undefined} onGuardar={onGuardar} />
+      {!soloLectura && producto && <SelectorColor color={color ?? "#111827"} titulo={`Color de «${producto}» (todas sus tarjetas)`} onCambiar={(c) => onColor(producto, c)} />}
+    </div>
+  );
+}
+
+function CampoProducto({
+  envio,
+  soloLectura,
+  onGuardar,
+  grande,
+  colorTexto,
+}: {
+  envio: EnvioWallapop;
+  soloLectura: boolean;
+  onGuardar: (texto: string) => Promise<void>;
+  grande?: boolean;
+  colorTexto?: string;
+}) {
   const [editando, setEditando] = useState(false);
   const [texto, setTexto] = useState(envio.producto ?? "");
   const [guardando, setGuardando] = useState(false);
@@ -233,17 +296,34 @@ function CampoProducto({ envio, soloLectura, onGuardar, grande }: { envio: Envio
         setEditando(true);
       }}
       title={soloLectura ? actual : "Editar el producto"}
-      className={`min-w-0 flex-1 truncate rounded-md px-1.5 py-0.5 text-left ${tamano} ${actual ? "font-medium text-ink-100" : "italic text-ink-500"} enabled:hover:bg-white/[0.06]`}
+      className={`min-w-0 flex-1 truncate rounded-md px-1.5 py-0.5 text-left ${tamano} ${actual ? "font-semibold text-ink-100" : "italic text-ink-500"} enabled:hover:bg-white/[0.08]`}
+      style={actual && colorTexto ? { color: colorTexto } : undefined}
     >
       {guardando ? "Guardando…" : actual || (soloLectura ? "" : "＋ Producto")}
-      {!soloLectura && actual && !guardando && <span className="ml-1 text-ink-500">✎</span>}
+      {!soloLectura && actual && !guardando && <span className="ml-1 opacity-60">✎</span>}
     </button>
   );
 }
 
 /** «Wallapop»: upload the labels of Vinted, Wallapop, Correos and InPost shipments; each one is a card, pending until delivered. */
-export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]; soloLectura: boolean }) {
+export function VistaWallapop({ envios, colores: coloresIniciales, soloLectura }: { envios: EnvioWallapop[]; colores: Record<string, string>; soloLectura: boolean }) {
   const [lista, setLista] = useState(envios);
+  // Box color per product: shown at once, saved shortly after the picker stops moving.
+  const [colores, setColores] = useState(coloresIniciales);
+  const esperaColor = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cambiarColor = (producto: string, color: string) => {
+    const clave = claveProducto(producto);
+    setColores((c) => ({ ...c, [clave]: color }));
+    if (esperaColor.current) clearTimeout(esperaColor.current);
+    esperaColor.current = setTimeout(async () => {
+      try {
+        const r = await fetch("/api/wallapop/colores", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ producto: clave, color }) });
+        if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `error ${r.status}`);
+      } catch (err) {
+        setErrores([`No se pudo guardar el color: ${err instanceof Error ? err.message : "error"}`]);
+      }
+    }, 700);
+  };
   const [vista, setVista] = useState<"pendientes" | "entregadas">("pendientes");
   const [filtro, setFiltro] = useState<TipoEnvio | "todos">("todos");
   // The chosen order is remembered in this browser.
@@ -373,6 +453,16 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
               className="h-9 w-full rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
             />
           </label>
+          {productoNuevo.trim() && (
+            <div className="-mt-1 flex items-center gap-2 text-xs text-ink-400">
+              <SelectorColor
+                color={colores[claveProducto(productoNuevo)] ?? "#111827"}
+                titulo={`Color de «${productoNuevo.trim()}»`}
+                onCambiar={(c) => cambiarColor(productoNuevo, c)}
+              />
+              Color de la caja de «{productoNuevo.trim()}» en las tarjetas (toca el círculo para cambiarlo)
+            </div>
+          )}
           <button
             type="button"
             disabled={!!subiendo}
@@ -529,9 +619,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
                   <span className="pointer-events-auto">
                     <EtiquetaEditable envio={e} soloLectura={soloLectura} onCambiar={(tipo) => void editar(e, { tipo }).catch(() => {})} />
                   </span>
-                  <div className="pointer-events-auto flex max-w-full rounded-md bg-ink-950/85 shadow-lg ring-1 ring-white/10 backdrop-blur">
-                    <CampoProducto key={e.producto ?? ""} envio={e} soloLectura={soloLectura} onGuardar={(producto) => editar(e, { producto })} />
-                  </div>
+                  <CajaProducto envio={e} soloLectura={soloLectura} colores={colores} onColor={cambiarColor} onGuardar={(producto) => editar(e, { producto })} />
                 </div>
               </div>
               <div className="flex flex-1 flex-col gap-2 p-2.5">
@@ -569,7 +657,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
           <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 pb-3" onClick={(ev) => ev.stopPropagation()}>
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <EtiquetaEditable envio={abierto} soloLectura={soloLectura} onCambiar={(tipo) => void editar(abierto, { tipo }).catch(() => {})} />
-              <CampoProducto key={abierto.producto ?? ""} envio={abierto} soloLectura={soloLectura} grande onGuardar={(producto) => editar(abierto, { producto })} />
+              <CajaProducto envio={abierto} soloLectura={soloLectura} grande colores={colores} onColor={cambiarColor} onGuardar={(producto) => editar(abierto, { producto })} />
             </div>
             <div className="flex shrink-0 gap-2">
               {!soloLectura &&

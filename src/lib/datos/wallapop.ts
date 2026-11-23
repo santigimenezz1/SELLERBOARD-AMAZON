@@ -38,23 +38,50 @@ export type EnvioWallapop = {
 
 export const TAMANO_MAXIMO_WALLAPOP = 15 * 1024 * 1024;
 
-const g = globalThis as unknown as { __wallapop?: EnvioWallapop[] };
+/** Color of each product's box on the cards, by product name in capitals («ALFOMBRA» → "#e11d48"). */
+export type ColoresProducto = Record<string, string>;
+
+const g = globalThis as unknown as { __wallapop?: EnvioWallapop[]; __wallapopColores?: ColoresProducto };
 const ref = () => adminDb().collection("config").doc("wallapop");
 const ruta = (e: Pick<EnvioWallapop, "id" | "archivo">) => `wallapop/${e.id}/${e.archivo}`;
 const nombreArchivo = (n: string) => n.normalize("NFKD").replace(/[^\w.\- ]+/g, "").replace(/\s+/g, "_").slice(-120) || "imagen";
+export const claveProducto = (p: string) => p.trim().toUpperCase();
 
-export async function listarEnviosWallapop(): Promise<EnvioWallapop[]> {
-  if (g.__wallapop) return g.__wallapop;
+async function cargar() {
+  if (g.__wallapop && g.__wallapopColores) return;
   const snap = await ref().get();
   contarLecturas(1);
   g.__wallapop = (snap.get("lista") as EnvioWallapop[] | undefined) ?? [];
-  return g.__wallapop;
+  g.__wallapopColores = (snap.get("colores") as ColoresProducto | undefined) ?? {};
 }
 
-async function guardar(lista: EnvioWallapop[]) {
-  await ref().set({ lista, actualizadoEn: new Date().toISOString() });
+export async function listarEnviosWallapop(): Promise<EnvioWallapop[]> {
+  await cargar();
+  return g.__wallapop!;
+}
+
+export async function coloresProductoWallapop(): Promise<ColoresProducto> {
+  await cargar();
+  return g.__wallapopColores!;
+}
+
+async function guardar(lista: EnvioWallapop[], colores?: ColoresProducto) {
+  const c = colores ?? (await coloresProductoWallapop());
+  await ref().set({ lista, colores: c, actualizadoEn: new Date().toISOString() });
   contarEscrituras(1);
   g.__wallapop = lista;
+  g.__wallapopColores = c;
+}
+
+/** Sets the color of a product's box (every card with that product); null color goes back to the default. */
+export async function fijarColorProducto(producto: unknown, color: unknown): Promise<ColoresProducto> {
+  if (typeof producto !== "string" || !claveProducto(producto)) throw new Error("Falta el producto");
+  if (color !== null && (typeof color !== "string" || !/^#[0-9a-f]{6}$/i.test(color))) throw new Error("Color no válido");
+  const colores = { ...(await coloresProductoWallapop()) };
+  if (color) colores[claveProducto(producto).slice(0, 200)] = color.toLowerCase();
+  else delete colores[claveProducto(producto)];
+  await guardar(await listarEnviosWallapop(), colores);
+  return colores;
 }
 
 /**

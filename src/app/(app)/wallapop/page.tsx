@@ -1,4 +1,4 @@
-import { listarEnviosWallapop } from "@/lib/datos/wallapop";
+import { coloresProductoWallapop, listarEnviosWallapop } from "@/lib/datos/wallapop";
 import { modoDemo } from "@/lib/auth/demo";
 import { AvisoDemo } from "@/components/AvisoDemo";
 import { VistaWallapop } from "@/components/wallapop/VistaWallapop";
@@ -14,7 +14,7 @@ export default async function WallapopPage() {
         <p className="mt-1 text-sm text-ink-400">Sube las imágenes de tus envíos de Vinted, Wallapop y Correos. Cada una es una tarjeta pendiente hasta que la marques como entregada.</p>
       </div>
       {demo && <AvisoDemo />}
-      <VistaWallapop envios={demo ? [] : await listarEnviosWallapop()} soloLectura={demo} />
+      <VistaWallapop envios={demo ? [] : await listarEnviosWallapop()} colores={demo ? {} : await coloresProductoWallapop()} soloLectura={demo} />
     </div>
   );
 }
