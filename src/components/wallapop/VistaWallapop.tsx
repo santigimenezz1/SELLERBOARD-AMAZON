@@ -533,7 +533,10 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
                 </div>
               </div>
               <div className="flex flex-1 flex-col gap-2 p-2.5">
-                <p className="text-xs text-ink-500">{e.entregadoEn ? `Entregado ${fechaHora(e.entregadoEn)}` : `Subido ${fechaHora(e.subidoEn)}`}</p>
+                <p className="truncate text-xs text-ink-400" title={e.nombre}>
+                  {e.nombre}
+                </p>
+                {e.entregadoEn && <p className="text-xs text-ink-500">Entregado {fechaHora(e.entregadoEn)}</p>}
                 {!soloLectura && (
                   <div className="mt-auto flex gap-1.5">
                     {e.entregadoEn ? (
