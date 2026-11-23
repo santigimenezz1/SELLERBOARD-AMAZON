@@ -14,11 +14,13 @@ const TODOS_TIPOS: { id: TipoEnvio; nombre: string; color: string; texto: string
   { id: "seur", nombre: "SEUR", color: "#0047bb", texto: "#ffffff", boton: "#4d8eff" },
   // No longer offered: only so cards uploaded before still show right.
   { id: "wallapop", nombre: "Wallapop", color: "#13c1ac", texto: "#043a33", boton: "#13c1ac" },
+  // Uploaded without choosing and couldn't be told: the user picks it on the card.
+  { id: "desconocido", nombre: "Sin identificar", color: "#6b7280", texto: "#ffffff", boton: "#9ca3af" },
 ];
-/** The carriers offered (upload buttons, filters). */
-const TIPOS = TODOS_TIPOS.filter((t) => t.id !== "wallapop");
-/** Order of the groups when sorted by carrier (old Wallapop cards last). */
-const ORDEN_EMPRESAS: TipoEnvio[] = ["vinted", "correos", "inpost", "seur", "wallapop"];
+/** The carriers offered (upload buttons, filters, the card's picker). */
+const TIPOS = TODOS_TIPOS.filter((t) => t.id !== "wallapop" && t.id !== "desconocido");
+/** Order of the groups when sorted by carrier (unidentified first, to fix them; old Wallapop cards last). */
+const ORDEN_EMPRESAS: TipoEnvio[] = ["desconocido", "vinted", "correos", "inpost", "seur", "wallapop"];
 const CLAVE_ORDEN = "wallapop.orden";
 const tipoDe = (id: TipoEnvio) => TODOS_TIPOS.find((t) => t.id === id) ?? TODOS_TIPOS[0];
 
@@ -26,13 +28,58 @@ const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-ES", { day: 
 const esPdf = (e: EnvioWallapop) => e.contentType === "application/pdf";
 const src = (e: EnvioWallapop) => `/api/wallapop/${e.id}`;
 
-function Etiqueta({ tipo }: { tipo: TipoEnvio }) {
+function Etiqueta({ tipo, ia }: { tipo: TipoEnvio; ia?: boolean }) {
   const t = tipoDe(tipo);
   return (
-    <span className="inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-black/20" style={{ background: t.color, color: t.texto }}>
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-black/20" style={{ background: t.color, color: t.texto }}>
       {t.nombre}
+      {ia && (
+        <span title="Empresa detectada por la IA" className="rounded bg-black/25 px-1 text-[9px] leading-tight">
+          IA
+        </span>
+      )}
     </span>
   );
+}
+
+/** The carrier's label; tapping it lets you change the carrier (a native select laid invisibly over it). */
+function EtiquetaEditable({ envio, soloLectura, onCambiar }: { envio: EnvioWallapop; soloLectura: boolean; onCambiar: (tipo: TipoEnvio) => void }) {
+  const etiqueta = <Etiqueta tipo={envio.tipo} ia={envio.identificadoPor === "ia"} />;
+  if (soloLectura) return etiqueta;
+  return (
+    <span className="relative inline-flex cursor-pointer" title="Cambiar la empresa" onClick={(ev) => ev.stopPropagation()}>
+      {etiqueta}
+      <select
+        aria-label="Empresa"
+        value={envio.tipo}
+        onChange={(ev) => onCambiar(ev.target.value as TipoEnvio)}
+        className="absolute inset-0 cursor-pointer opacity-0"
+      >
+        {envio.tipo === "desconocido" && <option value="desconocido">Elige la empresa…</option>}
+        {TODOS_TIPOS.filter((t) => TIPOS.includes(t) || t.id === envio.tipo).map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.nombre}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
+
+/** The text of a PDF's first pages, read in the browser, so the carrier is found without AI (free). */
+async function textoDePdf(archivo: File): Promise<string> {
+  try {
+    const m = await cargarPdfJs();
+    const doc = await m.getDocument({ data: new Uint8Array(await archivo.arrayBuffer()) }).promise;
+    let texto = "";
+    for (let n = 1; n <= Math.min(doc.numPages, 3); n++) {
+      const c = await (await doc.getPage(n)).getTextContent();
+      texto += c.items.map((i) => ("str" in i ? i.str : "")).join(" ") + "\n";
+    }
+    return texto;
+  } catch {
+    return "";
+  }
 }
 
 // ---------- PDF drawn in the browser (labels with their QR) ----------
@@ -217,6 +264,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [productoNuevo, setProductoNuevo] = useState("");
   const entradas = useRef<Partial<Record<TipoEnvio, HTMLInputElement | null>>>({});
+  const entradaAuto = useRef<HTMLInputElement | null>(null);
   const abierto = lista.find((e) => e.id === abiertoId) ?? null;
 
   const pendientes = lista.filter((e) => !e.entregadoEn);
@@ -228,7 +276,8 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
     orden === "empresa" ? ORDEN_EMPRESAS.map((t) => [t, visibles.filter((e) => e.tipo === t)] as [TipoEnvio, EnvioWallapop[]]).filter(([, l]) => l.length > 0) : [[null, visibles]];
   const cuenta = (tipo: TipoEnvio) => base.filter((e) => e.tipo === tipo).length;
 
-  const subir = async (tipo: TipoEnvio, archivos: File[]) => {
+  /** `tipo` "auto": the server finds the carrier (PDF text first, read here for free; then the AI). */
+  const subir = async (tipo: TipoEnvio | "auto", archivos: File[]) => {
     if (!archivos.length || subiendo) return;
     setErrores([]);
     setSubiendo({ hecho: 0, total: archivos.length });
@@ -241,6 +290,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
         f.set("archivo", a);
         f.set("tipo", tipo);
         f.set("producto", productoNuevo);
+        if (tipo === "auto" && a.type === "application/pdf") f.set("texto", await textoDePdf(a));
         const r = await fetch("/api/wallapop", { method: "POST", body: f });
         const b = (await r.json().catch(() => ({}))) as { error?: string; envio?: EnvioWallapop };
         if (!r.ok || !b.envio) throw new Error(b.error ?? `error ${r.status}`);
@@ -258,10 +308,11 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
   };
 
   /** Saves a change; the card shows it at once and goes back if the server says no. */
-  const editar = async (e: EnvioWallapop, cambios: { entregado?: boolean; producto?: string }) => {
+  const editar = async (e: EnvioWallapop, cambios: { entregado?: boolean; producto?: string; tipo?: TipoEnvio }) => {
     const antes = lista;
     const optimista: EnvioWallapop = {
       ...e,
+      ...(cambios.tipo !== undefined && { tipo: cambios.tipo, identificadoPor: undefined }),
       ...(cambios.producto !== undefined && { producto: cambios.producto }),
       ...(cambios.entregado !== undefined && { entregadoEn: cambios.entregado ? new Date().toISOString() : null }),
     };
@@ -320,6 +371,30 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
               className="h-9 w-full rounded-lg border border-white/[0.08] bg-ink-950/60 px-3 text-sm text-ink-100 outline-none focus:border-accent-500/60"
             />
           </label>
+          <button
+            type="button"
+            disabled={!!subiendo}
+            onClick={() => entradaAuto.current?.click()}
+            className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-accent-500/60 px-4 py-5 text-accent-400 transition-colors hover:bg-accent-500/[0.06] disabled:opacity-50"
+          >
+            <span className="flex items-center gap-2 text-base font-semibold">
+              <span className="text-xl leading-none">＋</span> Subir envíos
+            </span>
+            <span className="text-xs text-ink-400">Elige varios a la vez, de cualquier empresa: se detecta sola (y el producto, si aparece)</span>
+            <input
+              ref={entradaAuto}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              hidden
+              onChange={(ev) => {
+                const archivos = [...(ev.target.files ?? [])];
+                ev.target.value = "";
+                void subir("auto", archivos);
+              }}
+            />
+          </button>
+          <p className="text-xs text-ink-500">O súbelos indicando tú la empresa:</p>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {TIPOS.map((t) => (
               <button
@@ -327,7 +402,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
                 type="button"
                 disabled={!!subiendo}
                 onClick={() => entradas.current[t.id]?.click()}
-                className="flex items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-4 text-sm font-medium transition-colors hover:bg-white/[0.04] disabled:opacity-50"
+                className="flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2.5 text-sm font-medium transition-colors hover:bg-white/[0.04] disabled:opacity-50"
                 style={{ borderColor: `${t.boton}80`, color: t.boton }}
               >
                 <span className="text-lg leading-none">＋</span> Subir {t.nombre}
@@ -353,7 +428,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
 
       {subiendo && (
         <div className="flex items-center gap-2 text-sm text-ink-300">
-          <Spinner tamano="sm" /> Subiendo {subiendo.hecho} de {subiendo.total}…
+          <Spinner tamano="sm" /> Subiendo e identificando {subiendo.hecho} de {subiendo.total}…
         </div>
       )}
       {errores.length > 0 && (
@@ -450,7 +525,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
                 {/* On top of the image: the carrier and, under it, the product (editable). */}
                 <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col items-start gap-1">
                   <span className="pointer-events-auto">
-                    <Etiqueta tipo={e.tipo} />
+                    <EtiquetaEditable envio={e} soloLectura={soloLectura} onCambiar={(tipo) => void editar(e, { tipo }).catch(() => {})} />
                   </span>
                   <div className="pointer-events-auto flex max-w-full rounded-md bg-ink-950/85 shadow-lg ring-1 ring-white/10 backdrop-blur">
                     <CampoProducto key={e.producto ?? ""} envio={e} soloLectura={soloLectura} onGuardar={(producto) => editar(e, { producto })} />
@@ -488,7 +563,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
         <div className="fixed inset-0 z-50 flex flex-col bg-black/85 p-3 sm:p-6" onClick={() => setAbiertoId(null)}>
           <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 pb-3" onClick={(ev) => ev.stopPropagation()}>
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <Etiqueta tipo={abierto.tipo} />
+              <EtiquetaEditable envio={abierto} soloLectura={soloLectura} onCambiar={(tipo) => void editar(abierto, { tipo }).catch(() => {})} />
               <CampoProducto key={abierto.producto ?? ""} envio={abierto} soloLectura={soloLectura} grande onGuardar={(producto) => editar(abierto, { producto })} />
             </div>
             <div className="flex shrink-0 gap-2">

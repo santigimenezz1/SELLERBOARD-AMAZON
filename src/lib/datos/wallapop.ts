@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { adminDb } from "@/lib/firebase/admin";
 import { bucket } from "./documentos";
+import { identificarEnvio } from "@/lib/ia/identificarEnvio";
 import { contarEscrituras, contarLecturas } from "./consumo";
 
 /*
@@ -13,7 +14,8 @@ import { contarEscrituras, contarLecturas } from "./consumo";
  * - The list is one doc, `config/wallapop`, kept in memory (one read per server start, one write per change).
  */
 
-export const TIPOS_ENVIO = ["vinted", "wallapop", "correos", "inpost", "seur"] as const;
+/** «desconocido»: uploaded without saying the carrier and it couldn't be told; the user picks it on the card. */
+export const TIPOS_ENVIO = ["vinted", "wallapop", "correos", "inpost", "seur", "desconocido"] as const;
 export type TipoEnvio = (typeof TIPOS_ENVIO)[number];
 export const esTipoEnvio = (v: unknown): v is TipoEnvio => TIPOS_ENVIO.includes(v as TipoEnvio);
 
@@ -30,6 +32,8 @@ export type EnvioWallapop = {
   subidoEn: string;
   /** When it was handed over; null while pending. */
   entregadoEn: string | null;
+  /** How the carrier was found when uploaded without choosing it: label text/file name, or the AI. */
+  identificadoPor?: "texto" | "ia";
 };
 
 export const TAMANO_MAXIMO_WALLAPOP = 15 * 1024 * 1024;
@@ -53,17 +57,33 @@ async function guardar(lista: EnvioWallapop[]) {
   g.__wallapop = lista;
 }
 
-export async function subirEnvioWallapop(archivo: File, tipo: unknown, producto?: unknown): Promise<EnvioWallapop> {
-  if (!esTipoEnvio(tipo)) throw new Error("Elige Vinted, Correos, InPost o SEUR");
+/**
+ * `tipo` "auto": the carrier is found from the label (`textoPdf`: the PDF's text, read in the browser) or, failing
+ * that, by the AI, which also reads the product when it shows and none was typed.
+ */
+export async function subirEnvioWallapop(archivo: File, tipo: unknown, producto?: unknown, textoPdf?: unknown): Promise<EnvioWallapop> {
+  const auto = tipo === "auto";
+  if (!auto && !esTipoEnvio(tipo)) throw new Error("Elige Vinted, Correos, InPost o SEUR");
   if (archivo.size === 0) throw new Error("El archivo está vacío");
   if (archivo.size > TAMANO_MAXIMO_WALLAPOP) throw new Error("El archivo pasa de 15 MB");
   const contentType = archivo.type || "application/octet-stream";
   if (!contentType.startsWith("image/") && contentType !== "application/pdf") throw new Error("Solo imágenes o PDF");
+  const datos = Buffer.from(await archivo.arrayBuffer());
+  let productoFinal = typeof producto === "string" ? producto.trim().slice(0, 200) : "";
+  let tipoFinal: TipoEnvio = auto ? "desconocido" : (tipo as TipoEnvio);
+  let identificadoPor: EnvioWallapop["identificadoPor"];
+  if (auto) {
+    const r = await identificarEnvio(datos, contentType, archivo.name, typeof textoPdf === "string" ? textoPdf.slice(0, 20_000) : "");
+    if (r.tipo) tipoFinal = r.tipo;
+    if (r.por) identificadoPor = r.por;
+    if (!productoFinal && r.producto) productoFinal = r.producto;
+  }
   const envio: EnvioWallapop = {
     id: randomUUID(),
-    tipo,
+    tipo: tipoFinal,
+    ...(identificadoPor && { identificadoPor }),
     nombre: archivo.name.replace(/\.[^.]+$/, "").slice(0, 120) || "Envío",
-    producto: typeof producto === "string" ? producto.trim().slice(0, 200) : "",
+    producto: productoFinal,
     archivo: nombreArchivo(archivo.name),
     contentType,
     tamano: archivo.size,
@@ -73,7 +93,7 @@ export async function subirEnvioWallapop(archivo: File, tipo: unknown, producto?
   try {
     await bucket()
       .file(ruta(envio))
-      .save(Buffer.from(await archivo.arrayBuffer()), { contentType, resumable: false });
+      .save(datos, { contentType, resumable: false });
   } catch (e) {
     if (e instanceof Error && /bucket does not exist/i.test(e.message)) throw new Error("Falta activar Storage en la consola de Firebase (Storage → Comenzar)");
     throw e;
@@ -95,6 +115,8 @@ export async function editarEnvioWallapop(id: string, cambios: { entregado?: unk
     producto: typeof cambios.producto === "string" ? cambios.producto.trim().slice(0, 200) : (actual.producto ?? ""),
     entregadoEn: typeof cambios.entregado === "boolean" ? (cambios.entregado ? (actual.entregadoEn ?? new Date().toISOString()) : null) : actual.entregadoEn,
   };
+  // Chosen by hand now: no longer «detected by the AI».
+  if (nuevo.tipo !== actual.tipo) delete nuevo.identificadoPor;
   await guardar(lista.map((e) => (e.id === id ? nuevo : e)));
   return nuevo;
 }

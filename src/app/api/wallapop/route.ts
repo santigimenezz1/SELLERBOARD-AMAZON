@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const archivo = form?.get("archivo");
   if (!(archivo instanceof File)) return NextResponse.json({ error: "Falta el archivo" }, { status: 400 });
   try {
-    const envio = await subirEnvioWallapop(archivo, form?.get("tipo"), form?.get("producto"));
+    const envio = await subirEnvioWallapop(archivo, form?.get("tipo"), form?.get("producto"), form?.get("texto"));
     await volcarConsumo().catch(() => {});
     return NextResponse.json({ ok: true, envio });
   } catch (e) {
