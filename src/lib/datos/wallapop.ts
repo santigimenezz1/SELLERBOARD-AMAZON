@@ -13,7 +13,7 @@ import { contarEscrituras, contarLecturas } from "./consumo";
  * - The list is one doc, `config/wallapop`, kept in memory (one read per server start, one write per change).
  */
 
-export const TIPOS_ENVIO = ["vinted", "wallapop", "correos", "inpost"] as const;
+export const TIPOS_ENVIO = ["vinted", "wallapop", "correos", "inpost", "seur"] as const;
 export type TipoEnvio = (typeof TIPOS_ENVIO)[number];
 export const esTipoEnvio = (v: unknown): v is TipoEnvio => TIPOS_ENVIO.includes(v as TipoEnvio);
 
@@ -54,7 +54,7 @@ async function guardar(lista: EnvioWallapop[]) {
 }
 
 export async function subirEnvioWallapop(archivo: File, tipo: unknown, producto?: unknown): Promise<EnvioWallapop> {
-  if (!esTipoEnvio(tipo)) throw new Error("Elige Vinted, Wallapop, Correos o InPost");
+  if (!esTipoEnvio(tipo)) throw new Error("Elige Vinted, Correos, InPost o SEUR");
   if (archivo.size === 0) throw new Error("El archivo está vacío");
   if (archivo.size > TAMANO_MAXIMO_WALLAPOP) throw new Error("El archivo pasa de 15 MB");
   const contentType = archivo.type || "application/octet-stream";

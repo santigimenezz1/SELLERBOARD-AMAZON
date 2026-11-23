@@ -7,16 +7,20 @@ import { Spinner } from "@/components/Spinner";
 const MAXIMO = 15 * 1024 * 1024;
 
 /** `boton`: the color of its upload button on the dark page (InPost's dark grey wouldn't show). */
-const TIPOS: { id: TipoEnvio; nombre: string; color: string; texto: string; boton: string }[] = [
+const TODOS_TIPOS: { id: TipoEnvio; nombre: string; color: string; texto: string; boton: string }[] = [
   { id: "vinted", nombre: "Vinted", color: "#09b1ba", texto: "#04363a", boton: "#09b1ba" },
-  { id: "wallapop", nombre: "Wallapop", color: "#13c1ac", texto: "#043a33", boton: "#13c1ac" },
   { id: "correos", nombre: "Correos", color: "#ffcd00", texto: "#3d3100", boton: "#ffcd00" },
   { id: "inpost", nombre: "InPost", color: "#2b2b2b", texto: "#ffcd00", boton: "#f5b800" },
+  { id: "seur", nombre: "SEUR", color: "#0047bb", texto: "#ffffff", boton: "#4d8eff" },
+  // No longer offered: only so cards uploaded before still show right.
+  { id: "wallapop", nombre: "Wallapop", color: "#13c1ac", texto: "#043a33", boton: "#13c1ac" },
 ];
-/** Order of the groups when sorted by carrier. */
-const ORDEN_EMPRESAS: TipoEnvio[] = ["vinted", "correos", "inpost", "wallapop"];
+/** The carriers offered (upload buttons, filters). */
+const TIPOS = TODOS_TIPOS.filter((t) => t.id !== "wallapop");
+/** Order of the groups when sorted by carrier (old Wallapop cards last). */
+const ORDEN_EMPRESAS: TipoEnvio[] = ["vinted", "correos", "inpost", "seur", "wallapop"];
 const CLAVE_ORDEN = "wallapop.orden";
-const tipoDe = (id: TipoEnvio) => TIPOS.find((t) => t.id === id) ?? TIPOS[0];
+const tipoDe = (id: TipoEnvio) => TODOS_TIPOS.find((t) => t.id === id) ?? TODOS_TIPOS[0];
 
 const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
 const esPdf = (e: EnvioWallapop) => e.contentType === "application/pdf";
@@ -386,7 +390,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
             className="h-8 rounded-lg border border-white/[0.08] bg-ink-950/60 px-2 text-sm text-ink-100 outline-none focus:border-accent-500/60"
           >
             <option value="recientes">Más recientes primero</option>
-            <option value="empresa">Por empresa (Vinted, Correos, InPost…)</option>
+            <option value="empresa">Por empresa (Vinted, Correos, InPost, SEUR)</option>
           </select>
         </label>
         <div className="flex flex-wrap gap-1.5">
