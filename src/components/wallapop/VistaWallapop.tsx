@@ -13,6 +13,9 @@ const TIPOS: { id: TipoEnvio; nombre: string; color: string; texto: string; boto
   { id: "correos", nombre: "Correos", color: "#ffcd00", texto: "#3d3100", boton: "#ffcd00" },
   { id: "inpost", nombre: "InPost", color: "#2b2b2b", texto: "#ffcd00", boton: "#f5b800" },
 ];
+/** Order of the groups when sorted by carrier. */
+const ORDEN_EMPRESAS: TipoEnvio[] = ["vinted", "correos", "inpost", "wallapop"];
+const CLAVE_ORDEN = "wallapop.orden";
 const tipoDe = (id: TipoEnvio) => TIPOS.find((t) => t.id === id) ?? TIPOS[0];
 
 const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
@@ -190,6 +193,20 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
   const [lista, setLista] = useState(envios);
   const [vista, setVista] = useState<"pendientes" | "entregadas">("pendientes");
   const [filtro, setFiltro] = useState<TipoEnvio | "todos">("todos");
+  // The chosen order is remembered in this browser.
+  const [orden, setOrden] = useState<"recientes" | "empresa">("recientes");
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- read once after mount: localStorage doesn't exist on the server
+      if (localStorage.getItem(CLAVE_ORDEN) === "empresa") setOrden("empresa");
+    } catch {}
+  }, []);
+  const cambiarOrden = (o: "recientes" | "empresa") => {
+    setOrden(o);
+    try {
+      localStorage.setItem(CLAVE_ORDEN, o);
+    } catch {}
+  };
   const [subiendo, setSubiendo] = useState<{ hecho: number; total: number } | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
   const [abiertoId, setAbiertoId] = useState<string | null>(null);
@@ -202,6 +219,9 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
   const entregadas = lista.filter((e) => e.entregadoEn).sort((a, b) => b.entregadoEn!.localeCompare(a.entregadoEn!));
   const base = vista === "pendientes" ? pendientes : entregadas;
   const visibles = base.filter((e) => filtro === "todos" || e.tipo === filtro);
+  // «Por empresa»: every carrier's parcels together (Vinted, Correos, InPost, Wallapop), so they're handed over in one go.
+  const grupos: [TipoEnvio | null, EnvioWallapop[]][] =
+    orden === "empresa" ? ORDEN_EMPRESAS.map((t) => [t, visibles.filter((e) => e.tipo === t)] as [TipoEnvio, EnvioWallapop[]]).filter(([, l]) => l.length > 0) : [[null, visibles]];
   const cuenta = (tipo: TipoEnvio) => base.filter((e) => e.tipo === tipo).length;
 
   const subir = async (tipo: TipoEnvio, archivos: File[]) => {
@@ -358,6 +378,17 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
             </button>
           ))}
         </div>
+        <label className="flex items-center gap-2 text-xs text-ink-400">
+          Ordenar
+          <select
+            value={orden}
+            onChange={(ev) => cambiarOrden(ev.target.value as "recientes" | "empresa")}
+            className="h-8 rounded-lg border border-white/[0.08] bg-ink-950/60 px-2 text-sm text-ink-100 outline-none focus:border-accent-500/60"
+          >
+            <option value="recientes">Más recientes primero</option>
+            <option value="empresa">Por empresa (Vinted, Correos, InPost…)</option>
+          </select>
+        </label>
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
@@ -385,9 +416,24 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
           {vista === "pendientes" ? "No hay envíos pendientes." : "Todavía no has entregado ningún envío."}
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {visibles.map((e) => (
-            <div key={e.id} className={`flex flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}>
+        <div className="flex flex-col gap-6">
+          {grupos.map(([tipo, envios]) => (
+            <section key={tipo ?? "todos"} className="flex flex-col gap-3">
+              {tipo && (
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-200">
+                  <Etiqueta tipo={tipo} />
+                  <span className="text-ink-400">
+                    {envios.length} {envios.length === 1 ? "paquete" : "paquetes"}
+                  </span>
+                </h2>
+              )}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {envios.map((e) => (
+            <div
+              key={e.id}
+              className={`flex flex-col overflow-hidden rounded-xl border-2 bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}
+              style={{ borderColor: tipoDe(e.tipo).boton }}
+            >
               <div className="relative aspect-[3/4] w-full overflow-hidden bg-ink-950/60">
                 <button type="button" onClick={() => setAbiertoId(e.id)} className="block h-full w-full" title="Ver">
                   {esPdf(e) ? (
@@ -427,6 +473,9 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
                 )}
               </div>
             </div>
+              ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
