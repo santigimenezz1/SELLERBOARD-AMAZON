@@ -194,11 +194,11 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
   const [vista, setVista] = useState<"pendientes" | "entregadas">("pendientes");
   const [filtro, setFiltro] = useState<TipoEnvio | "todos">("todos");
   // The chosen order is remembered in this browser.
-  const [orden, setOrden] = useState<"recientes" | "empresa">("recientes");
+  const [orden, setOrden] = useState<"recientes" | "empresa">("empresa");
   useEffect(() => {
     try {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- read once after mount: localStorage doesn't exist on the server
-      if (localStorage.getItem(CLAVE_ORDEN) === "empresa") setOrden("empresa");
+      if (localStorage.getItem(CLAVE_ORDEN) === "recientes") setOrden("recientes");
     } catch {}
   }, []);
   const cambiarOrden = (o: "recientes" | "empresa") => {
@@ -431,7 +431,7 @@ export function VistaWallapop({ envios, soloLectura }: { envios: EnvioWallapop[]
               {envios.map((e) => (
             <div
               key={e.id}
-              className={`flex flex-col overflow-hidden rounded-xl border-2 bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}
+              className={`flex flex-col overflow-hidden rounded-xl border-4 bg-white/[0.02] ${ocupado === e.id ? "opacity-60" : ""}`}
               style={{ borderColor: tipoDe(e.tipo).boton }}
             >
               <div className="relative aspect-[3/4] w-full overflow-hidden bg-ink-950/60">
