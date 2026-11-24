@@ -12,6 +12,7 @@ import { recordarUltimaSync } from "@/lib/datos/panel";
 import { avisarVentas } from "@/lib/telegram";
 import { actualizarStock } from "@/lib/datos/stock";
 import { actualizarFichas } from "@/lib/datos/fichas";
+import { actualizarListings } from "@/lib/datos/listings";
 import { actualizarDevoluciones } from "@/lib/datos/devoluciones";
 import { actualizarSaludListings, vigilarListings } from "@/lib/datos/saludListings";
 import { actualizarEnvios } from "@/lib/datos/envios";
@@ -325,6 +326,14 @@ export async function sincronizar(modo: "completa" | "auto" = "completa"): Promi
         await actualizarStock(marketplaces);
       } catch (e) {
         errores.push(`FBA Inventory API (stock): ${mensaje(e)}`);
+      }
+
+      // 6b. Every listing of the account, once a day: also new or out-of-stock ones without sales or FBA stock
+      // (never blocks the sales data)
+      try {
+        escrituras += await actualizarListings([...new Set(marketplaces.map((m) => m.id))]);
+      } catch (e) {
+        errores.push(`Listings Items API (listings): ${mensaje(e)}`);
       }
 
       // 7. Listing cards and prices (never blocks the sales data)

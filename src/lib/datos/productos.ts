@@ -3,6 +3,7 @@ import "server-only";
 import { datosVentas, fichasEnAlmacen, productosEnAlmacen, transaccionesEnAlmacen } from "./almacen";
 import { cargarMarketplaces, cargarUltimaSync } from "./panel";
 import { obtenerStock, type CantidadesStock, type Region } from "./stock";
+import { listingsPropios } from "./listings";
 import { diaMadrid, sumarDias } from "./fechas";
 import type { Ficha, FichaMercado, PrecioMercado } from "./fichas";
 import type { Marketplace } from "./tipos";
@@ -97,6 +98,17 @@ export async function listarProductos(): Promise<{ productos: ResumenProducto[];
       ventasMercado.set(`${l.asin}|${l.marketplaceId}`, m);
     }
   }
+  // Every listing of the account, also new or out-of-stock ones with no sales or FBA stock.
+  const listings = await listingsPropios();
+  /** Where each ASIN is listed: «ASIN|marketplace». */
+  const listadoEn = new Set<string>();
+  const imagenListing = new Map<string, string>();
+  for (const l of listings) {
+    anotarSku(l.asin, l.sku);
+    listadoEn.add(`${l.asin}|${l.marketplaceId}`);
+    if (!titulos.has(l.asin) && tituloReal(l.titulo)) titulos.set(l.asin, l.titulo!);
+    if (l.imagen && !imagenListing.has(l.asin)) imagenListing.set(l.asin, l.imagen);
+  }
   const stockPorAsin = new Map<string, number>();
   /** Sellable stock by «ASIN|region». */
   const stockRegion = new Map<string, number>();
@@ -121,7 +133,7 @@ export async function listarProductos(): Promise<{ productos: ResumenProducto[];
       asin,
       skus: [...(skus.get(asin) ?? [])].sort(),
       titulo: tituloReal(primerMercado?.titulo) ?? titulos.get(asin) ?? asin,
-      imagen: primerMercado?.imagenes[0] ?? productosEnAlmacen().get(asin)?.imagen ?? null,
+      imagen: primerMercado?.imagenes[0] ?? productosEnAlmacen().get(asin)?.imagen ?? imagenListing.get(asin) ?? null,
       precio: idPrecio ? { ...f!.precios[idPrecio], marketplaceId: idPrecio } : null,
       ranking: primerMercado?.ranking.at(-1) ?? null,
       mercadosConOferta,
@@ -135,7 +147,7 @@ export async function listarProductos(): Promise<{ productos: ResumenProducto[];
           const precio = f?.precios[mk.id] ?? null;
           const v = ventasMercado.get(`${asin}|${mk.id}`) ?? { u: 0, v: 0 };
           // Only where the product is: a listing there, an offer, or sales.
-          if (!fm && !precio && !v.u) return [];
+          if (!fm && !precio && !v.u && !listadoEn.has(`${asin}|${mk.id}`)) return [];
           const region = regionDe.get(mk.id);
           return [
             [

@@ -35,6 +35,11 @@ async function leer(): Promise<Doc> {
   return g.__saludListings;
 }
 
+/** The seller's own id, once found by the listing-health stage (null until then). */
+export async function sellerIdGuardado(): Promise<string | null> {
+  return (await leer()).sellerId;
+}
+
 /** Sync stage: SKUs sold lately or with sellable stock × marketplaces with sales. Returns writes done. */
 export async function actualizarSaludListings(marketplaceIds: string[]): Promise<number> {
   const actual = await leer();

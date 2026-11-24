@@ -3,6 +3,7 @@ import "server-only";
 import { fichasCatalogo, preciosCompetitivos, preciosPropios, type ItemCatalogoCompleto } from "@/lib/amazon/apis";
 import { Escritor, fichasEnAlmacen, pedidosEnAlmacen, productosEnAlmacen } from "./almacen";
 import { obtenerStock } from "./stock";
+import { listingsPropios } from "./listings";
 import type { Marketplace } from "./tipos";
 
 /*
@@ -126,6 +127,8 @@ async function asinsConocidos(): Promise<string[]> {
   for (const a of (await obtenerStock())?.articulos ?? []) if (a.asin) asins.add(a.asin);
   for (const a of productosEnAlmacen().keys()) asins.add(a);
   for (const a of fichasEnAlmacen().keys()) asins.add(a);
+  // Listings without sales or FBA stock yet (new, out of stock).
+  for (const l of await listingsPropios()) asins.add(l.asin);
   return [...asins].sort();
 }
 

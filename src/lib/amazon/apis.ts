@@ -812,6 +812,51 @@ export async function estadoListing(sellerId: string, sku: string, marketplaceId
   }
 }
 
+export type ListingAmazon = {
+  sku: string;
+  asin: string;
+  marketplaceId: string;
+  /** BUYABLE, DISCOVERABLE… (empty: neither, e.g. inactive or out of stock). */
+  estado: string[];
+  titulo: string | null;
+  imagen: string | null;
+  creado: string | null;
+};
+
+/**
+ * Every listing of the seller in one marketplace (Listings Items searchListingsItems), whatever its stock or sales:
+ * also new ones never shipped to FBA and out-of-stock ones, which no other API reports.
+ */
+export async function todosLosListings(sellerId: string, marketplaceId: string): Promise<ListingAmazon[]> {
+  const res: ListingAmazon[] = [];
+  let pageToken: string | undefined;
+  for (let pagina = 0; pagina < 100; pagina++) {
+    const r = await spGet<{
+      items?: {
+        sku: string;
+        summaries?: { marketplaceId: string; asin?: string; status?: string[]; itemName?: string; createdDate?: string; mainImage?: { link?: string } }[];
+      }[];
+      pagination?: { nextToken?: string };
+    }>(`/listings/2021-08-01/items/${encodeURIComponent(sellerId)}`, { marketplaceIds: marketplaceId, includedData: ["summaries"], pageSize: 20, pageToken });
+    for (const it of r.items ?? []) {
+      const s = it.summaries?.find((x) => x.marketplaceId === marketplaceId) ?? it.summaries?.[0];
+      if (!s?.asin) continue;
+      res.push({
+        sku: it.sku,
+        asin: s.asin,
+        marketplaceId,
+        estado: [...(s.status ?? [])].sort(),
+        titulo: s.itemName?.trim() || null,
+        imagen: s.mainImage?.link ?? null,
+        creado: s.createdDate ?? null,
+      });
+    }
+    pageToken = r.pagination?.nextToken || undefined;
+    if (!pageToken) break;
+  }
+  return res;
+}
+
 /** The seller's own id, read from their offer on a SKU (the Sellers API doesn't return it for this account). */
 export async function sellerIdPropio(sku: string, marketplaceId: string): Promise<string | null> {
   const r = await spGet<{ payload?: { Offers?: { MyOffer?: boolean; SellerId?: string }[] } }>(`/products/pricing/v0/listings/${encodeURIComponent(sku)}/offers`, {
